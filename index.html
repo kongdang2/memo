@@ -36749,7 +36749,7 @@ function sheetEval(tbl,f,self){
   const expr=()=>{let v=term();while(peek()==='+'||peek()==='-'){const op=src[i++];const r=term();v=op==='+'?v+r:v-r;}return v;};
   try{const v=expr();if(i<src.length)throw 0;return isFinite(v)?v:'#오류';}catch(_){return '#오류';}}
 function sheetCalc(tbl,skip){tbl.querySelectorAll('td[data-f],th[data-f]').forEach(td=>{if(td===skip)return;
-  const v=sheetEval(tbl,td.getAttribute('data-f'),td);const t=typeof v==='number'?(Math.abs(v)>=1e15?String(v):(+v.toFixed(6)).toLocaleString('en-US',{maximumFractionDigits:6})):v;
+  const v=sheetEval(tbl,td.getAttribute('data-f'),td);const t=typeof v==='number'?(Math.abs(v)>=1e15?String(v):v.toLocaleString('en-US',{maximumFractionDigits:Math.abs(v)>=1||v===0?2:4})):v;  /* 소수 둘째 자리까지(1 미만은 넷째) */
   if(td.textContent!==t)td.textContent=t;});}
 /* 맨 아래 합계 행 — 숫자가 있는 열마다 =SUM */
 function sheetSumRow(tbl){const g=cellsOf(tbl);if(!g.length)return;const n=g.length;const tr=document.createElement('tr');const L=c=>{let s='';c++;while(c>0){const m=(c-1)%26;s=String.fromCharCode(65+m)+s;c=Math.floor((c-1)/26);}return s;};
@@ -39153,7 +39153,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.9';
+const APP_VERSION='v2.9.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
