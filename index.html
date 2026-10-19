@@ -37688,41 +37688,139 @@ function downloadDocx(md,name){
 /* ── 출력: 보드는 메모장처럼 자유롭게 두고, 출력할 때만 양식에 맞춰 정리한다 ──
    양식을 고르면 Claude 가 보드의 흩어진 내용을 다듬어 양식의 절에 채운다. 결과는 미리보기에서 바로 고치고
    인쇄(PDF)·워드로 내보낸다. 「원본 그대로」는 상자를 읽는 순서로 세우고 뺄 상자만 고른다 */
+/* 내용 틀 — 모양은 모두 A안(전략회의 보고형): 남색 제목 띠 · 핵심 요약 상자 · Ⅰ~Ⅴ 장 · □/○/- 개조식 · 남색 머리 표 */
 const PRINT_TPLS=[
-  {id:'meeting',label:'회의록',md:'# 회의록 · {제목}\n\n| 항목 | 내용 |\n|---|---|\n| 일시 | {일시} |\n| 장소 | (메모에 있으면) |\n| 참석자 | (메모에 있으면) |\n\n## 1. 회의 목적\n## 2. 주요 논의 내용\n(주제별 ### 소제목 아래 개조식)\n## 3. 결정 사항\n## 4. 향후 조치\n| 할 일 | 담당 | 기한 |\n|---|---|---|\n## 5. 참고 자료\n(링크·자료 위치)'},
-  {id:'report',label:'업무 보고',md:'# {제목}\n\n> 작성일 {날짜}\n\n## 1. 요약\n(3~5줄 개조식)\n## 2. 배경 및 목적\n## 3. 현황 및 주요 내용\n(주제별 ### 소제목, 표·수치는 표로)\n## 4. 이슈 및 검토 의견\n## 5. 향후 계획\n## 6. 참고 자료'},
-  {id:'seminar',label:'세미나·출장 정리',md:'# {제목}\n\n| 항목 | 내용 |\n|---|---|\n| 일시 | {일시} |\n| 장소·주최 | (메모에 있으면) |\n| 발표자 | (메모에 있으면) |\n\n## 1. 핵심 요약\n(3~5줄 개조식)\n## 2. 주요 내용\n(발표 순서·주제별 ### 소제목)\n## 3. 주요 수치·전망\n(표로)\n## 4. 시사점\n(메모에 근거가 있을 때만)\n## 5. 참고 자료'},
-  {id:'free',label:'일반 정리',md:'# {제목}\n\n## 요약\n(3~5줄 개조식)\n## 본문\n(주제별 ### 소제목)\n## 참고 자료'}];
-const PRINT_SYS='너는 석유화학 회사의 업무 문서 작성자다. 사용자가 메모장처럼 흩어 적은 메모(글·표·녹취·회의록)를 정해진 양식의 깔끔한 업무 문서로 정리한다.\n'
-  +'- 양식의 제목·절 순서·절 이름을 그대로 지킨다. 절을 더하거나 빼지 않는다\n'
-  +'- 메모에 실제로 있는 내용만 쓴다. 없는 사실·숫자·참석자를 지어내지 않는다. 해당 내용이 없는 절은 「- 해당 없음」\n'
-  +'- 숫자·단위·기한은 정확히 옮긴다. 메모의 표는 필요한 행·열을 살려 마크다운 표로 옮긴다\n'
-  +'- 같은 말이 여러 상자에 흩어져 있으면 한 곳에 합친다. 문장은 「~함」「~임」 개조식으로 짧게\n'
-  +'- 링크(URL)는 「참고 자료」에 그대로 둔다\n- 마크다운만 출력한다(앞뒤 설명·코드블록 금지)';
+  {id:'meeting',label:'회의록',md:'# {제목}\n## 핵심 요약\n- (3~5줄)\n## Ⅰ. 회의 개요\n- **일시** : {일시}\n- **장소** : (메모에 있으면)\n- **참석** : (메모에 있으면)\n- **목적** : \n## Ⅱ. 주요 논의 내용\n### (주제)\n- (논의 내용)\n  - (세부·근거·수치)\n## Ⅲ. 결정 사항\n## Ⅳ. 향후 조치\n| 할 일 | 담당 | 기한 |\n|---|---|---|\n## Ⅴ. 참고 자료'},
+  {id:'report',label:'업무 보고',md:'# {제목}\n## 핵심 요약\n- (3~5줄)\n## Ⅰ. 개요\n- **배경** : \n- **목적** : \n## Ⅱ. 주요 내용\n### (주제)\n- (내용)\n  - (세부·근거·수치)\n## Ⅲ. 주요 수치\n(메모의 표·수치를 표로)\n## Ⅳ. 이슈 및 검토 의견\n## Ⅴ. 향후 계획\n## Ⅵ. 참고 자료'},
+  {id:'seminar',label:'세미나·출장 정리',md:'# {제목}\n## 핵심 요약\n- (3~5줄)\n## Ⅰ. 개요\n- **일시** : {일시}\n- **장소** : \n- **주최·발표** : \n- **내용** : (한 줄)\n## Ⅱ. 주요 내용\n### (주제 — 발표 순서대로)\n- (내용)\n  - (세부·근거·수치)\n## Ⅲ. 주요 수치·전망\n(표로)\n## Ⅳ. 시사점\n(메모에 근거가 있을 때만)\n## Ⅴ. 참고 자료'},
+  {id:'free',label:'일반 정리',md:'# {제목}\n## 핵심 요약\n- (3~5줄)\n## Ⅰ. 주요 내용\n### (주제)\n- (내용)\n  - (세부·근거·수치)\n## Ⅱ. 참고 자료'}];
+const PRINT_SYS='너는 석유화학 회사의 전략기획 담당자다. 사용자가 메모장처럼 흩어 적은 메모(글·표·녹취·회의록)를 정해진 양식의 업무 보고 문서로 정리한다.\n'
+  +'- 양식의 제목·장 번호·장 이름·순서를 그대로 지킨다. 장을 더하거나 빼지 않는다. 해당 내용이 없는 장은 「- 해당 없음」\n'
+  +'- 「주요 내용」은 주제별로 ### 소제목을 달아 묶는다. 같은 주제가 여러 상자에 흩어져 있으면 한 주제로 합친다\n'
+  +'- 「주요 내용」은 요약하지 않는다. 메모에 있는 사실·수치·이름·근거·예시·질의응답을 빠짐없이 옮긴다. 줄이는 것은 「핵심 요약」에서만 한다\n'
+  +'- 목록은 「- 」(1단: 요점)와 두 칸 들여쓴 「  - 」(2단: 세부·근거·수치) 두 단계만 쓴다\n'
+  +'- 메모에 실제로 있는 내용만 쓴다. 없는 사실·숫자·참석자를 지어내지 않는다. 받아쓰기 오류가 분명한 용어는 바로잡고, 애매하면 (?)\n'
+  +'- 숫자·단위·기한은 정확히 옮긴다. 메모의 표는 행·열을 살려 마크다운 표로 옮기고 단위를 표 아래 「(단위: …)」로 적는다\n'
+  +'- 문장은 「~함」「~임」 개조식. 링크(URL)는 「참고 자료」에 그대로\n- 마크다운만 출력한다(앞뒤 설명·코드블록 금지)';
 async function fillTemplate(ev,tpl,onStep){
   onStep&&onStep('메모 읽는 중…');
   const items=boardOf(ev).items||[];let memo=boardToMd(items).trim();
   const recs=ev.tbrec||[];const rs=[];
-  if(!items.some(i=>i.grp==='minutes'))for(const r0 of recs){try{const r=await Store.getTbrec(r0.id);const t=r&&r.md?tbrecText(r.md).trim():'';if(t)rs.push(t.slice(0,8000));}catch(_){}}
+  if(!items.some(i=>i.grp==='minutes'))for(const r0 of recs){try{const r=await Store.getTbrec(r0.id);const t=r&&r.md?tbrecText(r.md).trim():'';if(t)rs.push(t.slice(0,12000));}catch(_){}}
   const links=(ev.links||'').trim();
   if(!memo&&!rs.length&&!links)throw new Error('정리할 메모가 없습니다');
   const when=ev.date+(ev.start?' '+ev.start+(ev.end?'~'+ev.end:''):'');
   onStep&&onStep('양식에 맞춰 정리하는 중…');
-  const out=await askClaude('아래 양식대로 문서를 써라. 괄호 안 설명은 지시문이므로 지우고 내용으로 채운다.\n\n--- 양식 ---\n'
+  const out=await askClaude('아래 양식대로 문서를 써라. 괄호 안 설명은 지시문이므로 지우고 내용으로 채운다. 「주요 내용」의 ### 주제는 필요한 만큼 늘린다.\n\n--- 양식 ---\n'
     +tpl.md.replace(/\{제목\}/g,ev.title||'').replace(/\{일시\}/g,when).replace(/\{날짜\}/g,ev.date||'')
     +'\n\n--- 일정 정보 ---\n제목: '+(ev.title||'')+'\n일시: '+when+(ev.category?'\n분류: '+ev.category:'')
     +(links?'\n관련 링크:\n'+links:'')
-    +(memo?'\n\n--- 보드 메모 (위에서 아래 순서) ---\n'+memo.slice(0,30000):'')
-    +(rs.length?'\n\n--- 붙은 녹취 ---\n'+rs.join('\n\n').slice(0,20000):''),
-    {system:PRINT_SYS,max_tokens:6000,tag:'일정 출력 정리'});
+    +(memo?'\n\n--- 보드 메모 (위에서 아래 순서) ---\n'+memo.slice(0,40000):'')
+    +(rs.length?'\n\n--- 붙은 녹취 ---\n'+rs.join('\n\n').slice(0,30000):''),
+    {system:PRINT_SYS,max_tokens:8000,tag:'일정 출력 정리'});
   return String(out||'').replace(/^```(?:markdown|md)?\s*/,'').replace(/```\s*$/,'').trim();
 }
-const PRINT_CSS='@page{size:A4;margin:18mm 16mm}body{font-family:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif;font-size:10.5pt;line-height:1.6;color:#111;margin:0}'
-  +'h1{font-size:18pt;text-align:center;margin:0 0 14pt;padding-bottom:6pt;border-bottom:2px solid #222}h2{font-size:13pt;margin:16pt 0 6pt;padding-bottom:3pt;border-bottom:1px solid #999}'
-  +'h3{font-size:11pt;margin:10pt 0 4pt}p{margin:4pt 0}ul,ol{margin:4pt 0;padding-left:18pt}li{margin:2pt 0}'
-  +'table{border-collapse:collapse;width:100%;margin:6pt 0;font-size:9.5pt;page-break-inside:auto}th,td{border:1px solid #888;padding:3pt 6pt;vertical-align:top;text-align:left}th{background:#eef1f4}'
-  +'tr{page-break-inside:avoid}img{max-width:100%;height:auto;margin:6pt 0}blockquote{margin:4pt 0;padding-left:8pt;border-left:3px solid #ccc;color:#555}a{color:#1d4ed8;word-break:break-all}'
-  +'.pv-box{margin:0 0 10pt}hr{border:none;border-top:1px solid #bbb}';
+/* 마크다운 → A안 모양의 HTML. 제목은 남색 띠, 「핵심 요약」 장은 상자로 감싼다 */
+function aDocHtml(md,ev,tpl){
+  /* 목록은 들여쓰기 단계를 살린다(1단 □·○, 2단 ○·-) — 공용 mdToHtml 은 목록을 한 단으로 펴므로 여기서 따로 만든다 */
+  const lists=[];const L=String(md||'').replace(/\r/g,'').split('\n');const keep=[];
+  for(let i=0;i<L.length;i++){if(!/^\s*[-*]\s+/.test(L[i])){keep.push(L[i]);continue;}
+    const items=[];while(i<L.length&&/^\s*[-*]\s+/.test(L[i])){const m=/^(\s*)[-*]\s+(.*)/.exec(L[i]);items.push({lv:Math.min(2,Math.floor(m[1].replace(/\t/g,'  ').length/2)),t:m[2]});i++;}i--;
+    let h='',lv=-1;items.forEach(it=>{const v=Math.min(it.lv,lv+1);
+      if(v>lv)h+='<ul>'.repeat(v-lv);else{h+='</li>';if(v<lv)h+='</ul></li>'.repeat(lv-v);}
+      h+='<li>'+mdInline(it.t);lv=v;});
+    h+='</li>'+'</ul></li>'.repeat(Math.max(0,lv))+'</ul>';
+    keep.push('','@@L'+lists.length+'@@','');lists.push(h);}
+  const d=document.createElement('div');d.innerHTML=mdToHtml(keep.join('\n')).replace(/<p>@@L(\d+)@@<\/p>/g,(_,k)=>lists[+k]);
+  const h1=d.querySelector('h1');const title=h1?h1.textContent:(ev.title||'');if(h1)h1.remove();
+  const dt=(ev.date||'').replace(/-/g,'. ')+(ev.date?'.':'');
+  const band='<div class="a-band"><div class="a-kind">'+xmlEsc(tpl?tpl.label:'')+'</div><h1>'+xmlEsc(title)+'</h1><div class="a-meta">'+xmlEsc(dt)+(ev.category?'<br>'+xmlEsc(ev.category):'')+'</div></div>';
+  const h2s=[...d.querySelectorAll(':scope > h2')];const sh=h2s.find(h=>/요약/.test(h.textContent));
+  if(sh){const box=document.createElement('div');box.className='a-sum';sh.parentNode.insertBefore(box,sh);
+    let n=sh;while(n&&!(n!==sh&&n.tagName==='H2')){const nx=n.nextSibling;box.appendChild(n);n=nx;}
+    const t=box.querySelector('h2');if(t)t.outerHTML='<div class="a-sum-h">■ '+xmlEsc(t.textContent.replace(/^[■□\s]+/,''))+'</div>';}
+  d.querySelectorAll('table').forEach(t=>t.querySelectorAll('td').forEach(c=>{if(/^[\s\-+−△▲▼()%,.\d$₩€¥]*\d[\s\-+−△▲▼()%,.\d$₩€¥]*$/.test(c.textContent))c.className='num';}));
+  return band+d.innerHTML;}
+const A_NAVY='#1F3A5F';
+const PRINT_CSS='@page{size:A4;margin:16mm 16mm 16mm 18mm}body{font-family:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif;font-size:10pt;line-height:1.55;color:#111;margin:0}'
+  +'.a-band{display:grid;grid-template-columns:1fr auto;column-gap:12pt;background:'+A_NAVY+';color:#fff;padding:8pt 12pt 9pt;margin:0 0 10pt}'
+  +'.a-kind{grid-column:1;font-size:8.5pt;color:#c9d6e8}.a-band h1{grid-column:1;font-size:17pt;line-height:1.3;margin:2pt 0 0;color:#fff;border:none;text-align:left;padding:0}'
+  +'.a-meta{grid-column:2;grid-row:1/span 2;text-align:right;font-size:9pt;font-weight:600;align-self:start}'
+  +'.a-sum{border:1.2pt solid '+A_NAVY+';background:#eef3f9;padding:6pt 10pt;margin:0 0 6pt}.a-sum-h{font-weight:700;color:'+A_NAVY+';font-size:10.5pt;margin-bottom:2pt}'
+  +'h2{font-size:12.5pt;color:'+A_NAVY+';margin:14pt 0 5pt;padding-bottom:2pt;border-bottom:1pt solid '+A_NAVY+'}'
+  +'h3{font-size:10pt;margin:7pt 0 2pt 4pt;font-weight:700}h3::before{content:"□ "}'
+  +'p{margin:3pt 0 3pt 4pt}ul,ol{list-style:none;margin:2pt 0;padding-left:4pt}li{margin:1.5pt 0;padding-left:13pt;text-indent:-13pt}'
+  +'li::before{content:"□ "}li li::before{content:"○ "}li li li::before{content:"- "}ul ul,ol ol,ul ol,ol ul{padding-left:14pt}'
+  +'h3+ul,h3+ol{padding-left:16pt}h3+ul>li::before,h3+ol>li::before{content:"○ "}h3+ul li li::before,h3+ol li li::before{content:"- "}'
+  +'.a-sum ul{padding-left:2pt}'
+  +'table{border-collapse:collapse;width:100%;margin:5pt 0 2pt;font-size:9pt}th,td{border:0.75pt solid #8a94a6;padding:2.5pt 6pt;vertical-align:top;text-align:left}'
+  +'th{background:'+A_NAVY+';color:#fff;text-align:center;font-weight:700}td.num{text-align:right}td:first-child{font-weight:600}'
+  +'tr{page-break-inside:avoid}img{max-width:100%;height:auto;margin:6pt 0}blockquote{margin:3pt 0;padding-left:8pt;border-left:3px solid #ccc;color:#555;font-size:9pt}'
+  +'a{color:#1d4ed8;word-break:break-all}.pv-box{margin:0 0 10pt}hr{border:none;border-top:1px solid #bbb}h2,h3{page-break-after:avoid}';
+/* ── A안 워드 — 미리보기(고친 내용 포함)를 그대로 옮긴다 ── */
+function aDocx(root){
+  const B=[];const W=9638;   /* 본문 너비(dxa) — A4 210mm − 여백 16+18mm */
+  const rpr=(o={})=>'<w:rPr>'+(o.b?'<w:b/>':'')+(o.i?'<w:i/>':'')+(o.color?'<w:color w:val="'+o.color+'"/>':'')+(o.sz?'<w:sz w:val="'+o.sz+'"/><w:szCs w:val="'+o.sz+'"/>':'')+'</w:rPr>';
+  const R=(t,o)=>'<w:r>'+rpr(o)+'<w:t xml:space="preserve">'+xmlEsc(t)+'</w:t></w:r>';
+  const runs=(el,o={})=>{let s='';el.childNodes.forEach(n=>{
+    if(n.nodeType===3){const t=n.textContent.replace(/\s+/g,' ');if(t)s+=R(t,o);return;}
+    if(n.nodeType!==1)return;const tg=n.tagName;
+    if(tg==='BR'){s+='<w:r><w:br/></w:r>';return;}
+    if(tg==='UL'||tg==='OL'||tg==='TABLE')return;
+    s+=runs(n,{...o,b:o.b||tg==='B'||tg==='STRONG',i:o.i||tg==='I'||tg==='EM',color:tg==='A'?'1D4ED8':o.color});});return s;};
+  const pp=(inner,o={})=>'<w:p><w:pPr>'+(o.keep?'<w:keepNext/>':'')+(o.bdr?'<w:pBdr><w:bottom w:val="single" w:sz="8" w:space="2" w:color="1F3A5F"/></w:pBdr>':'')
+    +'<w:spacing w:before="'+(o.before||0)+'" w:after="'+(o.after==null?40:o.after)+'" w:line="276" w:lineRule="auto"/>'
+    +(o.ind!=null?'<w:ind w:left="'+o.ind+'" w:hanging="'+(o.hang||0)+'"/>':'')+(o.jc?'<w:jc w:val="'+o.jc+'"/>':'')+'</w:pPr>'+inner+'</w:p>';
+  const tcp=(w,fill,extra)=>'<w:tcPr><w:tcW w:w="'+w+'" w:type="dxa"/>'+(fill?'<w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/>':'')+(extra||'')+'</w:tcPr>';
+  const bdr=(c,sz,inside)=>'<w:tblBorders>'+['top','left','bottom','right'].concat(inside?['insideH','insideV']:[]).map(b=>'<w:'+b+' w:val="single" w:sz="'+sz+'" w:space="0" w:color="'+c+'"/>').join('')
+    +(inside?'':'<w:insideH w:val="nil"/><w:insideV w:val="nil"/>')+'</w:tblBorders>';
+  const tbl=(cols,rows,b)=>'<w:tbl><w:tblPr><w:tblW w:w="'+W+'" w:type="dxa"/><w:tblLayout w:type="fixed"/>'+b+'<w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="110" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="110" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>'
+    +cols.map(w=>'<w:gridCol w:w="'+w+'"/>').join('')+'</w:tblGrid>'+rows+'</w:tbl>';
+  const list=(ul,lv,o)=>{[...ul.children].forEach(li=>{if(li.tagName!=='LI')return;
+      const mk=lv===0?'□ ':lv===1?'○ ':'- ';const ind=(o.base||100)+lv*340;
+      B.push(pp(R(mk,{sz:o.sz})+runs(li,{sz:o.sz}),{ind:ind+260,hang:260,after:30}));
+      [...li.children].filter(c=>c.tagName==='UL'||c.tagName==='OL').forEach(c=>list(c,lv+1,o));});};
+  const table=t=>{const rows=[...t.querySelectorAll('tr')];if(!rows.length)return;const n=Math.max(...rows.map(r=>r.children.length));
+    const first=Math.round(W*(n>3?0.2:0.34));const rest=Math.floor((W-first)/Math.max(1,n-1));const cols=Array.from({length:n},(_,j)=>j?rest:first);
+    B.push(tbl(cols,rows.map((r,k)=>{const hd=k===0&&r.children[0]&&r.children[0].tagName==='TH';
+      return '<w:tr>'+(hd?'<w:trPr><w:tblHeader/></w:trPr>':'')+Array.from({length:n},(_,j)=>{const c=r.children[j];const num=c&&c.className==='num';
+        return '<w:tc>'+tcp(cols[j],hd?'1F3A5F':null)+pp(c?runs(c,{b:hd||j===0,sz:18,color:hd?'FFFFFF':null}):'',{after:0,jc:hd?'center':num?'right':null})+'</w:tc>';}).join('')+'</w:tr>';}).join(''),bdr('8A94A6',4,true)));
+    B.push(pp('',{after:60}));};
+  const walk=el=>{[...el.childNodes].forEach(n=>{
+    if(n.nodeType===3){if(n.textContent.trim())B.push(pp(R(n.textContent.trim()),{ind:100}));return;}
+    if(n.nodeType!==1)return;const tg=n.tagName,cl=n.className||'';
+    if(cl==='a-band'){const k=n.querySelector('.a-kind'),h=n.querySelector('h1'),m=n.querySelector('.a-meta');
+      const ml=m?m.innerHTML.split(/<br\s*\/?>/i).map(x=>{const q=document.createElement('div');q.innerHTML=x;return q.textContent.trim();}).filter(Boolean):[];
+      B.push(tbl([7400,W-7400],'<w:tr><w:tc>'+tcp(7400,'1F3A5F')+pp(R(k?k.textContent:'',{sz:17,color:'C9D6E8'}),{after:20})+pp(R(h?h.textContent:'',{b:true,sz:34,color:'FFFFFF'}),{after:40})+'</w:tc>'
+        +'<w:tc>'+tcp(W-7400,'1F3A5F')+(ml.map((x,i)=>pp(R(x,{b:i>0,sz:18,color:'FFFFFF'}),{after:20,jc:'right'})).join('')||pp(''))+'</w:tc></w:tr>',bdr('1F3A5F',4,false)));
+      B.push(pp('',{after:80}));return;}
+    if(cl==='a-sum'){const save=B.length;const inner=[];const push=B.push.bind(B);
+      const h=n.querySelector('.a-sum-h');inner.push(pp(R(h?h.textContent:'■ 핵심 요약',{b:true,sz:21,color:'1F3A5F'}),{after:40}));
+      const sub=[];B.push=x=>sub.push(x);[...n.children].forEach(c=>{if(c.classList.contains('a-sum-h'))return;
+        if(c.tagName==='UL'||c.tagName==='OL')list(c,0,{base:40,sz:20});else if(c.textContent.trim())sub.push(pp(runs(c),{ind:40}));});B.push=push;
+      B.push(tbl([W],'<w:tr><w:tc>'+tcp(W,'EEF3F9')+inner.join('')+sub.join('')+'</w:tc></w:tr>',bdr('1F3A5F',10,false)));B.push(pp('',{after:60}));return;}
+    if(tg==='H1'){B.push(pp(runs(n,{b:true,sz:34,color:'1F3A5F'}),{after:120}));return;}
+    if(tg==='H2'){B.push(pp(runs(n,{b:true,sz:25,color:'1F3A5F'}),{before:220,after:80,bdr:true,keep:true}));return;}
+    if(tg==='H3'||tg==='H4'){B.push(pp(R('□ ',{b:true})+runs(n,{b:true}),{before:80,after:30,ind:360,hang:260,keep:true}));
+      const nx=n.nextElementSibling;if(nx&&(nx.tagName==='UL'||nx.tagName==='OL'))nx.dataset.lv='1';return;}
+    if(tg==='UL'||tg==='OL'){list(n,n.dataset.lv?1:0,{base:100});delete n.dataset.lv;return;}
+    if(tg==='TABLE'){table(n);return;}
+    if(tg==='BLOCKQUOTE'){B.push(pp(runs(n,{sz:18,color:'666666'}),{ind:200}));return;}
+    if(tg==='HR'||tg==='IMG'||tg==='STYLE')return;
+    if(tg==='DIV'&&n.querySelector('h1,h2,h3,ul,ol,table,p,div')){walk(n);return;}
+    if(n.textContent.trim()){const unit=/^\(단위/.test(n.textContent.trim());B.push(pp(runs(n,unit?{sz:16,color:'666666'}:{}),{ind:100,jc:unit?'right':null}));}});};
+  walk(root);
+  const body='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+B.join('')
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="907" w:right="907" w:bottom="907" w:left="1021" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr></w:body></w:document>';
+  const styles=DOCX_STYLES.replace('<w:sz w:val="21"/><w:szCs w:val="21"/>','<w:sz w:val="20"/><w:szCs w:val="20"/>');
+  return zipMake([
+    {name:'[Content_Types].xml',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>'},
+    {name:'_rels/.rels',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'},
+    {name:'word/_rels/document.xml.rels',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'},
+    {name:'word/styles.xml',text:styles},
+    {name:'word/document.xml',text:body}]);}
+const saveBlob=(blob,name)=>{const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;
+  a.download=String(name||'문서').replace(/[\\/:*?"<>|]+/g,' ').trim().slice(0,80)+'.docx';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},1500);};
 /* 미리보기 종이에도 같은 모양을 — 인쇄 규칙을 .pv-paper 안으로 좁힌다 */
 const PV_CSS=PRINT_CSS.split('}').filter(r=>r.trim()&&!/^@page/.test(r)).map(r=>{const [sel,body]=r.split('{');
   return sel.split(',').map(x=>x.trim()==='body'?'.pv-paper':'.pv-paper '+x.trim()).join(',')+'{'+body+'}';}).join('')+'.pv-paper[contenteditable]:focus{outline:none}';
@@ -37746,7 +37844,7 @@ function PrintPreview({e,setE,onClose,toast}){
   const fill=async()=>{if(cur&&!window.confirm('지금 정리본을 새로 만든 것으로 바꿉니다. 직접 고친 내용도 사라집니다. 계속할까요?'))return;
     setErr('');setBusy('준비 중…');
     try{await MeetCfg.load();const md=await fillTemplate(e,T,setBusy);
-      setE(p=>({...p,printDocs:{...(p.printDocs||{}),[tpl]:{html:mdToHtml(md),at:nowStamp()}}}));setVer(v=>v+1);}
+      setE(p=>({...p,printDocs:{...(p.printDocs||{}),[tpl]:{html:aDocHtml(md,p,T),md,at:nowStamp()}}}));setVer(v=>v+1);}
     catch(x){setErr(x.message);}setBusy('');};
   /* 미리보기에서 고친 내용은 일정에 저장된다(다음에 열어도 그대로) */
   const t=React.useRef();
@@ -37756,7 +37854,8 @@ function PrintPreview({e,setE,onClose,toast}){
     :(ed.current?ed.current.innerHTML:(cur&&cur.html)||'');
   const name=(e.title||'메모')+(raw?'':' '+T.label.replace(/·/g,' '))+' '+(e.date||'');
   const doPrint=()=>{const h=outHtml();if(!h.trim()){toast&&toast('출력할 내용이 없습니다');return;}printHtml(h,name);};
-  const doWord=()=>{const md=htmlToMd(outHtml());if(!md.trim()){toast&&toast('출력할 내용이 없습니다');return;}downloadDocx(md,name);};
+  const doWord=()=>{if(!raw){if(!ed.current||!ed.current.textContent.trim()){toast&&toast('출력할 내용이 없습니다');return;}saveBlob(aDocx(ed.current),name);return;}
+    const md=htmlToMd(outHtml());if(!md.trim()){toast&&toast('출력할 내용이 없습니다');return;}downloadDocx(md,name);};
   const chip=(id,label)=><button key={id} type="button" onClick={()=>choose(id)} disabled={!!busy}
     style={{border:'1px solid '+(tpl===id?'var(--text-body)':'var(--border-strong)'),background:tpl===id?'var(--text-body)':'#fff',color:tpl===id?'#fff':'var(--text-body)',
       borderRadius:14,padding:'3px 11px',fontSize:'var(--fs-sm2)',cursor:'pointer',fontFamily:'inherit'}}>{label}{docs[id]&&id!=='raw'?' ✓':''}</button>;
@@ -37829,7 +37928,7 @@ async function fileToMinutes(file,lang,ev){
     set('');return true;}
   catch(x){set('⚠ '+x.message);setTimeout(()=>{if(/^⚠/.test(MEET.saving))set('');},12000);return false;}
 }
-Object.assign(window,{fileToMinutes,retranscribeRec,recFromFile,transcribeFile,MeetRecorder,MeetPill,MinutesBox,PrintPreview,fillTemplate,PRINT_TPLS,MEET,LiveSession,askClaude,makeMinutes,mdToDocx,downloadDocx,tbrecText});
+Object.assign(window,{fileToMinutes,retranscribeRec,recFromFile,transcribeFile,MeetRecorder,MeetPill,MinutesBox,PrintPreview,fillTemplate,PRINT_TPLS,aDocHtml,aDocx,MEET,LiveSession,askClaude,makeMinutes,mdToDocx,downloadDocx,tbrecText});
 </script>
 
 <script type="text/babel">/* 일정 관리: 월간(주간 서브) · 목록 — 카테고리(색) · 기간 일정 · 공휴일 · 드래그 이동 */
