@@ -36034,9 +36034,9 @@ function renderInline(text,onWiki,key){
     else if(m[4])out.push(<s key={k++}>{t.slice(2,-2)}</s>);
     else if(m[5]){const [tgt,alias]=t.slice(2,-2).split('|');out.push(<a key={k++} href="#" onClick={e=>{e.preventDefault();onWiki&&onWiki(tgt.trim());}} style={{color:'var(--color-accent)',borderBottom:'1px dashed var(--wb-blue-300)'}}>{(alias||tgt).trim()}</a>);}
     else if(m[6]){const mm=/^(!?)\[([^\]]*)\]\(([^)]+)\)$/.exec(t);const bang=mm[1],label=mm[2],href=mm[3].trim();
-      if(bang)out.push(<PmsImg key={k++} src={href} alt={label}/>);                       /* 이미지 */
-      else if(/^pms:/.test(href)&&AUDIO_EXT.test(href))out.push(<PmsAudio key={k++} src={href} label={label}/>); /* 음성 */
-      else if(/^pms:/.test(href))out.push(<PmsLink key={k++} src={href}>{label}</PmsLink>); /* 첨부 파일 */
+      /* pms: 는 통번역 앱의 첨부(녹음 등) — 이 앱에서는 열 수 없으니 이름만 보여 준다 */
+      if(/^pms:/.test(href))out.push(<span key={k++} title="통번역 앱에서 열 수 있습니다" style={{color:'var(--text-muted)'}}>{label} (통번역 앱)</span>);
+      else if(bang)out.push(<img key={k++} src={href} alt={label} style={{maxWidth:'100%'}}/>);
       else out.push(<a key={k++} href={href} target="_blank" rel="noreferrer">{label}</a>);}
     i=m.index+t.length;}
   if(i<text.length)out.push(text.slice(i));return out;
@@ -36444,6 +36444,13 @@ function CalendarView({db,setDb,st,set,toast}){
   /* 휴지통에 떨궈 지우기 — 되돌리기(↶ · Ctrl+Z)로 되살릴 수 있다 */
   const delQuiet=id=>{Store.why='일정 삭제(휴지통에 떨굼)';const e=db.events.find(x=>x.id===id);if(!e)return;
     setDb('events',arr=>arr.filter(x=>x.id!==id));toast('🗑 『'+(e.title||'제목 없음')+'』 삭제 · ↶ 로 되돌릴 수 있습니다');};
+  /* 통번역 기록 자동 연결 — 앱을 열 때와 다시 볼 때 */
+  React.useEffect(()=>{let busy=false,lastRun=0;
+    const run=async()=>{if(busy||Date.now()-lastRun<60000)return;busy=true;lastRun=Date.now();
+      try{const recs=await Store.listTbrec();if(recs&&recs.length)setDb('events',arr=>{const r=autoLinkTbrec(arr,recs);if(r.n)toast('🎙 통번역 기록 '+r.n+'건을 일정에 연결했습니다');return r.n?r.events:arr;});}
+      catch(x){console.warn('tbrec auto-link',x);}busy=false;};
+    run();const vis=()=>{if(document.visibilityState==='visible')run();};
+    document.addEventListener('visibilitychange',vis);return()=>document.removeEventListener('visibilitychange',vis);},[]);
   /* 폰 달력 배율 — 고른 값을 기억한다 */
   const [zoom,setZoom]=React.useState(()=>{const v=parseFloat(localStorage.getItem('cal.calzoom'));return isFinite(v)?v:2;});
   React.useEffect(()=>{try{localStorage.setItem('cal.calzoom',String(zoom));}catch(_){}},[zoom]);
@@ -36481,6 +36488,29 @@ function CalendarView({db,setDb,st,set,toast}){
     </Card>
     <EventPanel ev={st.edit} categories={categories} onClose={()=>set({edit:null})} onSave={save} onDelete={del}/>
   </>;
+}
+
+/* 통번역 기록을 같은 날짜 일정에 붙인다.
+   · 이미 어느 일정에 붙어 있거나(tbrec) 일부러 끊은(tbrecOff) 기록은 건너뛴다
+   · 최근 30일 기록만 — 처음 켤 때 옛 기록이 한꺼번에 일정으로 쏟아지지 않게
+   · 시간이 있는 일정 중 녹음 시각이 [시작, 끝+1시간] 안이거나 시작과 3시간 이내로 가장 가까운 것.
+     반복 일정도 그날 열리는 회차로 본다. 없으면 그날 종일 일정이 하나뿐일 때 그 일정, 그것도 아니면 새 일정을 만든다 */
+function autoLinkTbrec(events,recs){
+  const seen=new Set();events.forEach(e=>{(e.tbrec||[]).forEach(x=>seen.add(x.id));(e.tbrecOff||[]).forEach(id=>seen.add(id));});
+  const cut=Date.now()-30*864e5;let out=events,n=0;
+  const mins=hm=>{const [h,m]=String(hm||'').split(':').map(Number);return h*60+(m||0);};
+  recs.forEach(r=>{if(seen.has(r.id))return;const d=new Date(r.created);if(isNaN(d)||d.getTime()<cut)return;
+    const day=isoDate(d),t=d.getHours()*60+d.getMinutes();
+    const same=expandEvents(out,day,day);
+    let best=null,bs=1e9;
+    same.filter(e=>e.start).forEach(e=>{const st=mins(e.start),en=e.end?mins(e.end):st+60;
+      const sc=(t>=st&&t<=en+60)?0:Math.abs(t-st);if(sc<bs&&sc<=180){bs=sc;best=e;}});
+    const allDay=same.filter(e=>!e.start);if(!best&&allDay.length===1)best=allDay[0];
+    const link={id:r.id,title:r.title,created:r.created};
+    if(best)out=out.map(e=>e.id===best.id?{...e,tbrec:[...(e.tbrec||[]),link]}:e);
+    else out=[...out,{id:uid(),title:r.title,date:day,dateEnd:'',start:pad2(d.getHours())+':'+pad2(d.getMinutes()),end:'',cal:'work',status:'todo',category:'통번역',repeat:'none',notes:'',tbrec:[link]}];
+    seen.add(r.id);n++;});
+  return {events:out,n};
 }
 
 /* ISO 시각 → 이 기기 시간대의 "YYYY-MM-DD HH:MM" */
@@ -36571,6 +36601,7 @@ function EvChip({e,onClick,compact,draggable,onDragStart,onDragEnd,carrying,fs,t
           <span style={{overflow:'hidden',textOverflow:'ellipsis',opacity:pos==='mid'||pos==='last'?.6:1}}>
             {(pos==='mid'||pos==='last')?'↳ '+(e.title||''):(e.title||'(제목 없음)')}</span>
         </>}
+    {head&&(e.tbrec||[]).length>0&&<span title="통번역 기록 연결됨" style={{flex:'none',fontSize:10}}>🎙</span>}
     {head&&(e.notes||'').trim()&&<span title="메모 있음" style={{flex:'none',width:5,height:5,borderRadius:'50%',background:'var(--text-muted)'}}/>}
     {e.status==='doing'&&<span style={{color:CAL_COLOR[e.cal],fontSize:9}}>◐</span>}
     {e.repeat!=='none'&&<span style={{color:'var(--text-label)'}}>↻</span>}</div>;
@@ -36878,10 +36909,11 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
   const attachTb=async rec=>{const full=await Store.getTbrec(rec.id);const md=(full&&full.md)||'';
     const sum=mdSection(md,'정리·번역')||mdSection(md,'정리');
     const when=localStamp(rec.created);
-    const add='### 🎙 '+rec.title+(when?' · '+when:'')+'\n'+(sum||'(정리·번역 없음 — 원문 보기에서 확인)');
-    setE(p=>({...p,notes:(p.notes||'').replace(/\s+$/,'')+((p.notes||'').trim()?'\n\n':'')+add,
+    const add=sum?'### 🎙 '+rec.title+(when?' · '+when:'')+'\n'+sum:'';
+    setE(p=>({...p,notes:add?(p.notes||'').replace(/\s+$/,'')+((p.notes||'').trim()?'\n\n':'')+add:p.notes,tbrecOff:(p.tbrecOff||[]).filter(x=>x!==rec.id),
       tbrec:[...(p.tbrec||[]).filter(x=>x.id!==rec.id),{id:rec.id,title:rec.title,created:rec.created||''}]}));};
-  const detachTb=id=>setE(p=>({...p,tbrec:(p.tbrec||[]).filter(x=>x.id!==id)}));
+  /* 끊은 기록은 tbrecOff 에 남겨 자동 연결이 다시 붙이지 않게 한다 */
+  const detachTb=id=>setE(p=>({...p,tbrec:(p.tbrec||[]).filter(x=>x.id!==id),tbrecOff:[...new Set([...(p.tbrecOff||[]),id])]}));
   const bare={border:'none',background:'transparent',fontSize:'var(--fs-base)',fontFamily:'var(--font-sans)',color:'var(--text-body)',padding:'4px 6px',borderRadius:4,outline:'none'};
   return <div style={{position:'fixed',inset:0,zIndex:'var(--z-modal)'}} onClick={close}>
     <div onClick={x=>x.stopPropagation()} style={{position:'absolute',top:0,right:0,bottom:0,width:480,maxWidth:'95vw',background:'#fff',boxShadow:'var(--shadow-popover)',borderLeft:'1px solid var(--border-default)',display:'flex',flexDirection:'column',fontFamily:'var(--font-sans)'}}>
@@ -36952,7 +36984,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v1.3';
+const APP_VERSION='v1.4';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
