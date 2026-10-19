@@ -37140,6 +37140,12 @@ function meetUsage(model,u,tag){if(!u||Store.mode!=='supabase')return;
 const LIVE_RATE=16000,LIVE_CHUNK=1600,LIVE_ROTATE_MS=120*1000,LIVE_REC_SPLIT=15*60*1000;
 const MEET_LANGS=[{id:'ko',label:'한국어 회의 (받아쓰기)'},{id:'zh',label:'중국어 → 한국어 통역'},{id:'en',label:'영어 → 한국어 통역'},{id:'ja',label:'일본어 → 한국어 통역'}];
 const langName={ko:'한국어',zh:'중국어',en:'영어',ja:'일본어'};
+/* 녹음 파일 전사 때 고르는 언어 — 통번역 앱(v10.16)의 「음성 파일 전사」와 같은 목록 */
+const FILE_LANGS=[{id:'zh',label:'중국어'},{id:'ko',label:'한국어'},{id:'en',label:'영어'},{id:'ja',label:'일본어'},{id:'auto',label:'자동 감지'}];
+/* 자동 감지로 받아쓴 글의 언어를 글자 비율로 가린다 */
+function guessLang(t){const s=String(t||'');const n=re=>(s.match(re)||[]).length;
+  const ko=n(/[가-힣]/g),kana=n(/[\u3040-\u30ff]/g),han=n(/[\u4e00-\u9fff]/g),lat=n(/[A-Za-z]/g);
+  if(ko>=20&&ko>=(ko+kana+han+lat)*0.6)return 'ko';if(kana>=10)return 'ja';if(han>=lat)return han?'zh':'ko';return 'en';}
 function pcm16b64(f32){const b=new Uint8Array(f32.length*2);const v=new DataView(b.buffer);
   for(let i=0;i<f32.length;i++){const s=Math.max(-1,Math.min(1,f32[i]));v.setInt16(i*2,s<0?s*0x8000:s*0x7fff,true);}
   let bin='';for(let i=0;i<b.length;i+=0x8000)bin+=String.fromCharCode.apply(null,b.subarray(i,i+0x8000));return btoa(bin);}
@@ -37355,6 +37361,7 @@ async function sttCall(fn,body){const {data,error}=await Store.sb.functions.invo
   if(data&&data.error)throw new Error(typeof data.error==='string'?data.error:JSON.stringify(data.error));return data||{};}
 async function sttPart(blob,lang,hint,name){
   const model=MeetCfg.v.tbSttModel||'qwen3-asr-flash';const audio=await blobB64(blob);
+  if(lang==='auto')lang='';   /* 자동 감지면 언어를 지정하지 않는다 */
   const openai=async m=>{const ext=/wav/.test(blob.type||'')?'wav':(String(name||'').split('.').pop()||'webm');
     return (await sttCall('transcribe',{audio,mime:blob.type||'audio/wav',name:'audio.'+ext,language:lang,model:m,prompt:hint||'',keywords:MeetCfg.v.sttHint||'',response_format:'text'})).text||'';};
   if(!/^qwen|^paraformer|^fun-asr/.test(model))return openai(model);
@@ -37438,7 +37445,7 @@ async function retranscribeRec(id,onStep){
   for(let i=0;i<paths.length;i++){onStep&&onStep('녹음 내려받는 중 '+(i+1)+'/'+paths.length);
     const b=await Files.blob(paths[i]);texts.push(await transcribeFile(b,lang,s=>onStep&&onStep((paths.length>1?'['+(i+1)+'/'+paths.length+'] ':'')+s)));}
   const raw=texts.filter(Boolean).join('\n\n');if(!raw.trim())throw new Error('녹음에서 말소리를 찾지 못했습니다');
-  const pol=await polishText(raw,lang,onStep);
+  const pol=await polishText(raw,langName[lang]?lang:guessLang(raw),onStep);
   let md=putSection(rec.md,'녹취 (받아쓰기)',raw);md=putSection(md,'정리·번역',pol);
   await saveTbrec({...rec,md,updated:nowStamp()});return {...rec,md};}
 /* 새 녹음 파일 올리기 → 저장소 → 전사 → 정리 → 기록 만들기 */
@@ -37446,6 +37453,7 @@ async function recFromFile(file,lang,title,onStep){
   if(Store.mode!=='supabase')throw new Error('전사는 클라우드(Supabase)에 로그인해야 쓸 수 있습니다');
   onStep&&onStep('녹음 올리는 중…');const up=await Files.put(file);
   const raw=await transcribeFile(file,lang,onStep);if(!raw.trim())throw new Error('녹음에서 말소리를 찾지 못했습니다');
+  if(lang==='auto'||!langName[lang])lang=guessLang(raw);
   const pol=await polishText(raw,lang,onStep);
   const name=file.name||'녹음';const rt=title+' · '+name.replace(/\.[^.]+$/,'');
   const md='# '+rt+'\n\n> 📁 녹음 파일 전사 · '+(lang==='ko'?'한국어':langName[lang]+' → 한국어')+' · 일정 앱에서 올림\n\n[🎙 '+name+'](pms:'+up.path+')\n\n'
@@ -37458,6 +37466,9 @@ function MeetRecorder({ev,onLinked,toast,extra}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
   const M=useMeet();const [from,setFrom]=React.useState(()=>localStorage.getItem('cal.meetFrom')||'ko');
   const [,tick]=React.useReducer(x=>x+1,0);const box=React.useRef(null);const stick=React.useRef(true);const fileIn=React.useRef(null);
+  /* 녹음 파일은 언어부터 고른 뒤 파일을 고른다 — 고른 언어는 다음에도 기본으로 */
+  const [fileLang,setFileLang]=React.useState(()=>localStorage.getItem('cal.fileLang')||'ko');const [langPick,setLangPick]=React.useState(false);
+  const pickFileLang=l=>{setFileLang(l);setLangPick(false);try{localStorage.setItem('cal.fileLang',l);}catch(_){}fileIn.current&&fileIn.current.click();};
   const mine=(M.sess||M.saving)&&M.eventId===ev.id;const other=((M.sess&&M.sess.running)||M.saving)&&M.eventId!==ev.id;
   const s=mine?M.sess:null;const running=!!(s&&s.running);
   React.useEffect(()=>{const t=running&&setInterval(tick,1000);return()=>clearInterval(t);},[running]);
@@ -37512,11 +37523,11 @@ function MeetRecorder({ev,onLinked,toast,extra}){
       {!running&&!M.saving&&<><select value={from} onChange={x=>setFrom(x.target.value)} style={{...inputStyle,width:'auto',padding:'3px 6px',fontSize:'var(--fs-sm2)'}}>
           {MEET_LANGS.map(l=><option key={l.id} value={l.id}>{l.label}</option>)}</select>
         <Button size="sm" onClick={start}>● 녹음 시작</Button>
-        <Button size="sm" variant="ghost" onClick={()=>fileIn.current&&fileIn.current.click()} title="녹음 파일(m4a·mp3·wav·webm 등)을 올려 받아쓰고, 다듬은 뒤 회의록까지 만듭니다">📁 녹음 파일로 회의록</Button>
+        <Button size="sm" variant={langPick?undefined:'ghost'} onClick={()=>setLangPick(v=>!v)} title="녹음 언어를 고른 뒤 파일(m4a·mp3·wav·webm 등)을 올리면 받아쓰고, 다듬은 뒤 회의록까지 만듭니다">📁 녹음 파일로 회의록</Button>
         <input ref={fileIn} type="file" accept="audio/*,video/mp4,.m4a,.mp3,.wav,.webm,.ogg,.aac,.flac" style={{display:'none'}}
           onChange={x=>{const f=x.target.files&&x.target.files[0];x.target.value='';if(!f)return;
             if(!(ev.title||'').trim()){toast&&toast('제목을 먼저 넣어 주세요');return;}
-            fileToMinutes(f,from,ev).then(ok=>ok&&toast&&toast('📝 녹음 파일로 기록과 회의록을 만들었습니다'));}}/>
+            fileToMinutes(f,fileLang,ev).then(ok=>ok&&toast&&toast('📝 녹음 파일로 기록과 회의록을 만들었습니다'));}}/>
         {extra}</>}
       {running&&<><Button variant="danger" size="sm" onClick={stop}>■ 정지하고 저장</Button>
         <span title="입력 소리 크기" style={{width:60,height:7,background:'var(--surface-calc-cell)',border:'1px solid var(--border-default)',borderRadius:4,overflow:'hidden'}}>
@@ -37526,6 +37537,11 @@ function MeetRecorder({ev,onLinked,toast,extra}){
       {M.saving&&<span style={{fontSize:'var(--fs-sm2)',color:/^⚠/.test(M.saving)?'var(--color-danger)':'var(--text-muted)'}}>{M.saving}</span>}
       {M.saving&&/^⚠/.test(M.saving)&&mine&&M.sess&&<Button variant="ghost" size="xs" onClick={stop}>다시 저장</Button>}
     </div>
+    {langPick&&!running&&!M.saving&&<div style={{display:'flex',flexWrap:'wrap',alignItems:'center',gap:6,marginTop:6,padding:'6px 8px',background:'var(--surface-calc-cell)',borderRadius:6}}>
+      <span style={{fontSize:'var(--fs-sm2)',color:'var(--text-muted)'}}>🎙 녹음에서 말하는 언어</span>
+      {FILE_LANGS.map(l=><Button key={l.id} size="xs" variant={l.id===fileLang?'primary':'ghost'} onClick={()=>pickFileLang(l.id)}>{l.id===fileLang?'✓ ':''}{l.label}</Button>)}
+      <Button size="xs" variant="ghost" onClick={()=>setLangPick(false)}>취소</Button>
+      <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',flexBasis:'100%'}}>고르면 바로 파일 선택 창이 열립니다 · 한국어는 번역 없이 정리하고, 외국어는 한국어로 옮겨 회의록을 만듭니다</span></div>}
     {s&&s.err&&<div style={{fontSize:'var(--fs-sm)',color:'var(--color-danger)',marginTop:4}}>⚠ {s.err}</div>}
     {(running||segs.length>0)&&<div ref={box} onScroll={x=>{const el=x.currentTarget;stick.current=el.scrollHeight-el.scrollTop-el.clientHeight<30;}}
       style={{marginTop:6,maxHeight:220,overflowY:'auto',border:'1px solid var(--border-default)',borderRadius:4,padding:'6px 10px',background:'#fff',fontSize:'var(--fs-base)'}}>
@@ -37556,6 +37572,8 @@ function MeetPill({onOpen}){
 function tbrecText(md){
   const sec=h=>mdSection(md,h);
   const polished=sec('정리·번역');
+  const ko=!polished&&sec('정리');   /* 통번역 앱 v10.16 — 한국어 녹취는 번역 없이 「정리」(요점·정리본) */
+  if(ko){const k=/###\s*정리본[^\n]*\n([\s\S]*?)(?=\n###\s|$)/.exec(ko);return (k?k[1]:ko).trim();}
   if(polished){const k=/###\s*(한국어|정리된 녹취)[^\n]*\n([\s\S]*?)(?=\n###\s|$)/.exec(polished);return (k?k[2]:polished).trim();}
   const live=sec('실시간 통역');
   if(live){const ko=live.split(/\n\n+/).map(b=>(/^\*\*(.+?)\*\*/.exec(b.trim())||[])[1]).filter(Boolean);if(ko.length)return ko.join('\n');}
@@ -38379,7 +38397,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.4';
+const APP_VERSION='v2.4.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
