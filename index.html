@@ -35977,6 +35977,21 @@ const Store={
     if(error)return {ok:false,msg:isMissingTable(error)?'테이블 pms_items 가 아직 없습니다 — 아래 SQL을 실행하세요':explainSbError(error)};
     this.rowMode=true;return {ok:true,msg:'행 단위 저장이 켜져 있습니다 — 바뀐 항목만 저장됩니다'};
   },
+  /* ── 통번역 기록(통번역 앱이 kind='tbrec' 로 저장) ──
+     목록은 제목·시각만 가볍게, 본문(md)은 고른 것만 불러온다 */
+  async listTbrec(){
+    if(this.mode!=='supabase'||!this.rowMode)return null;
+    const {data,error}=await this.sb.from('pms_items').select('item_id,title:data->>title,created:data->>created,updated_at')
+      .eq('user_id',this.user.id).eq('kind','tbrec').is('deleted_at',null);
+    if(error)throw new Error(explainSbError(error));
+    return (data||[]).map(r=>({id:r.item_id,title:r.title||'(제목 없음)',created:r.created||r.updated_at||''}));
+  },
+  async getTbrec(id){
+    if(this.mode!=='supabase')return null;
+    const {data,error}=await this.sb.from('pms_items').select('data').eq('user_id',this.user.id).eq('kind','tbrec').eq('item_id',id).maybeSingle();
+    if(error)throw new Error(explainSbError(error));
+    return data&&data.data;
+  },
   exportJSON(db){const blob=new Blob([JSON.stringify(db,null,1)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='pms-backup-'+todayISO()+'.json';a.click();}
 };
 
@@ -36468,6 +36483,51 @@ function CalendarView({db,setDb,st,set,toast}){
   </>;
 }
 
+/* ISO 시각 → 이 기기 시간대의 "YYYY-MM-DD HH:MM" */
+const localStamp=c=>{const d=new Date(c);if(!c||isNaN(d))return String(c||'').slice(0,16);return isoDate(d)+' '+pad2(d.getHours())+':'+pad2(d.getMinutes());};
+/* 마크다운의 "## 제목" 절 본문 — 통번역 기록에서 정리·번역만 떼어 낼 때 쓴다 */
+const mdSection=(md,head)=>{const esc=head.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const m=new RegExp('(^|\\n)##\\s*'+esc+'[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)').exec(md||'');return m?m[2].trim():'';};
+
+/* 일정 상세의 통번역 칸: 붙인 기록(원문은 눌러야 불러온다) + 그 날짜 가까운 기록 고르기 */
+function TbrecBox({date,list,onAttach,onDetach}){
+  const {Button}=window.HDWorkbookDesignSystem_ad60e4;
+  const [pick,setPick]=React.useState(null);const [err,setErr]=React.useState('');const [busy,setBusy]=React.useState(false);
+  const [open,setOpen]=React.useState({});
+  const openPicker=async()=>{if(pick){setPick(null);return;}setErr('');setBusy(true);
+    try{const rows=await Store.listTbrec();
+      if(rows===null){setErr('클라우드에 연결돼 있을 때만 불러올 수 있습니다');}
+      else{const t=new Date((date||todayISO())+'T12:00:00').getTime();
+        const dist=r=>Math.abs((new Date(r.created).getTime()||0)-t);
+        setPick(rows.filter(r=>!list.some(x=>x.id===r.id)).sort((a,b)=>dist(a)-dist(b)).slice(0,30));}}
+    catch(x){setErr(x.message);}setBusy(false);};
+  const toggle=async id=>{if(open[id]){setOpen(o=>({...o,[id]:null}));return;}
+    setOpen(o=>({...o,[id]:{loading:true}}));
+    try{const r=await Store.getTbrec(id);setOpen(o=>({...o,[id]:{md:(r&&r.md)||'(기록을 찾지 못했습니다 — 통번역 앱에서 지웠을 수 있습니다)'}}));}
+    catch(x){setOpen(o=>({...o,[id]:{md:'⚠ '+x.message}}));}};
+  const when=localStamp;
+  return <div style={{width:'100%'}}>
+    {list.map(r=><div key={r.id} style={{marginBottom:4}}>
+      <div style={{display:'flex',alignItems:'center',gap:6,fontSize:'var(--fs-base)'}}>
+        <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.title} <span style={{color:'var(--text-label)',fontFamily:'var(--font-num)',fontSize:'var(--fs-sm)'}}>{when(r.created)}</span></span>
+        <Button variant="ghost" size="xs" onClick={()=>toggle(r.id)}>{open[r.id]?'원문 접기':'원문 보기'}</Button>
+        <Button variant="ghost" size="xs" title="연결만 끊습니다(메모와 통번역 기록은 그대로)" onClick={()=>onDetach(r.id)}>✕</Button>
+      </div>
+      {open[r.id]&&<div style={{border:'1px solid var(--border-default)',borderRadius:4,padding:'6px 10px',marginTop:4,maxHeight:320,overflowY:'auto',background:'var(--surface-hover)'}}>
+        {open[r.id].loading?'불러오는 중…':<Markdown md={open[r.id].md}/>}</div>}
+    </div>)}
+    <Button variant="ghost" size="xs" disabled={busy} onClick={openPicker}>{busy?'불러오는 중…':pick?'닫기':'+ 통번역 기록 붙이기'}</Button>
+    {err&&<div style={{fontSize:'var(--fs-sm)',color:'var(--color-danger)',marginTop:4}}>{err}</div>}
+    {pick&&<div style={{border:'1px solid var(--border-default)',borderRadius:4,marginTop:4,maxHeight:240,overflowY:'auto'}}>
+      {!pick.length&&<div style={{padding:12,color:'var(--text-label)',fontSize:'var(--fs-sm)'}}>붙일 통번역 기록이 없습니다</div>}
+      {pick.map(r=><div key={r.id} onClick={async()=>{setBusy(true);try{await onAttach(r);setPick(null);}catch(x){setErr(x.message);}setBusy(false);}}
+        style={{display:'flex',gap:8,padding:'6px 10px',borderBottom:'1px solid var(--border-default)',cursor:'pointer',fontSize:'var(--fs-base)'}}>
+        <span style={{flex:'none',fontFamily:'var(--font-num)',color:'var(--text-muted)',fontSize:'var(--fs-sm)'}}>{when(r.created)}</span>
+        <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.title}</span></div>)}
+    </div>}
+  </div>;
+}
+
 /* 검색 결과: 날짜 최신순, 메모에서 찾은 경우 그 앞뒤를 보여 준다 */
 function SearchResults({hits,q,onOpen}){
   if(!hits.length)return <div style={{padding:30,textAlign:'center',color:'var(--text-label)'}}>찾는 일정이 없습니다</div>;
@@ -36815,6 +36875,13 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
   const close=()=>{flush(e);onClose();};
   const f=k=>v=>setE({...e,[k]:v});const isNew=!(ev&&ev.title)&&!savedAt;
   const linkList=(e.links||'').split('\n').map(x=>x.trim()).filter(Boolean);
+  const attachTb=async rec=>{const full=await Store.getTbrec(rec.id);const md=(full&&full.md)||'';
+    const sum=mdSection(md,'정리·번역')||mdSection(md,'정리');
+    const when=localStamp(rec.created);
+    const add='### 🎙 '+rec.title+(when?' · '+when:'')+'\n'+(sum||'(정리·번역 없음 — 원문 보기에서 확인)');
+    setE(p=>({...p,notes:(p.notes||'').replace(/\s+$/,'')+((p.notes||'').trim()?'\n\n':'')+add,
+      tbrec:[...(p.tbrec||[]).filter(x=>x.id!==rec.id),{id:rec.id,title:rec.title,created:rec.created||''}]}));};
+  const detachTb=id=>setE(p=>({...p,tbrec:(p.tbrec||[]).filter(x=>x.id!==id)}));
   const bare={border:'none',background:'transparent',fontSize:'var(--fs-base)',fontFamily:'var(--font-sans)',color:'var(--text-body)',padding:'4px 6px',borderRadius:4,outline:'none'};
   return <div style={{position:'fixed',inset:0,zIndex:'var(--z-modal)'}} onClick={close}>
     <div onClick={x=>x.stopPropagation()} style={{position:'absolute',top:0,right:0,bottom:0,width:480,maxWidth:'95vw',background:'#fff',boxShadow:'var(--shadow-popover)',borderLeft:'1px solid var(--border-default)',display:'flex',flexDirection:'column',fontFamily:'var(--font-sans)'}}>
@@ -36852,6 +36919,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
         </PRow>
         <PRow icon="◐" label="상태">{STATUS_KEYS.map(s=><Chip key={s} on={e.status===s} color={s==='done'?'#0a6b3b':s==='doing'?'#4E82AE':undefined} onClick={()=>f('status')(s)}>{STATUS_LABEL[s]}</Chip>)}</PRow>
         <PRow icon="↻" label="반복">{[['none','없음'],['daily','매일'],['weekly','매주'],['monthly','매월']].map(([k,l])=><Chip key={k} on={e.repeat===k} onClick={()=>f('repeat')(k)}>{l}</Chip>)}</PRow>
+        <PRow icon="🎙" label="통번역" top><TbrecBox date={e.date} list={e.tbrec||[]} onAttach={attachTb} onDetach={detachTb}/></PRow>
         <PRow icon="🔗" label="관련 링크" top>
           <div style={{width:'100%'}}>
             <textarea value={e.links||''} onChange={x=>f('links')(x.target.value)} rows={Math.max(2,linkList.length+1)} placeholder="자료 위치를 한 줄에 하나씩 (URL 또는 드라이브 경로)"
@@ -36884,7 +36952,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v1.2';
+const APP_VERSION='v1.3';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
