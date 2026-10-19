@@ -37169,14 +37169,21 @@ const WATCH_Q='이 영상을 처음부터 끝까지 보고, 업무 회의록을 
 async function askGemini(url,question,opt={}){
   if(Store.mode!=='supabase')throw new Error('영상 보기는 클라우드(Supabase)에 로그인해야 쓸 수 있습니다');
   const model=opt.model||MeetCfg.v.geminiModel;
-  const {data,error}=await Store.sb.functions.invoke('gemini',{body:{url,question,model,start:opt.start,end:opt.end}});
+  let res;
+  for(let i=0;;i++){res=await Store.sb.functions.invoke('gemini',{body:{url,question,model,start:opt.start,end:opt.end}});
+    const st=(res.error&&res.error.context&&res.error.context.status)||0;
+    if(!res.error||i>=1||st<500)break;   /* 5xx(함수가 막 깨어나는 중의 546 등)는 2초 뒤 한 번 더 */
+    console.warn('[링크 정리] 제미나이 함수 '+st+' — 다시 시도');await new Promise(r=>setTimeout(r,2000));}
+  const {data,error}=res;
   if(error){let d='',st=0;try{st=(error.context&&error.context.status)||0;const j=await error.context?.json();d=j&&j.error;}catch(_){}
     const m=d||error.message||'';
     if(st===404)throw new Error("영상 보기 서버(Edge Function 'gemini')가 아직 없습니다 — 배포가 필요합니다");
     throw new Error(/Failed to send|FunctionsFetchError|Failed to fetch/i.test(m)?'제미나이 연결(Edge Function "gemini")에 닿지 못했습니다 — 네트워크를 확인하세요':m);}
   if(data&&data.error)throw new Error(data.error);
-  console.info('[Gemini]',opt.tag||'',{model:data.model,usage:data.usage});
-  return String(data.text||'');
+  console.info('[Gemini]',opt.tag||'',{model:data.model,usage:data.usage,finish:data.finish,storyboard:(data.storyboard||[]).length,duration:data.duration});
+  if(data.finish==='MAX_TOKENS')console.warn('[링크 정리] 제미나이 메모가 길이 제한에 걸려 끝까지 못 갔습니다');
+  /* storyboard·duration 은 v2.7.1 함수부터 온다(장면 그림판 — webdigest 가 못 줄 때의 대비) */
+  return {text:String(data.text||''),storyboard:Array.isArray(data.storyboard)?data.storyboard:null,duration:+data.duration||0};
 }
 
 /* ── 실시간 받아쓰기 · 통역 (통번역 앱의 LiveConn/LiveSession 을 줄여 옮김) ── */
@@ -37909,12 +37916,16 @@ async function digestLink(ev,url,onStep,onNote){
   await MeetCfg.load();let prompt,info,pick;
   if(isYt(url)){
     /* 1) 제미나이가 영상(화면+소리)을 직접 본다 — 자막이 없어도 된다. 실패하면 자막 방식만으로 간다 */
-    let watched='',gemErr='';onStep&&onStep('제미나이가 영상 보는 중…');
-    try{watched=await askGemini(url,WATCH_Q,{tag:'링크 정리'});}catch(e){gemErr=e.message;console.warn('[링크 정리] 제미나이',e.message);}
+    let watched='',gemErr='',gem=null;onStep&&onStep('제미나이가 영상 보는 중…');
+    try{gem=await askGemini(url,WATCH_Q,{tag:'링크 정리'});watched=gem.text;}catch(e){gemErr=e.message;console.warn('[링크 정리] 제미나이',e.message);}
     /* 2) 자막·설명·장면 그림판은 전처럼 webdigest 로 — 시청 메모가 있으면 이게 실패해도 계속 간다 */
     onStep&&onStep('유튜브 읽는 중…');
     try{info=await webRead('yt',url);if(info.error)throw new Error(info.error);}
-    catch(e){if(!watched)throw e;console.warn('[링크 정리] 유튜브 읽기',e.message);info={id:ytId(url),url,title:'',description:'',status:'읽기 실패'};}
+    catch(e){if(!watched)throw e;console.warn('[링크 정리] 유튜브 읽기',e.message);const id=ytId(url);
+      info={id,url,title:'',description:'',status:'읽기 실패',duration:gem.duration||0,thumb:'https://i.ytimg.com/vi/'+id+'/hqdefault.jpg',thumbAlt:'https://i.ytimg.com/vi/'+id+'/0.jpg'};}
+    /* 장면 그림판: webdigest 가 비워 보내면(2026-10 실제로 그랬다) gemini 함수가 시청 페이지에서 읽어 온 것을 쓴다 */
+    if(!(info.storyboard||[]).length&&gem&&gem.storyboard&&gem.storyboard.length){info.storyboard=gem.storyboard;console.info('[링크 정리] 장면 그림판: gemini 함수에서',gem.storyboard.length,'단계');}
+    if(!info.duration&&gem&&gem.duration)info.duration=gem.duration;
     const cues=(info.captions&&info.captions.cues)||[];
     /* 자막을 20초 안팎 단락으로 — 단락마다 [mm:ss] */
     const paras=[];let cur=null;cues.forEach(c=>{if(!cur||c.t-cur.t>=20){cur={t:c.t,x:[]};paras.push(cur);}cur.x.push(c.text);});
