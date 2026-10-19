@@ -11,8 +11,10 @@
 // 3) Secrets 에 GEMINI_API_KEY (무료 키: https://aistudio.google.com/apikey)
 //    (CLI: supabase secrets set GEMINI_API_KEY=...)
 //
-// 응답: {text, model, usage:{tok_in, tok_out, total}} 또는 {error}
+// 응답: {text, model, usage:{tok_in, tok_out, total}, storyboard, duration} 또는 {error}
 // 모델은 요청의 model, 없으면 아래 DEFAULT_MODEL. 429(한도)·503(혼잡)은 3초 뒤 한 번 더 시도한다.
+// storyboard: 유튜브 장면 그림판(미리보기 칸 모음) 단계 목록. 앱이 [[IMG mm:ss]] 자리에 그 시각의 칸을 오려 넣는 데 쓴다.
+//   webdigest 가 storyboard 를 못 돌려줄 때의 대비(v2.7.1). 못 읽으면 null 이고 시청 메모에는 영향이 없다.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const CORS = {
@@ -29,6 +31,39 @@ const TIMEOUT_MS = 300_000  // 제미나이가 긴 영상을 보는 시간. Edge
 const DEFAULT_Q = '이 영상을 처음부터 끝까지 보고 무엇이 보이고 무엇을 말하는지 시간 순서대로 한국어로 적는다. 주제가 바뀌는 곳마다 [mm:ss] 시각을 붙인다.'
 
 const offset = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? Math.round(n) + 's' : '' }
+const ytId = (u: string) => { try { const x = new URL(u); return x.searchParams.get('v') || x.pathname.split('/').filter(Boolean).pop() || '' } catch { return '' } }
+
+// 장면 그림판(storyboard) — 시청 페이지의 playerStoryboardSpecRenderer.spec 을 읽는다 (yt-dlp 와 같은 방식).
+// spec = "기본주소|w#h#칸수#열#행#간격ms#이름#서명|…" 단계별. 이름 'M$M' 의 $M 은 시트 번호 자리(앱이 바꿔 넣는다).
+// 브라우저는 youtube.com 을 직접 못 읽으니(CORS) 여기서 읽는다. 동의 화면을 피하려고 SOCS 쿠키를 보낸다.
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
+type Level = { w: number; h: number; count: number; cols: number; rows: number; interval: number; url: string }
+async function storyboard(id: string): Promise<{ levels: Level[]; duration: number } | null> {
+  if (!id) return null
+  try {
+    const r = await fetch('https://www.youtube.com/watch?v=' + encodeURIComponent(id) + '&hl=en', {
+      headers: { 'user-agent': UA, 'accept-language': 'en-US,en;q=0.9', cookie: 'SOCS=CAI; CONSENT=YES+1' },
+      signal: AbortSignal.timeout(15_000),
+    })
+    const html = await r.text()
+    const m = /"playerStoryboardSpecRenderer":\{"spec":"((?:[^"\\]|\\.)*)"/.exec(html)
+    if (!m) return null
+    const spec = JSON.parse('"' + m[1] + '"') as string
+    const dm = /"lengthSeconds":"(\d+)"/.exec(html)
+    const duration = dm ? Number(dm[1]) : 0
+    const [base, ...lvls] = spec.split('|')
+    const levels: Level[] = []
+    lvls.forEach((l, i) => {
+      const f = l.split('#')
+      if (f.length < 8) return
+      const [w, h, count, cols, rows, ms] = f.slice(0, 6).map(Number)
+      const interval = ms > 0 ? ms : (duration && count ? Math.round(duration * 1000 / count) : 0)  // 0단계(전체 요약)는 간격이 0 으로 온다
+      if (!(w && h && count && cols && rows && interval)) return
+      levels.push({ w, h, count, cols, rows, interval, url: base.replace('$L', String(i)).replace('$N', f[6]) + '&sigh=' + f[7] })
+    })
+    return levels.length ? { levels, duration } : null
+  } catch (_) { return null }
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
@@ -70,7 +105,8 @@ Deno.serve(async (req) => {
     generationConfig: { maxOutputTokens: Math.min(Number(a.max_tokens) || 16000, MAX_OUT) },
   }
 
-  // 4) 제미나이 호출 (429·503은 한 번 더)
+  // 4) 제미나이 호출 (429·503은 한 번 더). 장면 그림판은 그동안 나란히 읽는다
+  const sbP = storyboard(ytId(url))
   let status = 0, text = ''
   for (let i = 0; i < 2; i++) {
     try {
@@ -113,5 +149,8 @@ Deno.serve(async (req) => {
     if (error && /tok_/.test(error.message)) { delete row.tok_in; delete row.tok_out; await sb.from('tb_usage').insert(row) }
   } catch (_) { /* ignore */ }
 
-  return json({ text: out, model: j.modelVersion ?? model, usage })
+  const board = await sbP
+  // finish: 'STOP' 이 정상. 'MAX_TOKENS' 면 메모가 끝까지 못 간 것(앱이 콘솔에 남긴다)
+  return json({ text: out, model: j.modelVersion ?? model, usage, finish: cand?.finishReason ?? null,
+    storyboard: board?.levels ?? null, duration: board?.duration ?? null })
 })
