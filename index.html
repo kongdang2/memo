@@ -38335,7 +38335,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.3';
+const APP_VERSION='v2.3.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
@@ -38445,6 +38445,11 @@ function MobileNav({sections}){
     </div>)}
   </div>;
 }
+/* 키 순서를 무시하고 같은 내용인지 — Supabase(jsonb)는 저장할 때 키 순서를 바꾼다 */
+const stableJson=v=>Array.isArray(v)?'['+v.map(stableJson).join(',')+']'
+  :v&&typeof v==='object'?'{'+Object.keys(v).filter(k=>v[k]!==undefined).sort().map(k=>JSON.stringify(k)+':'+stableJson(v[k])).join(',')+'}'
+  :JSON.stringify(v===undefined?null:v);
+const sameJson=(a,b)=>stableJson(a)===stableJson(b);
 function Shell({user,onLogout}){
   const NS=window.HDWorkbookDesignSystem_ad60e4;const {AppHeader,SessionBar,SessionDivider,NavSidebar,Button,Badge,Toast,InfoBar}=NS;
   const [db,setDbRaw]=React.useState(null);
@@ -38516,7 +38521,9 @@ function Shell({user,onLogout}){
         list.forEach(r=>{
           if(r.deleted_at){if(m.delete(r.item_id))hit++;return;}
           const cur=m.get(r.item_id);
-          if(cur&&JSON.stringify(cur)===JSON.stringify(r.data))return;   /* 내가 방금 올린 것 — 셈에서 뺀다 */
+          if(cur&&sameJson(cur,r.data))return;   /* 내가 방금 올린 것 — 셈에서 뺀다(서버가 키 순서를 바꿔 돌려주므로 순서는 무시) */
+          const mine=(Store.snap[kind]||new Map()).get(r.item_id);
+          if(mine&&sameJson(JSON.parse(mine),r.data))return;   /* 내가 마지막으로 올린 그대로 — 그 뒤 화면에서 고친 내용을 옛것으로 덮지 않는다 */
           m.set(r.item_id,r.data);hit++;
         });
         if(!hit)return;
