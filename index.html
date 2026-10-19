@@ -37219,25 +37219,52 @@ async function toWavSegments(blob,onStep){
     src.buffer=tmp;src.connect(off.destination);src.start();
     segs.push(wavBlob((await off.startRendering()).getChannelData(0),RATE));}
   return {segs,dur};}
-async function sttPart(blob,lang,hint){
+/* 전사 서버가 형식을 못 알아보면(UNSUPPORTED_FORMAT·format is empty) 형식 이름을 바꿔 다시 보내고,
+   그래도 안 되면 OpenAI 전사('transcribe')로 넘긴다. 통하는 이름은 기억해 다음부터 먼저 쓴다 */
+const EXT_MIME={m4a:['audio/mp4','audio/m4a','audio/x-m4a','audio/aac'],mp4:['audio/mp4','video/mp4'],aac:['audio/aac','audio/mp4'],
+  mp3:['audio/mpeg','audio/mp3'],wav:['audio/wav','audio/x-wav','audio/wave'],webm:['audio/webm'],ogg:['audio/ogg'],oga:['audio/ogg'],opus:['audio/ogg','audio/opus'],
+  flac:['audio/flac','audio/x-flac'],amr:['audio/amr'],wma:['audio/x-ms-wma'],'3gp':['audio/3gpp'],caf:['audio/x-caf']};
+const fmtOf=m=>({'audio/mpeg':'mp3','audio/mp4':'m4a','video/mp4':'mp4','audio/x-m4a':'m4a','audio/x-wav':'wav','audio/wave':'wav','audio/x-flac':'flac','audio/x-ms-wma':'wma','audio/3gpp':'3gp','audio/x-caf':'caf'})[m]||String(m||'').split('/').pop().split(';')[0];
+const isFmtErr=e=>/UNSUPPORTED_FORMAT|format is empty|unsupported (audio )?format|Invalid file format|InvalidParameter.*format/i.test(e&&e.message||'');
+function mimesOf(blob,name){
+  const ext=String(name||blob.name||'').split('.').pop().toLowerCase();
+  const list=[...(EXT_MIME[ext]||[]),...(blob.type?[blob.type]:[])];
+  if(/wav/.test(blob.type||''))list.unshift(...EXT_MIME.wav);
+  if(!list.length)list.push('audio/mpeg');
+  const key='cal.sttMime.'+(ext||blob.type);let good='';try{good=localStorage.getItem(key)||'';}catch(_){}
+  const out=[...new Set([good,...list].filter(Boolean))];out.key=key;return out;}
+async function sttCall(fn,body){const {data,error}=await Store.sb.functions.invoke(fn,{body});
+  if(error){let d='';try{const j=await error.context?.json();d=j&&(j.error||j.message);}catch(_){}
+    throw new Error(d||(/Failed to send|FunctionsFetchError/i.test(error.message)?"전사 서버(Edge Function '"+fn+"')에 닿지 못했습니다":error.message));}
+  if(data&&data.error)throw new Error(typeof data.error==='string'?data.error:JSON.stringify(data.error));return data||{};}
+async function sttPart(blob,lang,hint,name){
   const model=MeetCfg.v.tbSttModel||'qwen3-asr-flash';const audio=await blobB64(blob);
-  const call=async(fn,body)=>{const {data,error}=await Store.sb.functions.invoke(fn,{body});
-    if(error){let d='';try{const j=await error.context?.json();d=j&&j.error;}catch(_){}
-      throw new Error(d||(/Failed to send|FunctionsFetchError/i.test(error.message)?"전사 서버(Edge Function '"+fn+"')에 닿지 못했습니다":error.message));}
-    if(data&&data.error)throw new Error(data.error);return data||{};};
-  if(/^qwen|^paraformer|^fun-asr/.test(model))
-    return (await call('paraformer',{base:'',model,mime:blob.type||'audio/wav',language:lang,context:hint||'',audio})).text||'';
-  return (await call('transcribe',{audio,mime:blob.type||'audio/wav',name:'audio.'+((blob.type||'').includes('wav')?'wav':'webm'),
-    language:lang,model,prompt:hint||'',keywords:MeetCfg.v.sttHint||'',response_format:'text'})).text||'';}
-/* 음성 파일 하나 → 글. 조각마다 앞 조각 끝 문장을 힌트로 넘겨 이름·용어가 이어지게 한다 */
+  const openai=async m=>{const ext=/wav/.test(blob.type||'')?'wav':(String(name||'').split('.').pop()||'webm');
+    return (await sttCall('transcribe',{audio,mime:blob.type||'audio/wav',name:'audio.'+ext,language:lang,model:m,prompt:hint||'',keywords:MeetCfg.v.sttHint||'',response_format:'text'})).text||'';};
+  if(!/^qwen|^paraformer|^fun-asr/.test(model))return openai(model);
+  const mimes=mimesOf(blob,name);let first=null;
+  for(const mime of mimes){
+    try{const t=(await sttCall('paraformer',{base:'',model,mime,format:fmtOf(mime),language:lang,context:hint||'',audio})).text||'';
+      try{localStorage.setItem(mimes.key,mime);}catch(_){}return t;}
+    catch(e){if(!isFmtErr(e))throw e;first=first||e;console.warn('[전사] 형식 '+mime+' 거절:',e.message);}}
+  console.warn('[전사] Alibaba가 이 형식을 받지 않아 OpenAI 전사로 보냅니다');
+  try{return await openai('gpt-4o-transcribe');}
+  catch(e){throw new Error('전사 서버가 이 녹음 형식을 받지 않습니다 ('+first.message+') — 다른 형식(mp3·wav)으로 바꿔 올려 주세요');}}
+/* 음성 파일 하나 → 글. 조각마다 앞 조각 끝 문장을 힌트로 넘겨 이름·용어가 이어지게 한다
+   브라우저가 열 수 있으면 16kHz WAV 조각으로, 못 열면(작은 파일만) 원본 그대로 보낸다 */
 async function transcribeFile(blob,lang,onStep){
-  await MeetCfg.load();let parts,dur=0;
+  await MeetCfg.load();let parts,dur=0,raw=false;
   try{const r=await toWavSegments(blob,onStep);parts=r.segs;dur=r.dur;}
-  catch(e){if(blob.size<=6*1024*1024)parts=[blob];else throw e;}
+  catch(e){if(blob.size<=6*1024*1024){parts=[blob];raw=true;}else throw e;}
   const texts=[];
   for(let i=0;i<parts.length;i++){onStep&&onStep('받아쓰는 중 '+(i+1)+'/'+parts.length);
     const hint=texts.length?texts[texts.length-1].slice(-400):(MeetCfg.v.sttHint||'');
-    texts.push(String(await sttPart(parts[i],lang,hint)||'').trim());}
+    let t;
+    try{t=await sttPart(parts[i],lang,hint,raw?blob.name:'part.wav');}
+    catch(e){/* WAV 조각이 막히면, 원본이 작을 때는 원본 그대로 한 번 더 */
+      if(raw||parts.length>1||blob.size>6*1024*1024)throw e;
+      onStep&&onStep('원본 형식 그대로 다시 보내는 중…');t=await sttPart(blob,lang,hint,blob.name);}
+    texts.push(String(t||'').trim());}
   if(Store.mode==='supabase')Store.sb.from('tb_usage').insert({user_id:Store.user.id,email:Store.user.email,kind:'전사',seconds:Math.round(dur),calls:parts.length,model:MeetCfg.v.tbSttModel||'qwen3-asr-flash'}).then(()=>{},()=>{});
   return texts.filter(Boolean).join('\n\n');}
 /* 받아쓴 글 다듬기 — 외국어는 한국어 번역까지(통번역 앱의 정리·번역과 같은 방식), 한국어는 군더더기·오인식만 바로잡는다 */
@@ -38196,7 +38223,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.2';
+const APP_VERSION='v2.2.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
