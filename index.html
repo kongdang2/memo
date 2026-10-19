@@ -36582,56 +36582,76 @@ function clipGrid(cd){
   const t=cd.getData('text/plain');if(!t||!/[\t\n]/.test(t.replace(/\n$/,'')))return null;
   return t.replace(/\r/g,'').replace(/\n$/,'').split('\n').map(l=>l.split('\t'));}
 function attachSheet(root,onChange){
+  /* 복사·붙여넣기·지우기는 document 에서 받는다 — 여러 칸을 고르는 동안 커서가 사라져도(포커스가 빠져도) 동작하게 */
   let sel=null,anchor=null,drag=false,rs=null;
+  const live=()=>!!(sel&&sel.tbl.isConnected&&root.contains(sel.tbl));
   const paint=()=>{root.querySelectorAll('.rn-cs').forEach(x=>x.classList.remove('rn-cs'));
-    if(!sel)return;const g=cellsOf(sel.tbl);
+    if(!live())return;const g=cellsOf(sel.tbl);
     for(let r=Math.min(sel.r0,sel.r1);r<=Math.max(sel.r0,sel.r1);r++)for(let c=Math.min(sel.c0,sel.c1);c<=Math.max(sel.c0,sel.c1);c++)g[r]&&g[r][c]&&g[r][c].classList.add('rn-cs');};
-  const multi=()=>sel&&(sel.r0!==sel.r1||sel.c0!==sel.c1);
+  const multi=()=>live()&&(sel.r0!==sel.r1||sel.c0!==sel.c1);
   const range=()=>{const g=cellsOf(sel.tbl);const out=[];
     for(let r=Math.min(sel.r0,sel.r1);r<=Math.max(sel.r0,sel.r1);r++){const row=[];for(let c=Math.min(sel.c0,sel.c1);c<=Math.max(sel.c0,sel.c1);c++)row.push(g[r]&&g[r][c]);out.push(row);}return out;};
   const clear=()=>{sel=null;paint();};
   const cellAt=n=>{const c=n&&n.closest?n.closest('td,th'):null;return c&&root.contains(c)?c:null;};
-  const caretCell=()=>{const s=window.getSelection();return s&&s.rangeCount?cellAt(s.anchorNode.nodeType===1?s.anchorNode:s.anchorNode.parentNode):null;};
+  const caretCell=()=>{const s=window.getSelection();return s&&s.rangeCount&&s.anchorNode?cellAt(s.anchorNode.nodeType===1?s.anchorNode:s.anchorNode.parentNode):null;};
   const put=(td,end)=>{const r=document.createRange();r.selectNodeContents(td);r.collapse(!end);const s=window.getSelection();s.removeAllRanges();s.addRange(r);};
+  const hostOf=td=>(td.closest&&td.closest('[contenteditable="true"]'))||root;
+  /* 여러 칸을 고른 뒤에도 편집기에 포커스를 두어 Ctrl+C·Delete·방향키가 이어서 먹게 한다 */
+  const keep=()=>{if(!live())return;const g=cellsOf(sel.tbl);const c=g[sel.r1]&&g[sel.r1][sel.c1];if(!c)return;
+    const h=hostOf(c);if(document.activeElement!==h&&h.focus)h.focus({preventScroll:true});put(c,true);};
   const edge=(td,x)=>{const b=td.getBoundingClientRect();return x>b.right-5;};
   const md=e=>{
+    if(e.button!==0)return;
     const td=cellAt(e.target);
     if(!td){if(sel)clear();return;}
     if(edge(td,e.clientX)){e.preventDefault();const {tbl,c}=cellPos(td);rs={tbl,c,x:e.clientX,w:td.getBoundingClientRect().width};return;}
     const p=cellPos(td);
-    if(e.shiftKey&&anchor&&anchor.tbl===p.tbl){e.preventDefault();sel={tbl:p.tbl,r0:anchor.r,c0:anchor.c,r1:p.r,c1:p.c};paint();return;}
+    if(e.shiftKey&&anchor&&anchor.tbl===p.tbl&&anchor.tbl.isConnected){e.preventDefault();sel={tbl:p.tbl,r0:anchor.r,c0:anchor.c,r1:p.r,c1:p.c};paint();keep();return;}
     anchor=p;sel={tbl:p.tbl,r0:p.r,c0:p.c,r1:p.r,c1:p.c};drag=true;paint();};
   const mm=e=>{
     if(rs){const w=Math.max(40,Math.round(rs.w+e.clientX-rs.x));cellsOf(rs.tbl).forEach(row=>{const c=row[rs.c];if(c)c.style.width=w+'px';});return;}
     const td=cellAt(e.target);
     if(!drag){root.classList.toggle('rn-colrs',!!(td&&edge(td,e.clientX)));return;}
-    if(!td||!sel)return;const p=cellPos(td);if(p.tbl!==sel.tbl)return;
+    if(!td||!live())return;const p=cellPos(td);if(p.tbl!==sel.tbl)return;
     if(p.r!==sel.r1||p.c!==sel.c1){sel.r1=p.r;sel.c1=p.c;paint();}
-    if(multi()){e.preventDefault();const s=window.getSelection();s.removeAllRanges();}};
-  const mu=()=>{if(rs){rs=null;onChange();}drag=false;if(sel&&!multi()){root.querySelectorAll('.rn-cs').forEach(x=>x.classList.remove('rn-cs'));}};
+    if(multi()){e.preventDefault();const s=window.getSelection();if(s.rangeCount&&!s.isCollapsed)s.collapseToEnd();}};
+  const mu=()=>{if(rs){rs=null;onChange();}if(!drag)return;drag=false;
+    if(multi())keep();else if(sel)root.querySelectorAll('.rn-cs').forEach(x=>x.classList.remove('rn-cs'));};
+  /* 편집기 밖을 누르면 고른 칸을 푼다 */
+  const outDown=e=>{if(sel&&!root.contains(e.target))clear();};
   const toTSV=g=>g.map(r=>r.map(c=>{const t=c?cellText(c):'';return /[\t\n"]/.test(t)?'"'+t.replace(/"/g,'""')+'"':t;}).join('\t')).join('\n');
   const toHTML=g=>'<table>'+g.map(r=>'<tr>'+r.map(c=>'<td>'+escH(c?cellText(c):'').replace(/\n/g,'<br>')+'</td>').join('')+'</tr>').join('')+'</table>';
-  const copy=e=>{if(!multi())return;const g=range();e.clipboardData.setData('text/plain',toTSV(g));e.clipboardData.setData('text/html',toHTML(g));e.preventDefault();e.stopPropagation();
+  const copy=e=>{if(!multi())return;const g=range();e.clipboardData.setData('text/plain',toTSV(g));e.clipboardData.setData('text/html',toHTML(g));e.preventDefault();e.stopImmediatePropagation();
     if(e.type==='cut'){g.flat().forEach(c=>{if(c)c.innerHTML='<br>';});onChange();}};
   const paste=e=>{
-    const start=multi()?range()[0][0]:caretCell();if(!start)return;
+    const start=multi()?range()[0][0]:(root.contains(e.target)?caretCell():null);if(!start)return;
     const grid=clipGrid(e.clipboardData);if(!grid)return;
-    e.preventDefault();e.stopPropagation();
+    e.preventDefault();e.stopImmediatePropagation();
     const {tbl,r,c}=cellPos(start);sheetEnsure(tbl,r+grid.length,c+Math.max(...grid.map(x=>x.length)));
     const g=cellsOf(tbl);grid.forEach((row,i)=>row.forEach((v,j)=>{const td=g[r+i][c+j];td.innerHTML=v?escH(v).replace(/\n/g,'<br>'):'<br>';}));
-    sel={tbl,r0:r,c0:c,r1:r+grid.length-1,c1:c+Math.max(...grid.map(x=>x.length))-1};paint();onChange();};
+    sel={tbl,r0:r,c0:c,r1:r+grid.length-1,c1:c+Math.max(...grid.map(x=>x.length))-1};anchor={tbl,r,c};paint();keep();onChange();};
   const kd=e=>{
-    if(multi()&&(e.key==='Delete'||e.key==='Backspace')){e.preventDefault();e.stopPropagation();range().flat().forEach(c=>{if(c)c.innerHTML='<br>';});onChange();return;}
-    if(multi()&&e.key.length===1&&!e.ctrlKey&&!e.metaKey){clear();}
+    const m=multi();if(!m&&!root.contains(e.target))return;
+    if(m&&(e.key==='Delete'||e.key==='Backspace')){e.preventDefault();e.stopPropagation();range().flat().forEach(c=>{if(c)c.innerHTML='<br>';});onChange();return;}
+    if(m&&e.key==='Escape'){e.preventDefault();clear();return;}
+    const arrow={ArrowUp:[-1,0],ArrowDown:[1,0],ArrowLeft:[0,-1],ArrowRight:[0,1]}[e.key];
+    /* Shift+방향키 — 고른 범위 넓히기·줄이기 (빈 칸에서 시작해도 된다) */
+    if(arrow&&e.shiftKey&&!e.ctrlKey&&!e.metaKey){const td=m?null:caretCell();
+      if(m||(td&&!cellText(td).trim())){
+        if(!m){const p=cellPos(td);anchor=p;sel={tbl:p.tbl,r0:p.r,c0:p.c,r1:p.r,c1:p.c};}
+        const g=cellsOf(sel.tbl);const nr=Math.max(0,Math.min(g.length-1,sel.r1+arrow[0])),nc=Math.max(0,Math.min((g[nr]||[]).length-1,sel.c1+arrow[1]));
+        e.preventDefault();e.stopPropagation();sel.r1=nr;sel.c1=nc;paint();keep();return;}}
+    if(m&&e.key.length===1&&!e.ctrlKey&&!e.metaKey){clear();}
+    if(m&&arrow&&!e.shiftKey){clear();}
     const td=caretCell();if(!td)return;const {tbl,r,c}=cellPos(td);
     if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();e.stopPropagation();sheetEnsure(tbl,r+2,c+1);put(cellsOf(tbl)[r+1][c],true);clear();onChange();return;}
     if(e.key==='Enter'&&e.shiftKey){e.preventDefault();e.stopPropagation();document.execCommand('insertLineBreak');return;}
     if((e.key==='ArrowDown'||e.key==='ArrowUp')&&!e.shiftKey&&!td.querySelector('br:not(:last-child)')){
       const nr=r+(e.key==='ArrowDown'?1:-1);const g=cellsOf(tbl);if(g[nr]&&g[nr][c]){e.preventDefault();put(g[nr][c],true);clear();}}};
-  root.addEventListener('mousedown',md);document.addEventListener('mousemove',mm);document.addEventListener('mouseup',mu);
-  root.addEventListener('copy',copy);root.addEventListener('cut',copy);root.addEventListener('paste',paste,true);root.addEventListener('keydown',kd,true);
-  return ()=>{root.removeEventListener('mousedown',md);document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu);
-    root.removeEventListener('copy',copy);root.removeEventListener('cut',copy);root.removeEventListener('paste',paste,true);root.removeEventListener('keydown',kd,true);};
+  root.addEventListener('mousedown',md);document.addEventListener('mousedown',outDown,true);document.addEventListener('mousemove',mm);document.addEventListener('mouseup',mu);
+  document.addEventListener('copy',copy,true);document.addEventListener('cut',copy,true);document.addEventListener('paste',paste,true);document.addEventListener('keydown',kd,true);
+  return ()=>{root.removeEventListener('mousedown',md);document.removeEventListener('mousedown',outDown,true);document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu);
+    document.removeEventListener('copy',copy,true);document.removeEventListener('cut',copy,true);document.removeEventListener('paste',paste,true);document.removeEventListener('keydown',kd,true);};
 }
 /* 열 기준 정렬 — 첫 행이 머리(th)면 그대로 두고 아래만 */
 function sheetSort(td,desc){const {tbl,c}=cellPos(td);const rows=[...tbl.rows];const head=rows[0]&&rows[0].cells[0]&&rows[0].cells[0].tagName==='TH'?1:0;
@@ -36641,7 +36661,7 @@ function sheetSort(td,desc){const {tbl,c}=cellPos(td);const rows=[...tbl.rows];c
     const v=(!isNaN(nx)&&!isNaN(ny)&&/^[-\d.,\s%]+$/.test(x+y))?nx-ny:x.localeCompare(y,'ko',{numeric:true});return desc?-v:v;});
   const parent=body[0]&&body[0].parentNode;body.forEach(tr=>parent.appendChild(tr));}
 
-function RichNote({docKey,html,onChange,placeholder}){
+function RichNote({docKey,html,onChange,placeholder,tbHost,active,compact}){
   const ed=React.useRef(null);const fileIn=React.useRef(null);const t=React.useRef(null);
   const [slash,setSlash]=React.useState(null);   /* {x,y,q,i} */
   const [pal,setPal]=React.useState('');          /* 'color' | 'mark' */
@@ -36805,8 +36825,7 @@ function RichNote({docKey,html,onChange,placeholder}){
     const s=window.getSelection();if(saveSel.current&&saveSel.current.collapsed){insertHTML('<a href="'+escH(u)+'">'+escH(u)+'</a>');}else exec('createLink',u);};
   const B=({t,title,on,children,w})=><button type="button" title={title} onMouseDown={x=>x.preventDefault()} onClick={on} style={w?{fontWeight:w}:undefined}>{children||t}</button>;
   const fmt=v=>{if(v)block(v);};
-  return <div style={{position:'relative'}}>
-    <div className="rn-tb" onMouseDown={remember}>
+  const tools=<div className="rn-tb" onMouseDown={remember}>
       <select value="" onChange={x=>{fmt(x.target.value);x.target.value='';}} title="문단 형식" style={{border:'none',background:'transparent',fontSize:13,fontFamily:'inherit',padding:'3px 2px',cursor:'pointer'}}>
         <option value="">형식</option><option value="p">본문</option><option value="h1">제목 1</option><option value="h2">제목 2</option><option value="h3">제목 3</option><option value="quote">인용</option><option value="code">코드</option></select>
       <span className="sep"/>
@@ -36834,83 +36853,149 @@ function RichNote({docKey,html,onChange,placeholder}){
       {imgSel&&<><span className="sep"/><span style={{fontSize:12,color:'var(--text-muted)',padding:'0 3px'}}>이미지</span>
         {[['25','작게'],['50','중간'],['100','크게']].map(([w,l])=><B key={w} on={()=>imgOp(w)}>{l}</B>)}<B title="이미지 삭제" on={()=>imgOp('del')}>🗑</B></>}
       {busy&&<span style={{fontSize:12,color:/^⚠/.test(busy)?'var(--color-danger)':'var(--text-muted)',marginLeft:6}}>{busy}</span>}
-    </div>
-    {pal&&<div className="rn-pop" style={{top:38,left:150,display:'flex',gap:4,padding:6}} onMouseDown={x=>x.preventDefault()}>
+    </div>;
+  const palette=pal&&<div className="rn-pop" style={{top:38,left:150,display:'flex',gap:4,padding:6}} onMouseDown={x=>x.preventDefault()}>
       {(pal==='color'?RN_COLORS:RN_MARKS).map(([l,c])=><button key={l} type="button" title={l} onClick={()=>{setPal('');
           if(pal==='color')exec('foreColor',c||'#1c1917');else exec('hiliteColor',c||'transparent');}}
         style={{width:24,height:24,padding:0,border:'1px solid var(--border-default)',borderRadius:4,
           background:pal==='mark'?(c||'#fff'):'#fff',color:c||'var(--text-body)',fontWeight:700,textAlign:'center'}}>{pal==='color'?'A':(c?'':'∅')}</button>)}
-    </div>}
-    <div ref={ed} className="rn-ed" contentEditable suppressContentEditableWarning data-ph={placeholder||'내용을 입력하세요 · 「/」로 블록 넣기 · 이미지는 붙여넣기'}
-      onInput={()=>{emit();watch();}} onPaste={onPaste} onDrop={onDrop} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onClick={onClick} onBlur={()=>{remember();flushNow();}} style={{marginTop:8}}/>
+    </div>;
+  /* 보드 안의 글상자 — 도구줄은 보드 위쪽 자리(tbHost)에, 지금 쓰는 글상자 것만 띄운다 */
+  return <div style={{position:'relative'}}>
+    {tbHost!==undefined?(active&&tbHost?ReactDOM.createPortal(<div style={{position:'relative'}}>{tools}{palette}</div>,tbHost):null):<>{tools}{palette}</>}
+    <div ref={ed} className={'rn-ed'+(compact?' rn-cmp':'')} contentEditable suppressContentEditableWarning data-ph={placeholder||'내용을 입력하세요 · 「/」로 블록 넣기 · 이미지는 붙여넣기'}
+      onInput={()=>{emit();watch();}} onPaste={onPaste} onDrop={onDrop} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onClick={onClick} onBlur={()=>{remember();flushNow();}} style={compact?undefined:{marginTop:8}}/>
     {slash&&slashItems.length>0&&<div className="rn-pop" style={{left:slash.x,top:slash.y+8,minWidth:180,maxHeight:280,overflowY:'auto'}} onMouseDown={x=>x.preventDefault()}>
       {slashItems.map((b,i)=><button key={b.k} type="button" className={i===slash.i?'on':''} onClick={()=>runSlash(b)}>{b.label}</button>)}</div>}
     <input ref={fileIn} type="file" accept="image/*" multiple style={{display:'none'}} onChange={x=>{addImages(x.target.files);x.target.value='';}}/>
   </div>;
 }
-/* ── 메모 보드 (그림판처럼 자유 배치) ─────────────────────────────
-   글상자 · 표(스프레드시트처럼) · 이미지를 화면 아무 데나 놓고 끌어 옮긴다.
+/* ── 메모 (보드) ─────────────────────────────────────────────────
+   일정의 메모는 하나의 보드다. 글상자·표·이미지를 그림판처럼 아무 데나 놓고 끌어 옮긴다.
+   · 글상자는 문서 편집기 그대로(제목·목록·할 일·표·이미지·「/」 블록 메뉴) — 누르면 위쪽에 서식 도구가 뜬다
    · 위쪽 ⠿ 손잡이를 끌어 옮기기, 오른쪽 아래 모서리로 너비 조절
-   · 빈 곳을 끌면 범위 선택, Shift+누르기로 여러 개 고르기 → 왼쪽·가운데·오른쪽 / 위·중간·아래 맞춤, 가로·세로 간격 같게
-   · 방향키로 1px(Shift 10px) 옮기기, Delete 지우기, 격자(10px) 맞춤
-   저장: 일정의 board = {items:[{id,type:'text'|'table'|'img',x,y,w,z,html|path}]} + boardText(검색용) */
+   · 빈 곳을 끌면 범위 선택, Shift+누르기로 여러 개 고르기 → 맞춤·간격 같게·앞뒤 순서
+   · 빈 곳을 누른 뒤 Ctrl+V: 엑셀·구글시트 범위 → 표, 이미지 → 이미지, 글 → 글상자
+   · 고른 상자 Ctrl+C → 엑셀(표)·다른 메모 보드에 붙여넣기, Ctrl+X 잘라내기, Delete 지우기
+   · 방향키로 1px(Shift 10px) 옮기기, 격자(10px) 맞춤
+   저장: 일정의 board = {items:[{id,type:'text'|'table'|'img',x,y,w,z,html|path,grp?}],merged} + boardText(검색용)
+   옛 문서 메모(notesHtml)·회의록(minutes)은 처음 열 때 보드의 글상자로 옮겨 보인다(boardOf) */
 const BD_CSS=`.bd-wrap{position:relative;border:1px dashed var(--border-strong);border-radius:6px;background:#fff;
-  background-image:radial-gradient(#e7e5e4 1px,transparent 1px);background-size:20px 20px;overflow:auto}
-.bd-it{position:absolute;box-sizing:border-box;border:1px solid transparent;border-radius:4px;background:transparent}
+  background-image:radial-gradient(#e7e5e4 1px,transparent 1px);background-size:20px 20px;overflow-x:auto;overflow-y:hidden}
+.bd-it{position:absolute;box-sizing:border-box;border:1px solid transparent;border-radius:4px;background:rgba(255,255,255,.92)}
 .bd-it:hover{border-color:#cbd5e1}.bd-it.on{border-color:#3b82f6;box-shadow:0 0 0 1px #3b82f6}
 .bd-grip{position:absolute;left:-1px;right:-1px;top:-16px;height:15px;display:none;align-items:center;justify-content:center;
   background:#3b82f6;color:#fff;font-size:10px;border-radius:4px 4px 0 0;cursor:move;user-select:none}
 .bd-it:hover .bd-grip,.bd-it.on .bd-grip{display:flex}.bd-it:hover:not(.on) .bd-grip{background:#94a3b8}
 .bd-rs{position:absolute;right:-5px;bottom:-5px;width:10px;height:10px;background:#fff;border:1.5px solid #3b82f6;border-radius:2px;cursor:nwse-resize;display:none}
 .bd-it.on .bd-rs{display:block}
-.bd-tx{outline:none;padding:4px 6px;min-height:24px;font-size:14px;line-height:1.55;word-break:break-word}
-.bd-tx:empty:before{content:'글을 입력하세요';color:var(--text-label)}
-.bd-tx table{border-collapse:collapse;width:100%}.bd-tx th,.bd-tx td{border:1px solid #d6d3d1;padding:4px 6px;min-width:40px;vertical-align:top}.bd-tx th{background:#f5f5f4;font-weight:600;text-align:left}
-.bd-tx ul,.bd-tx ol{margin:2px 0;padding-left:20px}.bd-tx h1{font-size:22px;margin:4px 0}.bd-tx h2{font-size:18px;margin:4px 0}.bd-tx h3{font-size:15px;margin:4px 0}
-.bd-it img{display:block;width:100%;border-radius:3px;pointer-events:none}
+.rn-ed.rn-cmp{min-height:26px;padding:4px 8px 6px;font-size:14px;line-height:1.6}
+.rn-ed.rn-cmp>:first-child{margin-top:0}.rn-ed.rn-cmp>:last-child{margin-bottom:0}
+.bd-img img{display:block;width:100%;border-radius:3px;pointer-events:none}
+.bd-tbh{margin-top:4px}.bd-tbh:empty:before{content:'글상자를 누르면 여기에 글자 서식 도구(제목·굵게·색·목록·표…)가 나옵니다';display:block;font-size:12px;color:var(--text-label);padding:9px 4px}
+.bd-tbh{height:38px;overflow:hidden}.bd-tbh .rn-tb{position:static;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;border:none;background:transparent;padding:3px 0;scrollbar-width:thin}.bd-tbh .rn-tb>*{flex:none}
 .bd-mq{position:absolute;border:1px solid #3b82f6;background:rgba(59,130,246,.08);pointer-events:none}`;
 const BD_GRID=10;
-const bdText=items=>(items||[]).filter(i=>i.type!=='img').map(i=>htmlToText(i.html||'')).filter(Boolean).join('\n');
-/* 글상자·표 내용 — 처음 한 번만 innerHTML 을 넣고 그 뒤는 손대지 않는다(커서가 튀지 않게) */
-function BdContent({it,onHtml}){
-  const ref=React.useRef(null);const t=React.useRef(null);const cb=React.useRef(onHtml);cb.current=onHtml;
-  React.useEffect(()=>{const el=ref.current;if(!el)return;
-    if(it.type==='img'){el.innerHTML='';const im=document.createElement('img');el.appendChild(im);
-      if(it.path)Files.url(it.path).then(u=>{im.src=u;}).catch(()=>{im.alt='⚠ 이미지를 불러오지 못했습니다';});return;}
-    el.innerHTML=rnClean(it.html||'',false);
-    if(it.type==='table')return attachSheet(el,()=>cb.current(rnSerialize(el)));},[it.id]);
-  if(it.type==='img')return <div ref={ref}/>;
-  const emit=()=>{clearTimeout(t.current);t.current=setTimeout(()=>cb.current(rnSerialize(ref.current)),250);};
-  return <div ref={ref} className="bd-tx" contentEditable suppressContentEditableWarning onInput={emit}
-    onBlur={()=>{clearTimeout(t.current);cb.current(rnSerialize(ref.current));}}
-    onPaste={e=>{const h=e.clipboardData&&e.clipboardData.getData('text/html');if(h&&!e.defaultPrevented){e.preventDefault();document.execCommand('insertHTML',false,rnClean(h,false));emit();}}}/>;
-}
+let BD_CLIP=null;   /* 마지막으로 복사한 상자들 — 브라우저가 붙여넣기 HTML의 표시를 지워도 알아보게 */
+const bdText=items=>(items||[]).filter(i=>i.type!=='img').slice().sort((a,b)=>a.y-b.y||a.x-b.x).map(i=>htmlToText(i.html||'')).filter(Boolean).join('\n');
+const bdGridHtml=g=>'<table><tbody>'+g.map(r=>'<tr>'+r.map(v=>'<td>'+(v?escH(v).replace(/\n/g,'<br>'):'<br>')+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
+/* HTML → 마크다운 (워드 저장용) */
+function htmlToMd(html){
+  const d=document.createElement('div');d.innerHTML=html||'';const out=[];
+  const inl=n=>{if(n.nodeType===3)return n.nodeValue.replace(/\s+/g,' ');if(n.nodeType!==1)return '';const t=n.tagName;
+    if(t==='BR')return '\n';if(t==='IMG')return '(이미지)';const inner=[...n.childNodes].map(inl).join('');
+    if(/^(B|STRONG)$/.test(t)&&inner.trim())return '**'+inner.trim()+'**';return inner;};
+  const cell=c=>inl(c).replace(/\n/g,' ').replace(/\|/g,'/').trim();
+  const blk=(n,depth)=>{
+    if(n.nodeType===3){const t=n.nodeValue.trim();if(t)out.push(t);return;}if(n.nodeType!==1)return;const t=n.tagName;
+    if(/^H[1-4]$/.test(t)){out.push('#'.repeat(Math.min(3,+t[1]))+' '+inl(n).trim());return;}
+    if(t==='TABLE'){const rows=[...n.rows].map(r=>[...r.cells].map(cell));if(!rows.length)return;const w=Math.max(...rows.map(r=>r.length));
+      const pad=r=>{while(r.length<w)r.push('');return r;};out.push('');out.push('| '+pad(rows[0]).join(' | ')+' |');out.push('|'+rows[0].map(()=>'---').join('|')+'|');
+      rows.slice(1).forEach(r=>out.push('| '+pad(r).join(' | ')+' |'));out.push('');return;}
+    if(t==='UL'||t==='OL'){let k=1;[...n.children].forEach(li=>{const chk=li.getAttribute('data-checked');
+      const txt=[...li.childNodes].filter(c=>!(c.nodeType===1&&/^(UL|OL)$/.test(c.tagName))).map(inl).join('').replace(/\n/g,' ').trim();
+      out.push('  '.repeat(depth)+(t==='OL'?(k++)+'. ':'- ')+(chk!=null?(chk==='true'?'[x] ':'[ ] '):'')+txt);
+      [...li.children].filter(c=>/^(UL|OL)$/.test(c.tagName)).forEach(sub=>blk(sub,depth+1));});return;}
+    if(t==='BLOCKQUOTE'){inl(n).split('\n').forEach(l=>{if(l.trim())out.push('> '+l.trim());});return;}
+    if(t==='HR'){out.push('---');return;}if(t==='PRE'){out.push(n.textContent);return;}if(t==='IMG'){out.push('(이미지)');return;}
+    if(n.querySelector('table,ul,ol,h1,h2,h3,p,div,blockquote,pre,hr')){[...n.childNodes].forEach(c=>blk(c,depth));return;}
+    inl(n).split('\n').forEach(l=>{if(l.trim())out.push(l.trim());});};
+  [...d.childNodes].forEach(c=>blk(c,0));return out.join('\n');}
+/* 보드 → 마크다운 — 위에서 아래, 왼쪽에서 오른쪽 순서 */
+const boardToMd=items=>(items||[]).filter(i=>i.type!=='img').slice().sort((a,b)=>a.y-b.y||a.x-b.x).map(i=>htmlToMd(i.html||'')).filter(x=>x.trim()).join('\n\n');
+/* 새 상자들을 보드 맨 아래에 차례로 쌓는다 — 실제 높이는 화면에 그린 뒤 MemoBoard 가 재서 맞춘다(stk) */
+const bdAppend=(board,news)=>{const items=(board&&board.items)||[];const tag='s'+Date.now().toString(36);
+  return {...(board||{}),items:[...items,...news.map((n,k)=>({id:uid(),x:20,y:100000+k*10,w:680,z:0,type:'text',...n,stk:tag,ord:k}))]};};
+/* 회의록 마크다운 → 글상자들 (## 단위로 나눠 따로 옮길 수 있게) */
+function minutesToItems(md){
+  const L=String(md||'').replace(/\r/g,'').split('\n');const secs=[];let cur=[];
+  L.forEach(l=>{if(/^##\s/.test(l)&&cur.some(x=>x.trim())){secs.push(cur);cur=[];}cur.push(l);});if(cur.some(x=>x.trim()))secs.push(cur);
+  return secs.map(sec=>({type:'text',grp:'minutes',html:mdToHtml(sec.join('\n'))}));}
+/* 보드의 회의록 상자를 새 회의록으로 바꾼다(없으면 맨 아래에 붙인다) */
+const bdPutMinutes=(board,md)=>{const b=board||{items:[]};return bdAppend({...b,items:(b.items||[]).filter(i=>i.grp!=='minutes')},minutesToItems(md));};
+const bdHasMinutes=board=>!!(board&&(board.items||[]).some(i=>i.grp==='minutes'));
+/* 일정의 보드 — 옛 문서 메모·회의록이 있으면 글상자로 넣어서 보여 준다(고치면 그대로 저장된다) */
+function boardOf(e){
+  const b=e&&e.board&&Array.isArray(e.board.items)?e.board:{items:[]};if(!e||b.merged)return b;
+  const h=noteHtmlOf(e);const news=[];
+  if(htmlToText(h).trim()||/<(img|table)/i.test(h))news.push({id:'doc-'+e.id,type:'text',html:h});
+  if((e.minutes||'').trim()&&!bdHasMinutes(b))news.push(...minutesToItems(e.minutes));
+  if(!news.length)return {...b,merged:true};
+  return {...bdAppend(b,news),merged:true};}
+
+function BdImg({it}){
+  const ref=React.useRef(null);
+  React.useEffect(()=>{const im=ref.current;if(im&&it.path)Files.url(it.path).then(u=>{im.src=u;}).catch(()=>{im.alt='⚠ 이미지를 불러오지 못했습니다';});},[it.path]);
+  return <div className="bd-img"><img ref={ref} alt=""/></div>;}
 function MemoBoard({docKey,board,onChange}){
   const items=(board&&board.items)||[];
-  const [sel,setSel]=React.useState([]);const [snap,setSnap]=React.useState(true);const [mq,setMq]=React.useState(null);const [busy,setBusy]=React.useState('');
-  const wrap=React.useRef(null);const fileIn=React.useRef(null);const last=React.useRef({x:40,y:40});
-  const itemsRef=React.useRef(items);itemsRef.current=items;
-  React.useEffect(()=>{if(!document.getElementById('bd-css')){const s=document.createElement('style');s.id='bd-css';s.textContent=BD_CSS+SHEET_CSS;document.head.appendChild(s);}},[]);
-  React.useEffect(()=>{setSel([]);},[docKey]);
-  const commit=arr=>onChange({items:arr},bdText(arr));
+  const [sel,setSel]=React.useState([]);const [act,setAct]=React.useState(null);const [snap,setSnap]=React.useState(true);
+  const [mq,setMq]=React.useState(null);const [busy,setBusy]=React.useState('');const [tbHost,setTbHost]=React.useState(null);const [bottom,setBottom]=React.useState(0);
+  const wrap=React.useRef(null);const fileIn=React.useRef(null);const last=React.useRef(null);
+  const itemsRef=React.useRef(items);itemsRef.current=items;const boardRef=React.useRef(board);boardRef.current=board;
+  React.useEffect(()=>{if(!document.getElementById('bd-css')){const s=document.createElement('style');s.id='bd-css';s.textContent=BD_CSS+SHEET_CSS;document.head.appendChild(s);}
+    if(!document.getElementById('rn-css')){const s=document.createElement('style');s.id='rn-css';s.textContent=RN_CSS+SHEET_CSS;document.head.appendChild(s);}},[]);
+  React.useEffect(()=>{setSel([]);setAct(null);last.current=null;},[docKey]);
+  const commit=arr=>onChange({...(boardRef.current||{}),items:arr,merged:true},bdText(arr));
   const patch=(id,p)=>commit(itemsRef.current.map(i=>i.id===id?{...i,...p}:i));
   const sn=v=>snap?Math.round(v/BD_GRID)*BD_GRID:Math.round(v);
   const topZ=()=>Math.max(0,...itemsRef.current.map(i=>i.z||0))+1;
-  const add=(type,extra)=>{const p=last.current;const it={id:uid(),type,x:sn(p.x),y:sn(p.y),w:type==='table'?360:type==='img'?320:240,z:topZ(),
+  const boxOf=id=>wrap.current&&wrap.current.querySelector('[data-bd="'+id+'"]');
+  /* 화면에 그린 실제 크기로 맨 아래 위치를 잰다 */
+  const measureBottom=except=>{let m=0;if(!wrap.current)return 0;
+    wrap.current.querySelectorAll('[data-bd]').forEach(el=>{if(except&&except.has(el.getAttribute('data-bd')))return;m=Math.max(m,el.offsetTop+el.offsetHeight);});return m;};
+  /* 새로 넣은 묶음(stk) — 실제 높이를 재서 위에서부터 차례로 쌓는다 */
+  React.useEffect(()=>{
+    const groups=[...new Set(items.filter(i=>i.stk).map(i=>i.stk))];
+    if(!groups.length){setBottom(measureBottom());return;}
+    const t=requestAnimationFrame(()=>{let arr=itemsRef.current.slice();
+      groups.forEach(g=>{const ids=new Set(arr.filter(i=>i.stk===g).map(i=>i.id));let y=sn(measureBottom(ids)+(measureBottom(ids)?30:20));
+        arr.filter(i=>i.stk===g).sort((a,b)=>(a.ord||0)-(b.ord||0)).forEach(i=>{const el=boxOf(i.id);const h=el?el.offsetHeight:120;
+          arr=arr.map(x=>x.id===i.id?(()=>{const {stk,ord,...rest}=x;return {...rest,y};})():x);y=sn(y+h+16);});});
+      commit(arr);});
+    return ()=>cancelAnimationFrame(t);});
+  const nextPos=()=>{if(last.current)return last.current;return {x:20,y:sn(measureBottom()?measureBottom()+24:20)};};
+  const add=(type,extra)=>{const p=nextPos();const it={id:uid(),type,x:sn(p.x),y:sn(p.y),w:type==='table'?420:type==='img'?320:360,z:topZ(),
       html:type==='table'?rnTable(3,3).replace('<p><br></p>',''):type==='text'?'':undefined,...extra};
+    /* 보이는 폭 안에 들어오게 — 오른쪽 끝을 눌러 붙여도 잘리지 않는다 */
+    const cw=wrap.current?wrap.current.clientWidth:800;if(it.w>cw-20)it.w=Math.max(160,cw-40);if(it.x+it.w>cw-10)it.x=Math.max(0,sn(cw-10-it.w));
     last.current={x:p.x+24,y:p.y+24};commit([...itemsRef.current,it]);setSel([it.id]);
-    if(type!=='img')setTimeout(()=>{const el=wrap.current&&wrap.current.querySelector('[data-bd="'+it.id+'"] .bd-tx');if(el){el.focus();const c=el.querySelector('th,td')||el;const r=document.createRange();r.selectNodeContents(c);r.collapse(true);const s=getSelection();s.removeAllRanges();s.addRange(r);}},30);};
+    if(type!=='img')setTimeout(()=>{const el=boxOf(it.id);const ed=el&&el.querySelector('.rn-ed');if(ed){ed.focus();const c=ed.querySelector('th,td')||ed.querySelector('p')||ed;
+      const r=document.createRange();r.selectNodeContents(c);r.collapse(true);const s=getSelection();s.removeAllRanges();s.addRange(r);setAct(it.id);}},60);
+    return it;};
   const addImgs=async files=>{const list=[...files].filter(f=>/^image\//.test(f.type));
     for(const f of list){setBusy('이미지 올리는 중…');try{const r=await Files.put(f.name?f:new File([f],'image.png',{type:f.type}));
       const dim=await new Promise(ok=>{const im=new Image();im.onload=()=>ok([im.naturalWidth,im.naturalHeight]);im.onerror=()=>ok([320,200]);im.src=URL.createObjectURL(f);});
       add('img',{path:r.path,w:Math.min(420,dim[0])});}catch(x){setBusy('⚠ '+x.message);setTimeout(()=>setBusy(''),4000);return;}}setBusy('');};
   /* 끌기 — 손잡이(옮기기), 모서리(너비), 빈 곳(범위 선택) */
+  const live=React.useRef(null);const [,force]=React.useReducer(x=>x+1,0);
+  const commitLive=arr=>{live.current=arr;itemsRef.current=arr;force();};
   const startDrag=(e,kind,id)=>{e.preventDefault();e.stopPropagation();
     if(kind!=='marquee'&&!editing())wrap.current.focus({preventScroll:true});
     const box=wrap.current.getBoundingClientRect();const sx=e.clientX,sy=e.clientY;
     let ids=sel;if(kind==='move'&&!sel.includes(id)){ids=e.shiftKey?[...sel,id]:[id];setSel(ids);}
-    const base=itemsRef.current.map(i=>({...i}));
-    const mv=ev=>{const dx=ev.clientX-sx,dy=ev.clientY-sy;
+    const base=itemsRef.current.map(i=>({...i}));let moved=false;
+    const mv=ev=>{const dx=ev.clientX-sx,dy=ev.clientY-sy;if(Math.abs(dx)+Math.abs(dy)>2)moved=true;
       if(kind==='move')commitLive(base.map(i=>ids.includes(i.id)?{...i,x:Math.max(0,sn(i.x+dx)),y:Math.max(0,sn(i.y+dy))}:i));
       else if(kind==='size')commitLive(base.map(i=>i.id===id?{...i,w:Math.max(60,sn(i.w+dx))}:i));
       else{const x0=sx-box.left+wrap.current.scrollLeft,y0=sy-box.top+wrap.current.scrollTop;const x1=x0+dx,y1=y0+dy;
@@ -36918,19 +37003,16 @@ function MemoBoard({docKey,board,onChange}){
         const hit=[...wrap.current.querySelectorAll('[data-bd]')].filter(el=>{const a=el.offsetLeft,b=el.offsetTop,c=a+el.offsetWidth,d=b+el.offsetHeight;
           return a<r.x+r.w&&c>r.x&&b<r.y+r.h&&d>r.y;}).map(el=>el.getAttribute('data-bd'));setSel(hit);}};
     const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);setMq(null);
-      if(kind!=='marquee')commit(live.current||itemsRef.current);live.current=null;};
+      if(kind!=='marquee'&&moved)commit(live.current||itemsRef.current);live.current=null;force();};
     document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);};
-  /* 끄는 동안은 화면만 바꾸고 놓을 때 한 번 저장한다 */
-  const live=React.useRef(null);const [,force]=React.useReducer(x=>x+1,0);
-  const commitLive=arr=>{live.current=arr;itemsRef.current=arr;force();};
   const shown=live.current||items;
-  const onWrapDown=e=>{if(e.target!==wrap.current)return;
+  const onWrapDown=e=>{if(e.target!==wrap.current&&!e.target.classList.contains('bd-pad'))return;
     const b=wrap.current.getBoundingClientRect();last.current={x:e.clientX-b.left+wrap.current.scrollLeft,y:e.clientY-b.top+wrap.current.scrollTop};
-    if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+    if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();setAct(null);
     if(!e.shiftKey)setSel([]);startDrag(e,'marquee');wrap.current.focus({preventScroll:true});};
   /* 맞춤 */
   const geo=()=>{const m={};wrap.current.querySelectorAll('[data-bd]').forEach(el=>{m[el.getAttribute('data-bd')]={w:el.offsetWidth,h:el.offsetHeight};});return m;};
-  const align=k=>{const g=geo();const S=itemsRef.current.filter(i=>sel.includes(i.id));if(S.length<2&&!/^(front|back)$/.test(k))return;
+  const align=k=>{const g=geo();const S=itemsRef.current.filter(i=>sel.includes(i.id)&&g[i.id]);if(S.length<2&&!/^(front|back)$/.test(k))return;if(!S.length)return;
     const L=Math.min(...S.map(i=>i.x)),R=Math.max(...S.map(i=>i.x+g[i.id].w)),T=Math.min(...S.map(i=>i.y)),B=Math.max(...S.map(i=>i.y+g[i.id].h));
     let map={};
     if(k==='left')S.forEach(i=>map[i.id]={x:L});if(k==='right')S.forEach(i=>map[i.id]={x:R-g[i.id].w});if(k==='center')S.forEach(i=>map[i.id]={x:Math.round((L+R)/2-g[i.id].w/2)});
@@ -36940,52 +37022,75 @@ function MemoBoard({docKey,board,onChange}){
     if(k==='front'){let z=topZ();S.forEach(i=>map[i.id]={z:z++});}
     if(k==='back'){const mn=Math.min(0,...itemsRef.current.map(i=>i.z||0))-S.length;S.forEach((i,n)=>map[i.id]={z:mn+n});}
     commit(itemsRef.current.map(i=>map[i.id]?{...i,...map[i.id]}:i));};
-  const delSel=()=>{commit(itemsRef.current.filter(i=>!sel.includes(i.id)));setSel([]);};
-  const editing=()=>{const a=document.activeElement;return a&&a.isContentEditable&&wrap.current&&wrap.current.contains(a);};
+  const delSel=()=>{commit(itemsRef.current.filter(i=>!sel.includes(i.id)));setSel([]);setAct(null);};
+  const editing=()=>{const a=document.activeElement;return !!(a&&a.isContentEditable&&wrap.current&&wrap.current.contains(a));};
   const onKey=e=>{if(editing())return;
     if((e.key==='Delete'||e.key==='Backspace')&&sel.length){e.preventDefault();delSel();return;}
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='a'){e.preventDefault();setSel(itemsRef.current.map(i=>i.id));return;}
     const d={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];
     if(d&&sel.length){e.preventDefault();const st=e.shiftKey?10:1;commit(itemsRef.current.map(i=>sel.includes(i.id)?{...i,x:Math.max(0,i.x+d[0]*st),y:Math.max(0,i.y+d[1]*st)}:i));}};
-  const onPaste=e=>{const fs=[...((e.clipboardData&&e.clipboardData.files)||[])].filter(f=>/^image\//.test(f.type));
-    if(fs.length&&!(e.clipboardData.getData('text/html'))){e.preventDefault();addImgs(fs);}};
-  const fmt=(cmd,v)=>{if(!editing())return;try{document.execCommand('styleWithCSS',false,/Color$/.test(cmd));}catch(_){}document.execCommand(cmd,false,v);};
-  const H=Math.max(520,...shown.map(i=>i.y+(i.type==='img'?i.w:200)+120));const W=Math.max(0,...shown.map(i=>i.x+i.w+40));
+  /* 상자 복사 — 엑셀에는 표(탭으로 나눈 글), 다른 메모 보드에는 상자 그대로 */
+  const onCopy=e=>{if(editing()||!sel.length)return;const S=itemsRef.current.filter(i=>sel.includes(i.id)).sort((a,b)=>a.y-b.y||a.x-b.x);
+    const x0=Math.min(...S.map(i=>i.x)),y0=Math.min(...S.map(i=>i.y));
+    const pack=S.map(({id,stk,ord,...i})=>({...i,x:i.x-x0,y:i.y-y0}));
+    const plain=S.map(i=>{if(i.type==='img')return '';const d=document.createElement('div');d.innerHTML=i.html||'';const t=d.querySelector('table');
+      if(t&&!htmlToText((i.html||'').replace(/<table[\s\S]*<\/table>/i,'')).trim())return [...t.rows].map(r=>[...r.cells].map(c=>cellText(c).replace(/[\t\n]/g,' ')).join('\t')).join('\n');
+      return htmlToText(i.html||'');}).filter(Boolean).join('\n\n');
+    const html='<div data-memo-board="'+btoa(unescape(encodeURIComponent(JSON.stringify(pack))))+'">'+S.map(i=>i.type==='img'?'':i.html||'').join('<br>')+'</div>';
+    e.clipboardData.setData('text/plain',plain);e.clipboardData.setData('text/html',html);e.preventDefault();BD_CLIP={plain,pack};
+    if(e.type==='cut')delSel();};
+  const onPaste=e=>{if(e.defaultPrevented||editing())return;const cd=e.clipboardData;if(!cd)return;
+    const h=cd.getData('text/html')||'';const fs=[...(cd.files||[])].filter(f=>/^image\//.test(f.type));
+    const at=nextPos();
+    const mb=/data-memo-board="([^"]+)"/.exec(h);const mine=BD_CLIP&&cd.getData('text/plain')===BD_CLIP.plain;
+    if(mb||mine){e.preventDefault();let pack=mine?BD_CLIP.pack:[];if(mb)try{pack=JSON.parse(decodeURIComponent(escape(atob(mb[1]))));}catch(_){}
+      let z=topZ();const news=pack.map(i=>({...i,id:uid(),x:sn(at.x+i.x),y:sn(at.y+i.y),z:z++}));
+      last.current={x:at.x+24,y:at.y+24};commit([...itemsRef.current,...news]);setSel(news.map(i=>i.id));return;}
+    if(fs.length&&!h){e.preventDefault();addImgs(fs);return;}
+    const grid=clipGrid(cd);
+    if(grid&&(grid.length>1||grid[0].length>1)){e.preventDefault();const cols=Math.max(...grid.map(r=>r.length));
+      add('table',{html:bdGridHtml(grid.map(r=>{const x=r.slice();while(x.length<cols)x.push('');return x;})),w:Math.min(900,Math.max(240,cols*110))});return;}
+    if(h){e.preventDefault();add('text',{html:rnClean(h,false)});return;}
+    const t=cd.getData('text/plain');if(t&&t.trim()){e.preventDefault();add('text',{html:'<p>'+escH(t).replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>')+'</p>'});}};
+  const H=Math.max(420,bottom+160,...shown.map(i=>i.stk?0:i.y+80));const W=Math.max(0,...shown.map(i=>i.x+i.w+40));
   const Bt=({t,on,title,dis})=><button type="button" title={title} disabled={dis} onMouseDown={x=>x.preventDefault()} onClick={on} style={dis?{opacity:.35,cursor:'default'}:undefined}>{t}</button>;
-  const many=sel.length>1;
+  const many=sel.length>1;const actIt=shown.find(i=>i.id===act&&i.type!=='img');
   return <div>
-    <div className="rn-tb">
-      <Bt t="＋ 글상자" title="글상자 넣기" on={()=>add('text')}/><Bt t="＋ 표" title="표 넣기 (스프레드시트처럼 편집)" on={()=>add('table')}/>
-      <Bt t="＋ 이미지" title="이미지 넣기 (Ctrl+V로 붙여넣어도 됩니다)" on={()=>fileIn.current&&fileIn.current.click()}/>
-      <span className="sep"/>
-      <Bt t={<b>B</b>} title="굵게" on={()=>fmt('bold')}/><Bt t={<i>I</i>} title="기울임" on={()=>fmt('italic')}/><Bt t={<u>U</u>} title="밑줄" on={()=>fmt('underline')}/>
-      <Bt t={<span style={{borderBottom:'3px solid #dc2626'}}>A</span>} title="빨간 글자" on={()=>fmt('foreColor','#dc2626')}/>
-      <Bt t={<span style={{background:'#fef08a',padding:'0 3px'}}>A</span>} title="형광펜" on={()=>fmt('hiliteColor','#fef08a')}/>
-      <Bt t="•≡" title="글머리 목록" on={()=>fmt('insertUnorderedList')}/>
-      <span className="sep"/>
-      <Bt t="⇤" title="왼쪽 맞춤 (2개 이상 선택)" dis={!many} on={()=>align('left')}/><Bt t="↔" title="가운데 맞춤" dis={!many} on={()=>align('center')}/><Bt t="⇥" title="오른쪽 맞춤" dis={!many} on={()=>align('right')}/>
-      <Bt t="⤒" title="위쪽 맞춤" dis={!many} on={()=>align('top')}/><Bt t="↕" title="가운데(세로) 맞춤" dis={!many} on={()=>align('middle')}/><Bt t="⤓" title="아래쪽 맞춤" dis={!many} on={()=>align('bottom')}/>
-      <Bt t="⟷" title="가로 간격 같게 (3개 이상)" dis={sel.length<3} on={()=>align('hgap')}/><Bt t="⇳" title="세로 간격 같게 (3개 이상)" dis={sel.length<3} on={()=>align('vgap')}/>
-      <span className="sep"/>
-      <Bt t="앞으로" title="맨 앞으로" dis={!sel.length} on={()=>align('front')}/><Bt t="뒤로" title="맨 뒤로" dis={!sel.length} on={()=>align('back')}/>
-      <Bt t="🗑" title="고른 것 지우기 (Delete)" dis={!sel.length} on={delSel}/>
-      <label style={{fontSize:12,color:'var(--text-muted)',marginLeft:6,display:'inline-flex',alignItems:'center',gap:3,cursor:'pointer'}}>
-        <input type="checkbox" checked={snap} onChange={x=>setSnap(x.target.checked)}/>격자 맞춤</label>
-      {busy&&<span style={{fontSize:12,color:/^⚠/.test(busy)?'var(--color-danger)':'var(--text-muted)',marginLeft:6}}>{busy}</span>}
-      {sel.length>0&&<span style={{fontSize:12,color:'var(--text-muted)',marginLeft:'auto'}}>{sel.length}개 선택</span>}
+    <div className="rn-tb" style={{position:'sticky',top:-18,zIndex:3,flexDirection:'column',alignItems:'stretch',gap:0}}>
+      <div style={{display:'flex',flexWrap:'wrap',gap:2,alignItems:'center'}}>
+        <Bt t="＋ 글상자" title="글상자 넣기" on={()=>add('text')}/><Bt t="＋ 표" title="표 넣기 (스프레드시트처럼 편집)" on={()=>add('table')}/>
+        <Bt t="＋ 이미지" title="이미지 넣기 (Ctrl+V로 붙여넣어도 됩니다)" on={()=>fileIn.current&&fileIn.current.click()}/>
+        <span className="sep"/>
+        <Bt t="⇤" title="왼쪽 맞춤 (2개 이상 선택)" dis={!many} on={()=>align('left')}/><Bt t="↔" title="가운데 맞춤" dis={!many} on={()=>align('center')}/><Bt t="⇥" title="오른쪽 맞춤" dis={!many} on={()=>align('right')}/>
+        <Bt t="⤒" title="위쪽 맞춤" dis={!many} on={()=>align('top')}/><Bt t="↕" title="가운데(세로) 맞춤" dis={!many} on={()=>align('middle')}/><Bt t="⤓" title="아래쪽 맞춤" dis={!many} on={()=>align('bottom')}/>
+        <Bt t="⟷" title="가로 간격 같게 (3개 이상)" dis={sel.length<3} on={()=>align('hgap')}/><Bt t="⇳" title="세로 간격 같게 (3개 이상)" dis={sel.length<3} on={()=>align('vgap')}/>
+        <span className="sep"/>
+        <Bt t="앞으로" title="맨 앞으로" dis={!sel.length} on={()=>align('front')}/><Bt t="뒤로" title="맨 뒤로" dis={!sel.length} on={()=>align('back')}/>
+        <Bt t="🗑" title="고른 상자 지우기 (Delete)" dis={!sel.length} on={delSel}/>
+        <label style={{fontSize:12,color:'var(--text-muted)',marginLeft:6,display:'inline-flex',alignItems:'center',gap:3,cursor:'pointer'}}>
+          <input type="checkbox" checked={snap} onChange={x=>setSnap(x.target.checked)}/>격자 맞춤</label>
+        {busy&&<span style={{fontSize:12,color:/^⚠/.test(busy)?'var(--color-danger)':'var(--text-muted)',marginLeft:6}}>{busy}</span>}
+        {sel.length>0&&<span style={{fontSize:12,color:'var(--text-muted)',marginLeft:'auto'}}>{sel.length}개 선택 · Ctrl+C 복사</span>}
+      </div>
+      <div ref={setTbHost} className="bd-tbh" style={{borderTop:'1px solid var(--border-default)'}}/>
     </div>
-    <div ref={wrap} className="bd-wrap" tabIndex={0} onMouseDown={onWrapDown} onKeyDown={onKey} onPaste={onPaste}
-      onDragOver={e=>e.preventDefault()} onDrop={e=>{const fs=e.dataTransfer&&e.dataTransfer.files;if(fs&&fs.length){e.preventDefault();
+    <div ref={wrap} className="bd-wrap" tabIndex={0} onMouseDown={onWrapDown} onKeyDown={onKey} onPaste={onPaste} onCopy={onCopy} onCut={onCopy}
+      onDragOver={e=>e.preventDefault()} onDrop={e=>{const fs=e.dataTransfer&&e.dataTransfer.files;if(fs&&fs.length&&!editing()){e.preventDefault();
         const b=wrap.current.getBoundingClientRect();last.current={x:e.clientX-b.left+wrap.current.scrollLeft,y:e.clientY-b.top+wrap.current.scrollTop};addImgs(fs);}}}
-      style={{height:Math.min(H,900),minHeight:420,marginTop:8,outline:'none'}}>
-      <div style={{position:'relative',width:W||'100%',height:H,pointerEvents:'none'}}/>
-      {!shown.length&&<div style={{position:'absolute',left:0,right:0,top:150,textAlign:'center',color:'var(--text-label)',fontSize:13,pointerEvents:'none',lineHeight:1.8}}>
-        위 단추로 글상자·표·이미지를 넣고, ⠿ 손잡이를 끌어 원하는 곳에 놓으세요<br/>복사한 이미지는 빈 곳을 누른 뒤 Ctrl+V</div>}
+      style={{height:H,marginTop:8,outline:'none'}}>
+      <div className="bd-pad" style={{position:'relative',width:W||'100%',height:H-2}}/>
+      {!shown.length&&<div style={{position:'absolute',left:0,right:0,top:120,textAlign:'center',color:'var(--text-label)',fontSize:13,pointerEvents:'none',lineHeight:1.8}}>
+        위 단추로 글상자·표·이미지를 넣고, ⠿ 손잡이를 끌어 원하는 곳에 놓으세요<br/>빈 곳을 누른 뒤 Ctrl+V — 엑셀 범위는 표로, 이미지는 이미지로, 글은 글상자로 들어갑니다</div>}
       {shown.slice().sort((a,b)=>(a.z||0)-(b.z||0)).map(it=><div key={it.id} data-bd={it.id} className={'bd-it'+(sel.includes(it.id)?' on':'')}
-          style={{left:it.x,top:it.y,width:it.w,zIndex:10+(it.z||0)}}
-          onMouseDown={e=>{e.stopPropagation();if(e.shiftKey){e.preventDefault();setSel(s=>s.includes(it.id)?s.filter(x=>x!==it.id):[...s,it.id]);}else if(!sel.includes(it.id)||sel.length>1)setSel([it.id]);
-            if(it.type==='img'){e.preventDefault();startDrag(e,'move',it.id);}}}>
-        <div className="bd-grip" onMouseDown={e=>startDrag(e,'move',it.id)} title="끌어서 옮기기">⠿ {it.type==='text'?'글':it.type==='table'?'표':'이미지'}</div>
-        <BdContent it={it} onHtml={h=>patch(it.id,{html:h})}/>
+          style={{left:it.x,top:it.stk?0:it.y,width:it.w,zIndex:10+(it.z||0),visibility:it.stk?'hidden':undefined}}
+          onFocus={()=>setAct(it.id)}
+          onMouseDown={e=>{e.stopPropagation();if(e.shiftKey){e.preventDefault();setSel(s=>s.includes(it.id)?s.filter(x=>x!==it.id):[...s,it.id]);return;}
+            if(!sel.includes(it.id)||sel.length>1)setSel([it.id]);
+            if(it.type==='img'){e.preventDefault();setAct(null);startDrag(e,'move',it.id);}}}>
+        <div className="bd-grip" onMouseDown={e=>startDrag(e,'move',it.id)} title="끌어서 옮기기 · 누르고 Ctrl+C로 상자 복사">⠿ {it.type==='img'?'이미지':it.grp==='minutes'?'회의록':it.type==='table'?'표':'글'}</div>
+        {it.type==='img'?<BdImg it={it}/>
+          :<RichNote docKey={it.id} html={it.html||''} compact tbHost={tbHost} active={!!actIt&&actIt.id===it.id}
+              placeholder={it.type==='table'?'표':'글을 입력하세요 · 「/」로 블록 넣기'} onChange={h=>{if(h!==(itemsRef.current.find(x=>x.id===it.id)||{}).html)patch(it.id,{html:h});}}/>}
         <div className="bd-rs" onMouseDown={e=>startDrag(e,'size',it.id)} title="끌어서 너비 조절"/>
       </div>)}
       {mq&&<div className="bd-mq" style={{left:mq.x,top:mq.y,width:mq.w,height:mq.h}}/>}
@@ -36994,7 +37099,7 @@ function MemoBoard({docKey,board,onChange}){
   </div>;
 }
 
-Object.assign(window,{MemoBoard,bdText,Files,RichNote,mdToHtml,htmlToText,rnClean,noteHtmlOf,shrinkImage,escH});
+Object.assign(window,{MemoBoard,bdText,boardOf,boardToMd,htmlToMd,bdAppend,bdPutMinutes,bdHasMinutes,minutesToItems,Files,RichNote,mdToHtml,htmlToText,rnClean,noteHtmlOf,shrinkImage,escH});
 </script>
 
 <script type="text/babel">/* ── 회의 녹음 · 통역 · 회의록 ─────────────────────────────────────
@@ -37458,7 +37563,7 @@ async function makeMinutes(ev,onStep){
   const recs=ev.tbrec||[];const parts=[];
   for(let i=0;i<recs.length;i++){onStep&&onStep('녹취 불러오는 중 '+(i+1)+'/'+recs.length);
     const r=await Store.getTbrec(recs[i].id);if(r&&r.md){const t=tbrecText(r.md).trim();if(t)parts.push((recs.length>1?'### 녹취 '+(i+1)+' — '+(recs[i].title||'')+'\n':'')+t);}}
-  const memo=[(ev.notes||'').trim(),(ev.boardText||'').trim()].filter(Boolean).join('\n');
+  const memo=((ev.board&&ev.board.merged?boardToMd((ev.board.items||[]).filter(i=>i.grp!=='minutes')):'')||htmlToText(noteHtmlOf(ev))||'').trim();
   if(!parts.length&&!memo)throw new Error('정리할 내용이 없습니다 — 먼저 녹음하거나 통번역 기록을 붙이세요');
   let text=parts.join('\n\n');
   const when=ev.date+(ev.start?' '+ev.start+(ev.end?'~'+ev.end:''):'');
@@ -37553,9 +37658,9 @@ function downloadDocx(md,name){
 /* 일정 상세의 회의록 칸 */
 function MinutesBox({e,setE,toast}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
-  const [busy,setBusy]=React.useState('');const [err,setErr]=React.useState('');const [edit,setEdit]=React.useState(false);
-  const has=!!(e.minutes||'').trim();const src=(e.tbrec||[]).length;
-  const make=async full=>{if(has&&!window.confirm('지금 회의록을 새로 만든 것으로 바꿉니다. 계속할까요?'))return;
+  const [busy,setBusy]=React.useState('');const [err,setErr]=React.useState('');
+  const has=bdHasMinutes(boardOf(e));const src=(e.tbrec||[]).length;
+  const make=async full=>{if(has&&!window.confirm('메모에 있는 회의록 상자를 새로 만든 것으로 바꿉니다. 계속할까요?'))return;
     setErr('');setBusy('준비 중…');
     try{await MeetCfg.load();
       /* 녹음으로 다시 받아쓰기 — 실시간 자막보다 정확하다. 녹음이 없는 기록은 건너뛴다 */
@@ -37563,22 +37668,20 @@ function MinutesBox({e,setE,toast}){
         for(let i=0;i<list.length;i++){try{await retranscribeRec(list[i].id,t=>setBusy((list.length>1?'기록 '+(i+1)+'/'+list.length+' · ':'')+t));n++;}
           catch(x){if(!/녹음 파일이 없습니다/.test(x.message))throw x;}}
         if(!n)throw new Error('붙은 기록에 녹음 파일이 없습니다 — 「📁 녹음 파일로 회의록」으로 파일을 올려 주세요');}
-      const md=await makeMinutes(e,setBusy);setE(p=>({...p,minutes:md,minutesAt:nowStamp()}));setEdit(false);toast&&toast('📝 회의록을 만들었습니다');}
+      const md=await makeMinutes(e,setBusy);setE(p=>({...p,minutes:md,minutesAt:nowStamp(),board:bdPutMinutes(boardOf(p),md)}));
+      toast&&toast('📝 회의록을 아래 메모에 넣었습니다 — 바로 고칠 수 있습니다');}
     catch(x){setErr(x.message);}setBusy('');};
+  /* 워드 — 메모 보드 전체를 위에서 아래 순서로 */
+  const word=()=>{const md=boardToMd(boardOf(e).items);if(!md.trim()){toast&&toast('메모가 비어 있습니다');return;}
+    downloadDocx(md,(e.title||'회의')+(has?' 회의록 ':' 메모 ')+(e.date||''));};
   return <div style={{width:'100%'}}>
     <div style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center'}}>
-      <Button size="sm" variant={has?'ghost':undefined} disabled={!!busy} onClick={()=>make(false)} title="붙은 녹음·통번역 기록과 메모로 회의록을 만듭니다(Claude)">{busy?'⏳ '+busy:has?'↻ 다시 만들기':'✨ 회의록 만들기'}</Button>
+      <Button size="sm" variant={has?'ghost':undefined} disabled={!!busy} onClick={()=>make(false)} title="붙은 녹음·통번역 기록과 메모로 회의록을 만들어 아래 메모에 넣습니다(Claude)">{busy?'⏳ '+busy:has?'↻ 다시 만들기':'✨ 회의록 만들기'}</Button>
       {src>0&&!busy&&<Button size="sm" variant="ghost" onClick={()=>make(true)} title="붙은 기록의 녹음 파일을 처음부터 다시 받아쓰고(더 정확) 다듬은 뒤 회의록을 만듭니다">🎧 녹음으로 다시 전사 후 회의록</Button>}
-      {has&&<><Button size="sm" onClick={()=>downloadDocx(e.minutes,(e.title||'회의')+' 회의록 '+(e.date||''))}>📄 워드로 저장</Button>
-        <Button size="sm" variant="ghost" onClick={()=>setEdit(v=>!v)}>{edit?'미리보기':'✎ 고치기'}</Button></>}
-      {!has&&!busy&&<span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>{src?'붙은 기록 '+src+'건 + 메모로 만듭니다':'녹음하거나 통번역 기록을 붙이면 그 내용으로, 없으면 메모로 만듭니다'}</span>}
+      {!busy&&<Button size="sm" variant={has?undefined:'ghost'} onClick={word} title="아래 메모(회의록 포함)를 위에서 아래 순서로 워드 문서로 저장합니다">📄 워드로 저장</Button>}
+      {!busy&&<span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>{has?'회의록은 아래 메모에 들어 있습니다 — 그 자리에서 고치세요':src?'붙은 기록 '+src+'건 + 메모로 만듭니다':'녹음하거나 통번역 기록을 붙이면 그 내용으로, 없으면 메모로 만듭니다'}</span>}
     </div>
     {err&&<div style={{fontSize:'var(--fs-sm)',color:'var(--color-danger)',marginTop:4}}>⚠ {err}</div>}
-    {has&&(edit
-      ? <textarea value={e.minutes} onChange={x=>{const v=x.target.value;setE(p=>({...p,minutes:v}));}} rows={18}
-          style={{...inputStyle,width:'100%',marginTop:6,fontFamily:'var(--font-num),monospace',fontSize:13,lineHeight:1.55}}/>
-      : <div className="rn-ed" style={{marginTop:6,minHeight:0,padding:'8px 12px',border:'1px solid var(--border-default)',borderRadius:4,maxHeight:460,overflowY:'auto',fontSize:14}}
-          dangerouslySetInnerHTML={{__html:mdToHtml(e.minutes)}}/>)}
   </div>;
 }
 /* 녹음 파일로 기록 만들기 → 일정에 붙이기 → 회의록까지 (창을 닫아도 끝까지 간다) */
@@ -37588,7 +37691,7 @@ async function fileToMinutes(file,lang,ev){
     const link={id:rec.id,title:rec.title,created:rec.created};
     window.dispatchEvent(new CustomEvent('meet-linked',{detail:{eventId:ev.id,link}}));
     const cur={...ev,tbrec:[...(ev.tbrec||[]).filter(r=>r.id!==link.id),link]};
-    if(!(ev.minutes||'').trim()||window.confirm('녹음 전사를 마쳤습니다. 지금 회의록을 새 내용으로 바꿀까요?')){
+    if(!(ev.minutes||'').trim()&&!bdHasMinutes(ev.board)||window.confirm('녹음 전사를 마쳤습니다. 메모에 있는 회의록을 새 내용으로 바꿀까요?')){
       const md=await makeMinutes(cur,set);
       window.dispatchEvent(new CustomEvent('meet-minutes',{detail:{eventId:ev.id,md}}));}
     set('');return true;}
@@ -37666,9 +37769,9 @@ function CalendarView({db,setDb,st,set,toast,slots}){
   React.useEffect(()=>{const on=x=>{const {eventId,link}=x.detail||{};if(!eventId)return;
       setDb('events',arr=>arr.map(e=>e.id===eventId?{...e,tbrec:[...(e.tbrec||[]).filter(r=>r.id!==link.id),link],tbrecOff:(e.tbrecOff||[]).filter(id=>id!==link.id)}:e));};
     const split=x=>{const ev=x.detail;if(!ev)return;
-      const one={...ev,id:uid(),date:todayISO(),dateEnd:'',repeat:'none',notes:'',notesHtml:'',notesAt:'',tbrec:[],tbrecOff:[],minutes:'',minutesAt:''};
+      const one={...ev,id:uid(),date:todayISO(),dateEnd:'',repeat:'none',notes:'',notesHtml:'',notesAt:'',tbrec:[],tbrecOff:[],minutes:'',minutesAt:'',board:{items:[],merged:true},boardText:''};
       save(one);set({edit:one});toast('오늘 회차 일정을 따로 만들었습니다 — 여기서 녹음하세요');};
-    const mm=x=>{const {eventId,md}=x.detail||{};if(eventId)setDb('events',arr=>arr.map(e=>e.id===eventId?{...e,minutes:md,minutesAt:nowStamp()}:e));};
+    const mm=x=>{const {eventId,md}=x.detail||{};if(eventId)setDb('events',arr=>arr.map(e=>e.id===eventId?{...e,minutes:md,minutesAt:nowStamp(),board:bdPutMinutes(boardOf(e),md)}:e));};
     window.addEventListener('meet-linked',on);window.addEventListener('meet-split',split);window.addEventListener('meet-minutes',mm);
     return()=>{window.removeEventListener('meet-linked',on);window.removeEventListener('meet-split',split);window.removeEventListener('meet-minutes',mm);};},[]);
   /* 통번역 기록 자동 연결 — 앱을 열 때와 다시 볼 때 */
@@ -38145,7 +38248,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
   /* 이 창에서 녹음한 기록이 저장되면 열려 있는 일정에도 바로 붙인다 */
   React.useEffect(()=>{const on=x=>{const {eventId,link}=x.detail||{};
       setE(p=>p&&p.id===eventId?{...p,tbrec:[...(p.tbrec||[]).filter(r=>r.id!==link.id),link]}:p);};
-    const mm=x=>{const {eventId,md}=x.detail||{};setE(p=>p&&p.id===eventId?{...p,minutes:md,minutesAt:nowStamp()}:p);};
+    const mm=x=>{const {eventId,md}=x.detail||{};setE(p=>p&&p.id===eventId?{...p,minutes:md,minutesAt:nowStamp(),board:bdPutMinutes(boardOf(p),md)}:p);};
     window.addEventListener('meet-linked',on);window.addEventListener('meet-minutes',mm);
     return()=>{window.removeEventListener('meet-linked',on);window.removeEventListener('meet-minutes',mm);};},[]);
   const flush=cur=>{clearTimeout(timer.current);const j=JSON.stringify(cur);
@@ -38159,8 +38262,8 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
     const sum=mdSection(md,'정리·번역')||mdSection(md,'정리');
     const when=localStamp(rec.created);
     const add=sum?'### 🎙 '+rec.title+(when?' · '+when:'')+'\n'+sum:'';
-    setE(p=>{const h=add?noteHtmlOf(p)+mdToHtml(add):null;
-      return tbNamed({...p,...(h!=null?{notesHtml:h,notes:htmlToText(h)}:{}),tbrecOff:(p.tbrecOff||[]).filter(x=>x!==rec.id),
+    setE(p=>{const b=add?bdAppend(boardOf(p),[{type:'text',grp:'tbrec',html:mdToHtml(add)}]):null;
+      return tbNamed({...p,...(b?{board:b}:{}),tbrecOff:(p.tbrecOff||[]).filter(x=>x!==rec.id),
         tbrec:[...(p.tbrec||[]).filter(x=>x.id!==rec.id),{id:rec.id,title:rec.title,created:rec.created||''}]});});
     if(add)setRev(r=>r+1);};
   /* 끊은 기록은 tbrecOff 에 남겨 자동 연결이 다시 붙이지 않게 한다 */
@@ -38220,18 +38323,8 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
             </div>}
           </div>
         </PRow>
-        <div style={{marginTop:16,display:'flex',alignItems:'center',gap:8,fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>📝 메모
-          <span style={{display:'inline-flex',border:'1px solid var(--border-strong)',borderRadius:5,overflow:'hidden'}}>
-            {[['doc','📄 문서'],['board','🧩 보드']].map(([k,t])=>{const on=(e.memoMode||'doc')===k;return <button key={k} type="button" onClick={()=>setE(p=>({...p,memoMode:k}))}
-              title={k==='doc'?'위에서 아래로 쓰는 문서형 메모':'글상자·표·이미지를 그림판처럼 자유롭게 놓는 메모'}
-              style={{border:0,padding:'2px 9px',fontSize:12,cursor:'pointer',background:on?'var(--text-body)':'#fff',color:on?'#fff':'var(--text-muted)'}}>{t}</button>;})}
-          </span>
-          {(e.memoMode||'doc')==='doc'&&(e.board&&e.board.items&&e.board.items.length>0)&&<span style={{fontSize:11}}>보드에도 {e.board.items.length}개가 있습니다</span>}
-          {e.memoMode==='board'&&(e.notes||'').trim()&&<span style={{fontSize:11}}>문서 메모도 따로 있습니다</span>}
-        </div>
-        {e.memoMode==='board'
-          ? <MemoBoard docKey={e.id} board={e.board} onChange={(b,txt)=>setE(p=>({...p,board:b,boardText:txt}))}/>
-          : <RichNote docKey={e.id+':'+rev} html={noteHtmlOf(e)} onChange={(h,txt)=>setE(p=>({...p,notesHtml:h,notes:txt}))}/>}
+        <div style={{marginTop:16,fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>📝 메모 <span style={{fontSize:11}}>· 글상자·표·이미지를 끌어 자유롭게 배치 · 엑셀 범위는 빈 곳에 Ctrl+V</span></div>
+        <MemoBoard docKey={e.id+':'+rev} board={boardOf(e)} onChange={(b,txt)=>setE(p=>({...p,board:b,boardText:txt,notes:txt}))}/>
       </div>
       <div style={{padding:'10px 14px',borderTop:'1px solid var(--border-default)',display:'flex',alignItems:'center',justifyContent:'flex-end',gap:8}}>
         <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>{!(e.title||'').trim()?'제목을 넣으면 자동 저장됩니다':savedAt?'✓ 자동 저장됨 · '+savedAt:'입력하면 자동 저장됩니다'}</span>
@@ -38242,7 +38335,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.2.2';
+const APP_VERSION='v2.3';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
