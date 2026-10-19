@@ -35808,7 +35808,8 @@ const Store={
      행 단위 저장(pms_items)이 아니면 null 을 돌려주고, 그때는 통째로 다시 불러온다 */
   async pull(since){
     if(this.mode!=='supabase'||!this.rowMode)return null;
-    let q=this.sb.from('pms_items').select('kind,item_id,data,deleted_at,updated_at').eq('user_id',this.user.id);
+    /* 일정만 — 같은 테이블의 통번역 기록(tbrec)·옛 메일·노트까지 '바뀐 것'으로 세지 않게 */
+    let q=this.sb.from('pms_items').select('kind,item_id,data,deleted_at,updated_at').eq('user_id',this.user.id).in('kind',KINDS);
     if(since)q=q.gt('updated_at',since);
     const {data,error}=await q;
     if(error){if(isMissingTable(error))return null;throw new Error(explainSbError(error));}
@@ -36999,7 +37000,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v1.5';
+const APP_VERSION='v1.6';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
