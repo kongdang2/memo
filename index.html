@@ -37685,9 +37685,114 @@ function downloadDocx(md,name){
   setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},1500);}
 
 /* 일정 상세의 회의록 칸 */
+/* ── 출력: 보드는 메모장처럼 자유롭게 두고, 출력할 때만 양식에 맞춰 정리한다 ──
+   양식을 고르면 Claude 가 보드의 흩어진 내용을 다듬어 양식의 절에 채운다. 결과는 미리보기에서 바로 고치고
+   인쇄(PDF)·워드로 내보낸다. 「원본 그대로」는 상자를 읽는 순서로 세우고 뺄 상자만 고른다 */
+const PRINT_TPLS=[
+  {id:'meeting',label:'회의록',md:'# 회의록 · {제목}\n\n| 항목 | 내용 |\n|---|---|\n| 일시 | {일시} |\n| 장소 | (메모에 있으면) |\n| 참석자 | (메모에 있으면) |\n\n## 1. 회의 목적\n## 2. 주요 논의 내용\n(주제별 ### 소제목 아래 개조식)\n## 3. 결정 사항\n## 4. 향후 조치\n| 할 일 | 담당 | 기한 |\n|---|---|---|\n## 5. 참고 자료\n(링크·자료 위치)'},
+  {id:'report',label:'업무 보고',md:'# {제목}\n\n> 작성일 {날짜}\n\n## 1. 요약\n(3~5줄 개조식)\n## 2. 배경 및 목적\n## 3. 현황 및 주요 내용\n(주제별 ### 소제목, 표·수치는 표로)\n## 4. 이슈 및 검토 의견\n## 5. 향후 계획\n## 6. 참고 자료'},
+  {id:'seminar',label:'세미나·출장 정리',md:'# {제목}\n\n| 항목 | 내용 |\n|---|---|\n| 일시 | {일시} |\n| 장소·주최 | (메모에 있으면) |\n| 발표자 | (메모에 있으면) |\n\n## 1. 핵심 요약\n(3~5줄 개조식)\n## 2. 주요 내용\n(발표 순서·주제별 ### 소제목)\n## 3. 주요 수치·전망\n(표로)\n## 4. 시사점\n(메모에 근거가 있을 때만)\n## 5. 참고 자료'},
+  {id:'free',label:'일반 정리',md:'# {제목}\n\n## 요약\n(3~5줄 개조식)\n## 본문\n(주제별 ### 소제목)\n## 참고 자료'}];
+const PRINT_SYS='너는 석유화학 회사의 업무 문서 작성자다. 사용자가 메모장처럼 흩어 적은 메모(글·표·녹취·회의록)를 정해진 양식의 깔끔한 업무 문서로 정리한다.\n'
+  +'- 양식의 제목·절 순서·절 이름을 그대로 지킨다. 절을 더하거나 빼지 않는다\n'
+  +'- 메모에 실제로 있는 내용만 쓴다. 없는 사실·숫자·참석자를 지어내지 않는다. 해당 내용이 없는 절은 「- 해당 없음」\n'
+  +'- 숫자·단위·기한은 정확히 옮긴다. 메모의 표는 필요한 행·열을 살려 마크다운 표로 옮긴다\n'
+  +'- 같은 말이 여러 상자에 흩어져 있으면 한 곳에 합친다. 문장은 「~함」「~임」 개조식으로 짧게\n'
+  +'- 링크(URL)는 「참고 자료」에 그대로 둔다\n- 마크다운만 출력한다(앞뒤 설명·코드블록 금지)';
+async function fillTemplate(ev,tpl,onStep){
+  onStep&&onStep('메모 읽는 중…');
+  const items=boardOf(ev).items||[];let memo=boardToMd(items).trim();
+  const recs=ev.tbrec||[];const rs=[];
+  if(!items.some(i=>i.grp==='minutes'))for(const r0 of recs){try{const r=await Store.getTbrec(r0.id);const t=r&&r.md?tbrecText(r.md).trim():'';if(t)rs.push(t.slice(0,8000));}catch(_){}}
+  const links=(ev.links||'').trim();
+  if(!memo&&!rs.length&&!links)throw new Error('정리할 메모가 없습니다');
+  const when=ev.date+(ev.start?' '+ev.start+(ev.end?'~'+ev.end:''):'');
+  onStep&&onStep('양식에 맞춰 정리하는 중…');
+  const out=await askClaude('아래 양식대로 문서를 써라. 괄호 안 설명은 지시문이므로 지우고 내용으로 채운다.\n\n--- 양식 ---\n'
+    +tpl.md.replace(/\{제목\}/g,ev.title||'').replace(/\{일시\}/g,when).replace(/\{날짜\}/g,ev.date||'')
+    +'\n\n--- 일정 정보 ---\n제목: '+(ev.title||'')+'\n일시: '+when+(ev.category?'\n분류: '+ev.category:'')
+    +(links?'\n관련 링크:\n'+links:'')
+    +(memo?'\n\n--- 보드 메모 (위에서 아래 순서) ---\n'+memo.slice(0,30000):'')
+    +(rs.length?'\n\n--- 붙은 녹취 ---\n'+rs.join('\n\n').slice(0,20000):''),
+    {system:PRINT_SYS,max_tokens:6000,tag:'일정 출력 정리'});
+  return String(out||'').replace(/^```(?:markdown|md)?\s*/,'').replace(/```\s*$/,'').trim();
+}
+const PRINT_CSS='@page{size:A4;margin:18mm 16mm}body{font-family:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif;font-size:10.5pt;line-height:1.6;color:#111;margin:0}'
+  +'h1{font-size:18pt;text-align:center;margin:0 0 14pt;padding-bottom:6pt;border-bottom:2px solid #222}h2{font-size:13pt;margin:16pt 0 6pt;padding-bottom:3pt;border-bottom:1px solid #999}'
+  +'h3{font-size:11pt;margin:10pt 0 4pt}p{margin:4pt 0}ul,ol{margin:4pt 0;padding-left:18pt}li{margin:2pt 0}'
+  +'table{border-collapse:collapse;width:100%;margin:6pt 0;font-size:9.5pt;page-break-inside:auto}th,td{border:1px solid #888;padding:3pt 6pt;vertical-align:top;text-align:left}th{background:#eef1f4}'
+  +'tr{page-break-inside:avoid}img{max-width:100%;height:auto;margin:6pt 0}blockquote{margin:4pt 0;padding-left:8pt;border-left:3px solid #ccc;color:#555}a{color:#1d4ed8;word-break:break-all}'
+  +'.pv-box{margin:0 0 10pt}hr{border:none;border-top:1px solid #bbb}';
+/* 미리보기 종이에도 같은 모양을 — 인쇄 규칙을 .pv-paper 안으로 좁힌다 */
+const PV_CSS=PRINT_CSS.split('}').filter(r=>r.trim()&&!/^@page/.test(r)).map(r=>{const [sel,body]=r.split('{');
+  return sel.split(',').map(x=>x.trim()==='body'?'.pv-paper':'.pv-paper '+x.trim()).join(',')+'{'+body+'}';}).join('')+'.pv-paper[contenteditable]:focus{outline:none}';
+function printHtml(html,title){
+  const f=document.createElement('iframe');f.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0';document.body.appendChild(f);
+  const d=f.contentDocument;d.open();d.write('<!doctype html><html><head><meta charset="utf-8"><title>'+xmlEsc(title||'출력')+'</title><style>'+PRINT_CSS+'</style></head><body>'+html+'</body></html>');d.close();
+  const imgs=[...d.images].filter(i=>!i.complete);
+  Promise.all(imgs.map(i=>new Promise(r=>{i.onload=i.onerror=r;setTimeout(r,8000);}))).then(()=>{
+    f.contentWindow.focus();f.contentWindow.print();setTimeout(()=>f.remove(),60000);});}
+function PrintPreview({e,setE,onClose,toast}){
+  const {Button}=window.HDWorkbookDesignSystem_ad60e4;
+  const items=React.useMemo(()=>(boardOf(e).items||[]).slice().sort((a,b)=>a.y-b.y||a.x-b.x),[e.board]);
+  const docs=e.printDocs||{};
+  const [tpl,setTpl]=React.useState(()=>localStorage.getItem('cal.printTpl')||(bdHasMinutes(e.board)||(e.tbrec||[]).length?'meeting':'free'));
+  const [busy,setBusy]=React.useState('');const [err,setErr]=React.useState('');const [off,setOff]=React.useState(()=>new Set());
+  const [urls,setUrls]=React.useState({});const [ver,setVer]=React.useState(0);const ed=React.useRef(null);
+  const raw=tpl==='raw';const T=PRINT_TPLS.find(t=>t.id===tpl);const cur=docs[tpl];
+  React.useEffect(()=>{items.filter(i=>i.type==='img'&&i.path&&!urls[i.path]).forEach(i=>Files.url(i.path).then(u=>setUrls(m=>({...m,[i.path]:u}))).catch(()=>{}));},[items]);
+  React.useEffect(()=>{const k=x=>{if(x.key==='Escape'){x.stopPropagation();onClose();}};window.addEventListener('keydown',k,true);return()=>window.removeEventListener('keydown',k,true);},[]);
+  const choose=id=>{setTpl(id);setErr('');try{localStorage.setItem('cal.printTpl',id);}catch(_){}};
+  const fill=async()=>{if(cur&&!window.confirm('지금 정리본을 새로 만든 것으로 바꿉니다. 직접 고친 내용도 사라집니다. 계속할까요?'))return;
+    setErr('');setBusy('준비 중…');
+    try{await MeetCfg.load();const md=await fillTemplate(e,T,setBusy);
+      setE(p=>({...p,printDocs:{...(p.printDocs||{}),[tpl]:{html:mdToHtml(md),at:nowStamp()}}}));setVer(v=>v+1);}
+    catch(x){setErr(x.message);}setBusy('');};
+  /* 미리보기에서 고친 내용은 일정에 저장된다(다음에 열어도 그대로) */
+  const t=React.useRef();
+  const edited=()=>{clearTimeout(t.current);const h=ed.current&&ed.current.innerHTML;t.current=setTimeout(()=>setE(p=>({...p,printDocs:{...(p.printDocs||{}),[tpl]:{...((p.printDocs||{})[tpl]||{}),html:h}}})),600);};
+  const boxHtml=i=>i.type==='img'?(urls[i.path]?'<img src="'+urls[i.path]+'">':''):(i.html||'');
+  const outHtml=()=>raw?items.filter(i=>!off.has(i.id)).map(i=>'<div class="pv-box">'+boxHtml(i)+'</div>').join('')
+    :(ed.current?ed.current.innerHTML:(cur&&cur.html)||'');
+  const name=(e.title||'메모')+(raw?'':' '+T.label.replace(/·/g,' '))+' '+(e.date||'');
+  const doPrint=()=>{const h=outHtml();if(!h.trim()){toast&&toast('출력할 내용이 없습니다');return;}printHtml(h,name);};
+  const doWord=()=>{const md=htmlToMd(outHtml());if(!md.trim()){toast&&toast('출력할 내용이 없습니다');return;}downloadDocx(md,name);};
+  const chip=(id,label)=><button key={id} type="button" onClick={()=>choose(id)} disabled={!!busy}
+    style={{border:'1px solid '+(tpl===id?'var(--text-body)':'var(--border-strong)'),background:tpl===id?'var(--text-body)':'#fff',color:tpl===id?'#fff':'var(--text-body)',
+      borderRadius:14,padding:'3px 11px',fontSize:'var(--fs-sm2)',cursor:'pointer',fontFamily:'inherit'}}>{label}{docs[id]&&id!=='raw'?' ✓':''}</button>;
+  return ReactDOM.createPortal(<div className="pv-wrap" style={{position:'fixed',inset:0,zIndex:100000,background:'#e9ebee',display:'flex',flexDirection:'column',fontFamily:'var(--font-sans)'}}>
+    <style>{PV_CSS}</style>
+    <div style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center',padding:'10px 16px',background:'#fff',borderBottom:'1px solid var(--border-default)'}}>
+      <strong style={{fontSize:'var(--fs-base)',marginRight:6}}>🖨 출력</strong>
+      <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>양식</span>
+      {PRINT_TPLS.map(x=>chip(x.id,x.label))}{chip('raw','원본 그대로')}
+      <span style={{flex:1}}/>
+      {!raw&&<Button size="sm" variant={cur?'ghost':undefined} disabled={!!busy} onClick={fill} title="보드의 메모·표·녹취를 Claude가 다듬어 이 양식에 채웁니다">{busy?'⏳ '+busy:cur?'↻ 다시 정리':'✨ Claude로 정리해 채우기'}</Button>}
+      <Button size="sm" disabled={!!busy||(!raw&&!cur)} onClick={doPrint}>🖨 인쇄·PDF</Button>
+      <Button size="sm" variant="ghost" disabled={!!busy||(!raw&&!cur)} onClick={doWord}>📄 워드</Button>
+      <Button size="sm" variant="ghost" onClick={onClose}>✕ 닫기</Button>
+    </div>
+    {err&&<div style={{padding:'6px 16px',color:'var(--color-danger)',fontSize:'var(--fs-sm)',background:'#fff'}}>⚠ {err}</div>}
+    <div style={{flex:1,overflow:'auto',padding:'20px 12px'}}>
+      <div style={{maxWidth:'210mm',margin:'0 auto 6px',fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>
+        {raw?'보드의 상자를 위→아래, 왼→오 순서로 세웠습니다. 빼고 싶은 상자는 왼쪽 체크를 끄세요. 보드는 바뀌지 않습니다.'
+          :cur?'정리본입니다 — 종이 위를 눌러 바로 고칠 수 있고, 고친 내용은 이 일정에 저장됩니다. 보드는 바뀌지 않습니다.'
+          :'「✨ Claude로 정리해 채우기」를 누르면 보드에 흩어진 내용을 다듬어 「'+T.label+'」 양식에 넣습니다.'}</div>
+      {raw?<div className="pv-paper" style={{width:'210mm',maxWidth:'100%',margin:'0 auto',background:'#fff',padding:'18mm 16mm',boxSizing:'border-box',boxShadow:'0 2px 10px rgba(0,0,0,.12)',minHeight:'297mm'}}>
+          {items.map(i=><div key={i.id} style={{position:'relative',opacity:off.has(i.id)?.3:1}}>
+            <input type="checkbox" checked={!off.has(i.id)} onChange={()=>setOff(s=>{const n=new Set(s);n.has(i.id)?n.delete(i.id):n.add(i.id);return n;})}
+              title="출력에 넣기/빼기" style={{position:'absolute',left:'-11mm',top:2,width:16,height:16,cursor:'pointer'}}/>
+            <div className="pv-box" dangerouslySetInnerHTML={{__html:boxHtml(i)||(i.type==='img'?'<p style="color:#999">이미지 불러오는 중…</p>':'')}}/></div>)}
+          {!items.length&&<p style={{color:'#999'}}>보드가 비어 있습니다</p>}</div>
+        :<div key={tpl+':'+ver} ref={ed} className="pv-paper" contentEditable={!!cur&&!busy} suppressContentEditableWarning onInput={edited}
+          dangerouslySetInnerHTML={{__html:cur?cur.html:'<p style="color:#999;text-align:center;margin-top:40mm">아직 정리본이 없습니다</p>'}}
+          style={{width:'210mm',maxWidth:'100%',margin:'0 auto',background:'#fff',padding:'18mm 16mm',boxSizing:'border-box',boxShadow:'0 2px 10px rgba(0,0,0,.12)',minHeight:'297mm'}}/>}
+    </div>
+  </div>,document.body);
+}
 function MinutesBox({e,setE,toast}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
-  const [busy,setBusy]=React.useState('');const [err,setErr]=React.useState('');
+  const [busy,setBusy]=React.useState('');const [err,setErr]=React.useState('');const [pv,setPv]=React.useState(false);
   const has=bdHasMinutes(boardOf(e));const src=(e.tbrec||[]).length;
   const make=async full=>{if(has&&!window.confirm('메모에 있는 회의록 상자를 새로 만든 것으로 바꿉니다. 계속할까요?'))return;
     setErr('');setBusy('준비 중…');
@@ -37700,16 +37805,14 @@ function MinutesBox({e,setE,toast}){
       const md=await makeMinutes(e,setBusy);setE(p=>({...p,minutes:md,minutesAt:nowStamp(),board:bdPutMinutes(boardOf(p),md)}));
       toast&&toast('📝 회의록을 아래 메모에 넣었습니다 — 바로 고칠 수 있습니다');}
     catch(x){setErr(x.message);}setBusy('');};
-  /* 워드 — 메모 보드 전체를 위에서 아래 순서로 */
-  const word=()=>{const md=boardToMd(boardOf(e).items);if(!md.trim()){toast&&toast('메모가 비어 있습니다');return;}
-    downloadDocx(md,(e.title||'회의')+(has?' 회의록 ':' 메모 ')+(e.date||''));};
   /* 녹음·통역 줄에 함께 놓이는 단추들 — 회의록은 녹음을 멈추면 저절로 만들어지므로,
      여기서는 통번역 앱 기록을 붙였을 때만 「회의록 만들기」를 보여 준다 */
   if(busy)return <span style={{fontSize:'var(--fs-sm2)',color:'var(--text-muted)'}}>⏳ {busy}</span>;
   return <>
     {src>0&&<Button size="sm" variant="ghost" onClick={()=>make(false)} title="붙은 녹음·통번역 기록과 메모로 회의록을 만들어 아래 메모에 넣습니다(Claude)">{has?'↻ 회의록 다시 만들기':'✨ 회의록 만들기'}</Button>}
     {src>0&&<Button size="sm" variant="ghost" onClick={()=>make(true)} title="붙은 기록의 녹음 파일을 처음부터 다시 받아쓰고(더 정확) 다듬은 뒤 회의록을 만듭니다">🎧 다시 전사</Button>}
-    <Button size="sm" variant="ghost" onClick={word} title="아래 메모(회의록 포함)를 위에서 아래 순서로 워드 문서로 저장합니다">📄 워드로 저장</Button>
+    <Button size="sm" variant="ghost" onClick={()=>setPv(true)} title="보드 내용을 양식에 맞춰 정리해 미리 보고, 인쇄(PDF)·워드로 내보냅니다">🖨 출력·워드</Button>
+    {pv&&<PrintPreview e={e} setE={setE} toast={toast} onClose={()=>setPv(false)}/>}
     {err&&<span style={{fontSize:'var(--fs-sm)',color:'var(--color-danger)',flexBasis:'100%'}}>⚠ {err}</span>}
   </>;
 }
@@ -37726,7 +37829,7 @@ async function fileToMinutes(file,lang,ev){
     set('');return true;}
   catch(x){set('⚠ '+x.message);setTimeout(()=>{if(/^⚠/.test(MEET.saving))set('');},12000);return false;}
 }
-Object.assign(window,{fileToMinutes,retranscribeRec,recFromFile,transcribeFile,MeetRecorder,MeetPill,MinutesBox,MEET,LiveSession,askClaude,makeMinutes,mdToDocx,downloadDocx,tbrecText});
+Object.assign(window,{fileToMinutes,retranscribeRec,recFromFile,transcribeFile,MeetRecorder,MeetPill,MinutesBox,PrintPreview,fillTemplate,PRINT_TPLS,MEET,LiveSession,askClaude,makeMinutes,mdToDocx,downloadDocx,tbrecText});
 </script>
 
 <script type="text/babel">/* 일정 관리: 월간(주간 서브) · 목록 — 카테고리(색) · 기간 일정 · 공휴일 · 드래그 이동 */
@@ -38397,7 +38500,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.4.1';
+const APP_VERSION='v2.5';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
