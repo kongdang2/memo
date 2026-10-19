@@ -37202,12 +37202,18 @@ class LiveSession{
     await this.connect();
     this.rot=setInterval(()=>this.rotate(),LIVE_ROTATE_MS);}
   async openMic(){
-    this.stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    /* 고른 마이크(cal.micDev)가 없어졌으면 기본 마이크로 */
+    const want=this.opt.device||'';const cons=d=>({audio:{deviceId:d?{exact:d}:undefined,channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    try{this.stream=await navigator.mediaDevices.getUserMedia(cons(want));}
+    catch(e){if(!want)throw e;this.log('고른 마이크를 찾지 못해 기본 마이크로');this.stream=await navigator.mediaDevices.getUserMedia(cons(''));}
+    const tr0=this.stream.getAudioTracks()[0];this.micName=tr0&&tr0.label||'';this.frames=0;this.log('마이크: '+(this.micName||'이름 없음'));
     const AC=window.AudioContext||window.webkitAudioContext;let ctx;try{ctx=new AC({sampleRate:LIVE_RATE});}catch(_){ctx=new AC();}this.ctx=ctx;
+    /* 클릭 뒤 기다림(로그인 확인·마이크 허락)을 거치면 브라우저가 소리 처리를 멈춘 채로 만들 수 있다 — 바로 깨운다 */
+    if(ctx.state!=='running'){try{await ctx.resume();}catch(_){}}
     const src=ctx.createMediaStreamSource(this.stream);const proc=ctx.createScriptProcessor(4096,1,1);this.proc=proc;
     const ratio=ctx.sampleRate/LIVE_RATE;let carry=new Float32Array(0);let pos=0;
     proc.onaudioprocess=e=>{
-      const inp=e.inputBuffer.getChannelData(0);this.lastAudio=Date.now();
+      const inp=e.inputBuffer.getChannelData(0);this.lastAudio=Date.now();this.frames++;
       let pk=0;for(let i=0;i<inp.length;i+=16){const a=Math.abs(inp[i]);if(a>pk)pk=a;}this.level=this.level*0.6+pk*0.4;
       let out;if(Math.abs(ratio-1)<1e-3)out=inp.slice(0);
       else{const n=Math.ceil((inp.length-pos)/ratio);out=new Float32Array(Math.max(0,n));
@@ -37486,6 +37492,12 @@ function MeetRecorder({ev,onLinked,toast,extra}){
   const M=useMeet();const [from,setFrom]=React.useState(()=>localStorage.getItem('cal.meetFrom')||'ko');
   const [,tick]=React.useReducer(x=>x+1,0);const box=React.useRef(null);const stick=React.useRef(true);const fileIn=React.useRef(null);
   /* 녹음 파일은 언어부터 고른 뒤 파일을 고른다 — 고른 언어는 다음에도 기본으로 */
+  /* 마이크 고르기 — 마이크가 둘 이상일 때만 보인다(이름은 마이크를 한 번 허락한 뒤에 보인다) */
+  const [mic,setMic]=React.useState(()=>{try{return localStorage.getItem('cal.micDev')||'';}catch(_){return '';}});const [mics,setMics]=React.useState([]);
+  React.useEffect(()=>{const md=navigator.mediaDevices;if(!md||!md.enumerateDevices)return;
+    const f=()=>md.enumerateDevices().then(d=>setMics(d.filter(x=>x.kind==='audioinput'&&x.deviceId&&x.deviceId!=='default'&&x.deviceId!=='communications'))).catch(()=>{});
+    f();md.addEventListener&&md.addEventListener('devicechange',f);return()=>md.removeEventListener&&md.removeEventListener('devicechange',f);},[M.sess]);
+  const pickMic=v=>{setMic(v);try{localStorage.setItem('cal.micDev',v);}catch(_){}};
   const [fileLang,setFileLang]=React.useState(()=>localStorage.getItem('cal.fileLang')||'ko');const [langPick,setLangPick]=React.useState(false);
   const pickFileLang=l=>{setFileLang(l);setLangPick(false);try{localStorage.setItem('cal.fileLang',l);}catch(_){}fileIn.current&&fileIn.current.click();};
   const mine=(M.sess||M.saving)&&M.eventId===ev.id;const other=((M.sess&&M.sess.running)||M.saving)&&M.eventId!==ev.id;
@@ -37495,7 +37507,7 @@ function MeetRecorder({ev,onLinked,toast,extra}){
   const start=async()=>{
     if(!(ev.title||'').trim()){toast&&toast('제목을 먼저 넣어 주세요 — 기록 이름으로 씁니다');return;}
     try{localStorage.setItem('cal.meetFrom',from);}catch(_){}
-    const ss=new LiveSession({from},()=>MEET.bump());MEET.sess=ss;MEET.eventId=ev.id;MEET.title=ev.title;MEET.saving='';MEET.bump();
+    const ss=new LiveSession({from,device:mic},()=>MEET.bump());MEET.sess=ss;MEET.eventId=ev.id;MEET.title=ev.title;MEET.saving='';MEET.bump();
     try{await ss.start();}
     catch(e){ss.stop(true);ss.err=/NotAllowed|Permission/i.test(e.name+e.message)?'마이크 사용이 거부됐습니다 — 주소창의 자물쇠에서 마이크를 허용하세요':e.message;MEET.bump();}};
   const stop=async()=>{
@@ -37541,6 +37553,8 @@ function MeetRecorder({ev,onLinked,toast,extra}){
     <div style={{display:'flex',flexWrap:'wrap',alignItems:'center',gap:6}}>
       {!running&&!M.saving&&<><select value={from} onChange={x=>setFrom(x.target.value)} style={{...inputStyle,width:'auto',padding:'3px 6px',fontSize:'var(--fs-sm2)'}}>
           {MEET_LANGS.map(l=><option key={l.id} value={l.id}>{l.label}</option>)}</select>
+        {mics.length>1&&<select value={mic} onChange={x=>pickMic(x.target.value)} title="녹음에 쓸 마이크" style={{...inputStyle,width:'auto',maxWidth:200,padding:'3px 6px',fontSize:'var(--fs-sm2)'}}>
+          <option value="">🎙 기본 마이크</option>{mics.map((d,i)=><option key={d.deviceId} value={d.deviceId}>🎙 {d.label||('마이크 '+(i+1))}</option>)}</select>}
         <Button size="sm" onClick={start}>● 녹음 시작</Button>
         <Button size="sm" variant={langPick?undefined:'ghost'} onClick={()=>setLangPick(v=>!v)} title="녹음 언어를 고른 뒤 파일(m4a·mp3·wav·webm 등)을 올리면 받아쓰고, 다듬은 뒤 회의록까지 만듭니다">📁 녹음 파일로 회의록</Button>
         <input ref={fileIn} type="file" accept="audio/*,video/mp4,.m4a,.mp3,.wav,.webm,.ogg,.aac,.flac" style={{display:'none'}}
@@ -37565,8 +37579,10 @@ function MeetRecorder({ev,onLinked,toast,extra}){
     {(running||segs.length>0)&&<div ref={box} onScroll={x=>{const el=x.currentTarget;stick.current=el.scrollHeight-el.scrollTop-el.clientHeight<30;}}
       style={{marginTop:6,maxHeight:220,overflowY:'auto',border:'1px solid var(--border-default)',borderRadius:4,padding:'6px 10px',background:'#fff',fontSize:'var(--fs-base)'}}>
       {!segs.length&&<div style={{color:'var(--text-label)',padding:'8px 0'}}>듣고 있습니다 — 말이 시작되면 몇 초 뒤 글자가 나옵니다
+        {running&&secs>=6&&lvl<=0.02&&<div style={{marginTop:6,color:'var(--color-danger)',fontSize:'var(--fs-sm)'}}>
+          🔇 마이크에서 소리가 들어오지 않습니다{s.micName?' ('+s.micName+')':''} — 정지한 뒤 {mics.length>1?'옆 목록에서 다른 마이크를 고르거나, ':''}윈도 소리 설정에서 마이크가 꺼져(음소거) 있지 않은지 확인해 주세요</div>}
         {secs>=15&&s.logs.length>0&&<div style={{marginTop:6,fontSize:11,color:'var(--text-muted)',fontFamily:'var(--font-num)',whiteSpace:'pre-wrap'}}>
-          {'글자가 안 나오면 이 줄을 캡처해 알려 주세요 — 모델 '+(s.opt.asrModel||'?')+' · 소리 '+(lvl>0.02?'들어옴':'없음')+'\n'+s.logs.slice(-5).join('\n')}</div>}</div>}
+          {'글자가 안 나오면 이 줄을 캡처해 알려 주세요 — 모델 '+(s.opt.asrModel||'?')+' · 소리 '+(lvl>0.02?'들어옴':'없음')+' · 처리 '+(s.ctx?s.ctx.state:'?')+'/'+(s.frames||0)+'\n'+s.logs.slice(-5).join('\n')}</div>}</div>}
       {segs.map((g,i)=><div key={i} style={{padding:'3px 0',borderBottom:'1px dashed var(--border-default)'}}>
         {ko?<div>{g.src}<span style={{color:'var(--text-label)'}}>{g.srcS}</span></div>
           :<><div>{g.ko}<span style={{color:'var(--text-label)'}}>{g.koS}</span>{!g.ko&&!g.koS&&<span style={{color:'var(--text-label)'}}>…</span>}</div>
@@ -38620,7 +38636,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.5.3';
+const APP_VERSION='v2.5.4';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
