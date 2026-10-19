@@ -36425,6 +36425,10 @@ const Files={
     const b=await idbGet(path);if(!b)throw new Error('이 브라우저에 파일이 없습니다');
     const u=URL.createObjectURL(b);this.cache[path]={url:u,exp:Date.now()+36e5};return u;
   },
+  async blob(path){
+    if(this.cloud){const {data,error}=await Store.sb.storage.from(BUCKET).download(path);if(error)throw new Error(error.message);return data;}
+    const b=await idbGet(path);if(!b)throw new Error('이 브라우저에 파일이 없습니다');return b;
+  },
 };
 
 /* ── 마크다운(예전 메모) → HTML ── */
@@ -36768,7 +36772,7 @@ Object.assign(window,{Files,RichNote,mdToHtml,htmlToText,rnClean,noteHtmlOf,shri
 const blobB64=blob=>new Promise((ok,err)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]);r.onerror=()=>err(r.error);r.readAsDataURL(blob);});
 
 /* ── 팀 공통 설정(통번역 앱 관리자가 정한 모델·용어 힌트) — 한 번만 읽는다 ── */
-const MEET_DEF={liveAsrModel:'qwen-audio-3.1-asr-flash-streaming',liveTrModel:'claude-haiku-5-5',claudeModel:'claude-sonnet-5-5',sttHint:'',liveSil:''};
+const MEET_DEF={liveAsrModel:'qwen-audio-3.1-asr-flash-streaming',liveTrModel:'claude-haiku-5-5',claudeModel:'claude-sonnet-5-5',tbSttModel:'qwen3-asr-flash',sttHint:'',liveSil:''};
 const MeetCfg={v:{...MEET_DEF},loaded:false,
   async load(){if(this.loaded||Store.mode!=='supabase')return this.v;this.loaded=true;
     try{const {data}=await Store.sb.from('tb_config').select('data').eq('id',1).maybeSingle();const d=(data&&data.data)||{};
@@ -36953,13 +36957,123 @@ async function saveTbrec(rec){
   const {error}=await Store.sb.from('pms_items').upsert({user_id:Store.user.id,kind:'tbrec',item_id:rec.id,data:rec,updated_at:new Date().toISOString(),deleted_at:null});
   if(error)throw new Error(error.message);}
 const mmss=s=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
+/* ── 녹음 파일 → 전사 → 정리 (통번역 앱의 「정리하기」와 같은 서버 함수) ──
+   · 전사 모델은 통번역 앱 팀 설정(tbSttModel)을 따른다. qwen… 이면 Edge Function 'paraformer'(Alibaba), 그 밖은 'transcribe'(OpenAI)
+   · 긴 녹음은 브라우저에서 16kHz 모노 WAV 150초 조각으로 잘라 차례로 보낸다 */
+const STT_SEG_SEC=150;
+function wavBlob(samples,rate){
+  const b=new ArrayBuffer(44+samples.length*2),v=new DataView(b);
+  const str=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};
+  str(0,'RIFF');v.setUint32(4,36+samples.length*2,true);str(8,'WAVE');str(12,'fmt ');
+  v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,rate,true);v.setUint32(28,rate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);
+  str(36,'data');v.setUint32(40,samples.length*2,true);
+  let o=44;for(let i=0;i<samples.length;i++){const s=Math.max(-1,Math.min(1,samples[i]));v.setInt16(o,s<0?s*0x8000:s*0x7fff,true);o+=2;}
+  return new Blob([b],{type:'audio/wav'});}
+async function toWavSegments(blob,onStep){
+  const AC=window.AudioContext||window.webkitAudioContext;const ctx=new AC();let buf;
+  try{buf=await ctx.decodeAudioData(await blob.arrayBuffer());}
+  catch(e){ctx.close();throw new Error('음성 파일을 읽지 못했습니다 — mp3·m4a·wav·webm 형식인지 확인하세요');}
+  const dur=buf.duration;ctx.close();
+  if(dur>3*3600)throw new Error('3시간이 넘는 녹음은 나눠서 올려 주세요');
+  const RATE=16000,ch=buf.numberOfChannels;const segs=[];const n=Math.ceil(dur/STT_SEG_SEC);
+  for(let s=0;s<n;s++){onStep&&onStep('녹음 자르는 중 '+(s+1)+'/'+n);
+    const from=s*STT_SEG_SEC,len=Math.min(STT_SEG_SEC,dur-from);
+    const off=new (window.OfflineAudioContext||window.webkitOfflineAudioContext)(1,Math.ceil(len*RATE),RATE);
+    const src=off.createBufferSource();const srcRate=buf.sampleRate,a=Math.floor(from*srcRate),b=Math.min(buf.length,Math.floor((from+len)*srcRate));
+    const tmp=off.createBuffer(1,b-a,srcRate);const out=tmp.getChannelData(0);
+    for(let c=0;c<ch;c++){const d=buf.getChannelData(c);for(let i=a;i<b;i++)out[i-a]+=d[i]/ch;}
+    src.buffer=tmp;src.connect(off.destination);src.start();
+    segs.push(wavBlob((await off.startRendering()).getChannelData(0),RATE));}
+  return {segs,dur};}
+async function sttPart(blob,lang,hint){
+  const model=MeetCfg.v.tbSttModel||'qwen3-asr-flash';const audio=await blobB64(blob);
+  const call=async(fn,body)=>{const {data,error}=await Store.sb.functions.invoke(fn,{body});
+    if(error){let d='';try{const j=await error.context?.json();d=j&&j.error;}catch(_){}
+      throw new Error(d||(/Failed to send|FunctionsFetchError/i.test(error.message)?"전사 서버(Edge Function '"+fn+"')에 닿지 못했습니다":error.message));}
+    if(data&&data.error)throw new Error(data.error);return data||{};};
+  if(/^qwen|^paraformer|^fun-asr/.test(model))
+    return (await call('paraformer',{base:'',model,mime:blob.type||'audio/wav',language:lang,context:hint||'',audio})).text||'';
+  return (await call('transcribe',{audio,mime:blob.type||'audio/wav',name:'audio.'+((blob.type||'').includes('wav')?'wav':'webm'),
+    language:lang,model,prompt:hint||'',keywords:MeetCfg.v.sttHint||'',response_format:'text'})).text||'';}
+/* 음성 파일 하나 → 글. 조각마다 앞 조각 끝 문장을 힌트로 넘겨 이름·용어가 이어지게 한다 */
+async function transcribeFile(blob,lang,onStep){
+  await MeetCfg.load();let parts,dur=0;
+  try{const r=await toWavSegments(blob,onStep);parts=r.segs;dur=r.dur;}
+  catch(e){if(blob.size<=6*1024*1024)parts=[blob];else throw e;}
+  const texts=[];
+  for(let i=0;i<parts.length;i++){onStep&&onStep('받아쓰는 중 '+(i+1)+'/'+parts.length);
+    const hint=texts.length?texts[texts.length-1].slice(-400):(MeetCfg.v.sttHint||'');
+    texts.push(String(await sttPart(parts[i],lang,hint)||'').trim());}
+  if(Store.mode==='supabase')Store.sb.from('tb_usage').insert({user_id:Store.user.id,email:Store.user.email,kind:'전사',seconds:Math.round(dur),calls:parts.length,model:MeetCfg.v.tbSttModel||'qwen3-asr-flash'}).then(()=>{},()=>{});
+  return texts.filter(Boolean).join('\n\n');}
+/* 받아쓴 글 다듬기 — 외국어는 한국어 번역까지(통번역 앱의 정리·번역과 같은 방식), 한국어는 군더더기·오인식만 바로잡는다 */
+function splitChunks(text,size){const out=[];let buf='';const push=()=>{if(buf.trim())out.push(buf.trim());buf='';};
+  (text||'').split(/\n{2,}/).forEach(par=>{if((buf+par).length<=size){buf+=(buf?'\n\n':'')+par;return;}push();
+    if(par.length<=size){buf=par;return;}let cur='';
+    par.split(/(?<=[。．.!?！？\n])\s*/).forEach(sent=>{if((cur+sent).length>size){if(cur.trim())out.push(cur.trim());cur=sent;}else cur+=sent;});
+    if(cur.trim())out.push(cur.trim());});
+  push();return out.filter(Boolean);}
+const grabSec=(t,head)=>{const m=new RegExp('===\\s*'+head+'\\s*===\\s*([\\s\\S]*?)(?====|$)').exec(t||'');return m?m[1].trim():'';};
+async function polishText(raw,lang,onStep){
+  const hint=MeetCfg.v.sttHint?'\n자주 나오는 고유명사·용어: '+MeetCfg.v.sttHint:'';
+  const parts=splitChunks(raw,1800);const ko=[],src=[];
+  for(let i=0;i<parts.length;i++){onStep&&onStep('다듬는 중 '+(i+1)+'/'+parts.length);
+    if(lang==='ko'){
+      const r=await askClaude('아래는 한국어 회의 녹음을 기계가 받아쓴 글의 일부다('+(i+1)+'/'+parts.length+').'+hint
+        +'\n분야 지식과 앞뒤 문맥으로 잘못 받아쓴 전문용어·고유명사를 바로잡고, 군더더기(음, 어, 그러니까)와 같은 말 반복을 지운다.'
+        +' 말한 순서·사실·숫자는 바꾸지 않고, 없는 내용을 지어내지 않는다. 주제가 바뀌는 곳에서 문단을 나눈다. 확실하지 않은 곳은 (?)로 표시.'
+        +' 요약하지 말고 다듬은 글만 출력한다.\n\n--- 받아쓴 글 ---\n'+parts[i],{max_tokens:3800,tag:'일정 정리'});
+      ko.push(String(r||'').trim()||parts[i]);}
+    else{
+      const r=await askClaude('아래는 '+langName[lang]+' 회의 녹음을 기계가 받아쓴 글의 일부다('+(i+1)+'/'+parts.length+').'+hint
+        +'\n\n[원문] 절: 잘못 받아쓴 전문용어·고유명사를 바로잡고 군더더기를 지운다. 순서·사실·수치는 바꾸지 않는다.'
+        +'\n[번역] 절: 위 [원문]을 업무 문서에 쓸 수 있는 자연스러운 한국어로 옮긴다. 인명·지명·회사명은 원어(한글음)로 함께 적는다.'
+        +'\n확실하지 않은 부분은 (?)로 표시한다. 요약하거나 결론을 덧붙이지 않는다.'
+        +'\n\n다른 말 없이 아래 형식으로만 출력한다.\n===원문===\n(정리된 원문)\n===번역===\n(한국어 번역)\n\n--- 받아쓴 글 ---\n'+parts[i],{max_tokens:3800,tag:'일정 정리'});
+      src.push(grabSec(r,'원문')||parts[i]);ko.push(grabSec(r,'번역')||String(r||'').trim());}}
+  const korean=ko.join('\n\n');
+  return lang==='ko'?'### 정리된 녹취\n'+korean:'### 한국어\n'+korean+'\n\n### 정리된 원문\n'+src.join('\n\n');}
+/* 마크다운의 ## 절 갈아끼우기(없으면 첫 ## 앞에 넣는다) */
+function putSection(md,head,body){
+  const esc=head.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const cleaned=String(md||'').replace(new RegExp('\\n*##\\s*'+esc+'[^\\n]*\\n[\\s\\S]*?(?=\\n##\\s|$)','g'),'').replace(/\s+$/,'');
+  const sec='## '+head+'\n'+String(body).trim()+'\n';const m=/(^|\n)##\s/.exec(cleaned);
+  return m?cleaned.slice(0,m.index).replace(/\s+$/,'')+'\n\n'+sec+'\n'+cleaned.slice(m.index).replace(/^\n+/,''):cleaned+'\n\n'+sec;}
+/* 기록의 언어 — 머리말에서 읽는다(통번역 앱 기록은 대개 중국어) */
+function recLang(md){const h=String(md||'').slice(0,400);
+  if(/회의 받아쓰기 · 한국어|전사 · 한국어 ·|원어:\s*한국어/.test(h))return 'ko';
+  for(const [k,n] of Object.entries(langName))if(k!=='ko'&&new RegExp(n+'\\s*→').test(h))return k;
+  return /[一-鿿]{4}/.test(mdSection(md,'실시간 원문'))?'zh':/[가-힣]{4}/.test(mdSection(md,'실시간 원문'))?'ko':'zh';}
+const audioPaths=md=>{const out=[];const re=/\[([^\]]*)\]\(pms:([^)\s]+)\)/g;let m;while((m=re.exec(md||'')))if(/🎙|\.(webm|m4a|mp3|wav|ogg|mp4|aac|flac)$/i.test(m[1]+' '+m[2]))out.push(m[2]);return out;};
+/* 이미 저장된 기록의 녹음으로 다시 전사 → 정리 → 기록에 「정리·번역」「녹취 (받아쓰기)」 절을 넣는다 */
+async function retranscribeRec(id,onStep){
+  const rec=await Store.getTbrec(id);if(!rec)throw new Error('기록을 찾지 못했습니다');
+  const paths=audioPaths(rec.md);if(!paths.length)throw new Error('이 기록에는 녹음 파일이 없습니다');
+  const lang=rec.lang||recLang(rec.md);const texts=[];
+  for(let i=0;i<paths.length;i++){onStep&&onStep('녹음 내려받는 중 '+(i+1)+'/'+paths.length);
+    const b=await Files.blob(paths[i]);texts.push(await transcribeFile(b,lang,s=>onStep&&onStep((paths.length>1?'['+(i+1)+'/'+paths.length+'] ':'')+s)));}
+  const raw=texts.filter(Boolean).join('\n\n');if(!raw.trim())throw new Error('녹음에서 말소리를 찾지 못했습니다');
+  const pol=await polishText(raw,lang,onStep);
+  let md=putSection(rec.md,'녹취 (받아쓰기)',raw);md=putSection(md,'정리·번역',pol);
+  await saveTbrec({...rec,md,updated:nowStamp()});return {...rec,md};}
+/* 새 녹음 파일 올리기 → 저장소 → 전사 → 정리 → 기록 만들기 */
+async function recFromFile(file,lang,title,onStep){
+  if(Store.mode!=='supabase')throw new Error('전사는 클라우드(Supabase)에 로그인해야 쓸 수 있습니다');
+  onStep&&onStep('녹음 올리는 중…');const up=await Files.put(file);
+  const raw=await transcribeFile(file,lang,onStep);if(!raw.trim())throw new Error('녹음에서 말소리를 찾지 못했습니다');
+  const pol=await polishText(raw,lang,onStep);
+  const name=file.name||'녹음';const rt=title+' · '+name.replace(/\.[^.]+$/,'');
+  const md='# '+rt+'\n\n> 📁 녹음 파일 전사 · '+(lang==='ko'?'한국어':langName[lang]+' → 한국어')+' · 일정 앱에서 올림\n\n[🎙 '+name+'](pms:'+up.path+')\n\n'
+    +'## 정리·번역\n'+pol+'\n\n## 녹취 (받아쓰기)\n'+raw+'\n';
+  const rec={id:uid(),title:rt,scope:'work',tags:[lang==='ko'?'회의':'통역'],lang,updated:nowStamp(),created:new Date(file.lastModified||Date.now()).toISOString(),md};
+  await saveTbrec(rec);return rec;}
 
 /* 일정 상세의 녹음 칸 */
 function MeetRecorder({ev,onLinked,toast}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
   const M=useMeet();const [from,setFrom]=React.useState(()=>localStorage.getItem('cal.meetFrom')||'ko');
-  const [,tick]=React.useReducer(x=>x+1,0);const box=React.useRef(null);const stick=React.useRef(true);
-  const mine=M.sess&&M.eventId===ev.id;const other=M.sess&&M.sess.running&&M.eventId!==ev.id;
+  const [,tick]=React.useReducer(x=>x+1,0);const box=React.useRef(null);const stick=React.useRef(true);const fileIn=React.useRef(null);
+  const mine=(M.sess||M.saving)&&M.eventId===ev.id;const other=((M.sess&&M.sess.running)||M.saving)&&M.eventId!==ev.id;
   const s=mine?M.sess:null;const running=!!(s&&s.running);
   React.useEffect(()=>{const t=running&&setInterval(tick,1000);return()=>clearInterval(t);},[running]);
   React.useEffect(()=>{const el=box.current;if(el&&stick.current)el.scrollTop=el.scrollHeight;});
@@ -36984,7 +37098,7 @@ function MeetRecorder({ev,onLinked,toast}){
       try{const r=await Files.put(new File([p.blob],name,{type:p.blob.type||'audio/webm'}));links.push('[🎙 '+name+'](pms:'+r.path+')');}
       catch(e){ss.log('녹음 올리기 실패: '+e.message);toast&&toast('⚠ 녹음 올리기 실패 — '+e.message);}}
     set('기록 저장 중…');
-    const rec={id:uid(),title,scope:'work',tags:[ss.opt.from==='ko'?'회의':'통역'],updated:nowStamp(),created:new Date(ss.t0).toISOString(),md:ss.toMarkdown(title,links),
+    const rec={id:uid(),title,scope:'work',tags:[ss.opt.from==='ko'?'회의':'통역'],lang:ss.opt.from,updated:nowStamp(),created:new Date(ss.t0).toISOString(),md:ss.toMarkdown(title,links),
       live:{parts:ss.recParts.map(p=>Math.max(0,Math.round((p.t0-ss.t0)/100)/10)),secs:ss.recParts.map(p=>p.sec),
         segs:ss.segs.filter(g=>(g.src||g.ko).trim()).map(g=>({t:Math.round((g.t||0)*10)/10,ko:(g.ko||'').trim(),zh:(g.src||g.srcS||'').trim()}))}};
     try{await saveTbrec(rec);window.dispatchEvent(new CustomEvent('meet-linked',{detail:{eventId:MEET.eventId,link:{id:rec.id,title:rec.title,created:rec.created}}}));
@@ -36993,7 +37107,7 @@ function MeetRecorder({ev,onLinked,toast}){
   const segs=s?s.segs.filter(g=>g.src||g.srcS||g.ko||g.koS):[];
   const secs=s&&s.t0?Math.floor(((s.running?Date.now():(s.tEnd||Date.now()))-s.t0)/1000):0;
   const lvl=Math.min(1,(s&&s.level||0)*3);const ko=s?s.opt.from==='ko':from==='ko';
-  if(other)return <div style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>● 다른 일정(『{M.title}』)에서 녹음 중입니다 — 그 일정에서 정지한 뒤 시작하세요</div>;
+  if(other)return <div style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>● 다른 일정(『{M.title}』)에서 {M.saving?'녹음을 처리하는':'녹음하는'} 중입니다 — 끝난 뒤 시작하세요</div>;
   /* 반복 일정에 붙이면 모든 회차에 같은 기록이 보인다 — 그날 회차를 따로 만들어 거기에 녹음한다 */
   if(!mine&&(ev.repeat||'none')!=='none')return <div style={{display:'flex',flexWrap:'wrap',alignItems:'center',gap:6,fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>
     반복 일정입니다 — 녹음은 오늘 회차 일정을 따로 만들어 남깁니다
@@ -37002,14 +37116,19 @@ function MeetRecorder({ev,onLinked,toast}){
     <div style={{display:'flex',flexWrap:'wrap',alignItems:'center',gap:6}}>
       {!running&&!M.saving&&<><select value={from} onChange={x=>setFrom(x.target.value)} style={{...inputStyle,width:'auto',padding:'3px 6px',fontSize:'var(--fs-sm2)'}}>
           {MEET_LANGS.map(l=><option key={l.id} value={l.id}>{l.label}</option>)}</select>
-        <Button size="sm" onClick={start}>● 녹음 시작</Button></>}
+        <Button size="sm" onClick={start}>● 녹음 시작</Button>
+        <Button size="sm" variant="ghost" onClick={()=>fileIn.current&&fileIn.current.click()} title="녹음 파일(m4a·mp3·wav·webm 등)을 올려 받아쓰고, 다듬은 뒤 회의록까지 만듭니다">📁 녹음 파일로 회의록</Button>
+        <input ref={fileIn} type="file" accept="audio/*,video/mp4,.m4a,.mp3,.wav,.webm,.ogg,.aac,.flac" style={{display:'none'}}
+          onChange={x=>{const f=x.target.files&&x.target.files[0];x.target.value='';if(!f)return;
+            if(!(ev.title||'').trim()){toast&&toast('제목을 먼저 넣어 주세요');return;}
+            fileToMinutes(f,from,ev).then(ok=>ok&&toast&&toast('📝 녹음 파일로 기록과 회의록을 만들었습니다'));}}/></>}
       {running&&<><Button variant="danger" size="sm" onClick={stop}>■ 정지하고 저장</Button>
         <span title="입력 소리 크기" style={{width:60,height:7,background:'var(--surface-calc-cell)',border:'1px solid var(--border-default)',borderRadius:4,overflow:'hidden'}}>
           <span style={{display:'block',height:'100%',width:(lvl*100)+'%',background:lvl>0.9?'var(--color-danger)':'#16a34a'}}/></span>
         <span style={{fontFamily:'var(--font-num)',fontSize:'var(--fs-sm2)'}}>{mmss(secs)}</span>
         <span style={{color:'var(--color-danger)',fontSize:'var(--fs-sm2)'}}>● {s.active&&s.active.ready?(ko?'받아쓰는 중':'통역 중'):'연결 중…'}</span></>}
       {M.saving&&<span style={{fontSize:'var(--fs-sm2)',color:/^⚠/.test(M.saving)?'var(--color-danger)':'var(--text-muted)'}}>{M.saving}</span>}
-      {M.saving&&/^⚠/.test(M.saving)&&mine&&<Button variant="ghost" size="xs" onClick={stop}>다시 저장</Button>}
+      {M.saving&&/^⚠/.test(M.saving)&&mine&&M.sess&&<Button variant="ghost" size="xs" onClick={stop}>다시 저장</Button>}
     </div>
     {s&&s.err&&<div style={{fontSize:'var(--fs-sm)',color:'var(--color-danger)',marginTop:4}}>⚠ {s.err}</div>}
     {(running||segs.length>0)&&<div ref={box} onScroll={x=>{const el=x.currentTarget;stick.current=el.scrollHeight-el.scrollTop-el.clientHeight<30;}}
@@ -37029,8 +37148,8 @@ function MeetRecorder({ev,onLinked,toast}){
 function MeetPill({onOpen}){
   const M=useMeet();const [,tick]=React.useReducer(x=>x+1,0);
   React.useEffect(()=>{const t=setInterval(tick,1000);return()=>clearInterval(t);},[]);
-  if(!M.sess||(!M.sess.running&&!M.saving))return null;
-  const secs=M.sess.t0?Math.floor(((M.sess.running?Date.now():(M.sess.tEnd||Date.now()))-M.sess.t0)/1000):0;
+  if(!(M.sess&&M.sess.running)&&!M.saving)return null;
+  const secs=M.sess&&M.sess.t0?Math.floor(((M.sess.running?Date.now():(M.sess.tEnd||Date.now()))-M.sess.t0)/1000):0;
   return <div onClick={()=>onOpen(M.eventId)} role="button" style={{position:'fixed',right:16,bottom:'calc(16px + env(safe-area-inset-bottom))',zIndex:150,cursor:'pointer',
     background:'#b91c1c',color:'#fff',borderRadius:20,padding:'8px 14px',fontSize:13,fontWeight:600,boxShadow:'0 4px 14px rgba(0,0,0,.25)',fontFamily:'var(--font-sans)'}}>
     ● {M.saving||('녹음 중 '+mmss(secs))} · 『{M.title}』</div>;
@@ -37040,7 +37159,8 @@ function MeetPill({onOpen}){
 /* 기록 하나에서 회의록 재료가 될 글 — 정리본이 있으면 그것, 없으면 실시간 번역/원문 */
 function tbrecText(md){
   const sec=h=>mdSection(md,h);
-  const polished=sec('정리·번역');if(polished)return polished;
+  const polished=sec('정리·번역');
+  if(polished){const k=/###\s*(한국어|정리된 녹취)[^\n]*\n([\s\S]*?)(?=\n###\s|$)/.exec(polished);return (k?k[2]:polished).trim();}
   const live=sec('실시간 통역');
   if(live){const ko=live.split(/\n\n+/).map(b=>(/^\*\*(.+?)\*\*/.exec(b.trim())||[])[1]).filter(Boolean);if(ko.length)return ko.join('\n');}
   return sec('녹취 (받아쓰기)')||sec('실시간 원문')||String(md||'').replace(/^#.*$/m,'');
@@ -37155,13 +37275,20 @@ function MinutesBox({e,setE,toast}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
   const [busy,setBusy]=React.useState('');const [err,setErr]=React.useState('');const [edit,setEdit]=React.useState(false);
   const has=!!(e.minutes||'').trim();const src=(e.tbrec||[]).length;
-  const make=async()=>{if(has&&!window.confirm('지금 회의록을 새로 만든 것으로 바꿉니다. 계속할까요?'))return;
+  const make=async full=>{if(has&&!window.confirm('지금 회의록을 새로 만든 것으로 바꿉니다. 계속할까요?'))return;
     setErr('');setBusy('준비 중…');
-    try{await MeetCfg.load();const md=await makeMinutes(e,setBusy);setE(p=>({...p,minutes:md,minutesAt:nowStamp()}));setEdit(false);toast&&toast('📝 회의록을 만들었습니다');}
+    try{await MeetCfg.load();
+      /* 녹음으로 다시 받아쓰기 — 실시간 자막보다 정확하다. 녹음이 없는 기록은 건너뛴다 */
+      if(full){let n=0;const list=e.tbrec||[];
+        for(let i=0;i<list.length;i++){try{await retranscribeRec(list[i].id,t=>setBusy((list.length>1?'기록 '+(i+1)+'/'+list.length+' · ':'')+t));n++;}
+          catch(x){if(!/녹음 파일이 없습니다/.test(x.message))throw x;}}
+        if(!n)throw new Error('붙은 기록에 녹음 파일이 없습니다 — 「📁 녹음 파일로 회의록」으로 파일을 올려 주세요');}
+      const md=await makeMinutes(e,setBusy);setE(p=>({...p,minutes:md,minutesAt:nowStamp()}));setEdit(false);toast&&toast('📝 회의록을 만들었습니다');}
     catch(x){setErr(x.message);}setBusy('');};
   return <div style={{width:'100%'}}>
     <div style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center'}}>
-      <Button size="sm" variant={has?'ghost':undefined} disabled={!!busy} onClick={make} title="붙은 녹음·통번역 기록과 메모로 회의록을 만듭니다(Claude)">{busy?'⏳ '+busy:has?'↻ 다시 만들기':'✨ 회의록 만들기'}</Button>
+      <Button size="sm" variant={has?'ghost':undefined} disabled={!!busy} onClick={()=>make(false)} title="붙은 녹음·통번역 기록과 메모로 회의록을 만듭니다(Claude)">{busy?'⏳ '+busy:has?'↻ 다시 만들기':'✨ 회의록 만들기'}</Button>
+      {src>0&&!busy&&<Button size="sm" variant="ghost" onClick={()=>make(true)} title="붙은 기록의 녹음 파일을 처음부터 다시 받아쓰고(더 정확) 다듬은 뒤 회의록을 만듭니다">🎧 녹음으로 다시 전사 후 회의록</Button>}
       {has&&<><Button size="sm" onClick={()=>downloadDocx(e.minutes,(e.title||'회의')+' 회의록 '+(e.date||''))}>📄 워드로 저장</Button>
         <Button size="sm" variant="ghost" onClick={()=>setEdit(v=>!v)}>{edit?'미리보기':'✎ 고치기'}</Button></>}
       {!has&&!busy&&<span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>{src?'붙은 기록 '+src+'건 + 메모로 만듭니다':'녹음하거나 통번역 기록을 붙이면 그 내용으로, 없으면 메모로 만듭니다'}</span>}
@@ -37174,7 +37301,20 @@ function MinutesBox({e,setE,toast}){
           dangerouslySetInnerHTML={{__html:mdToHtml(e.minutes)}}/>)}
   </div>;
 }
-Object.assign(window,{MeetRecorder,MeetPill,MinutesBox,MEET,LiveSession,askClaude,makeMinutes,mdToDocx,downloadDocx,tbrecText});
+/* 녹음 파일로 기록 만들기 → 일정에 붙이기 → 회의록까지 (창을 닫아도 끝까지 간다) */
+async function fileToMinutes(file,lang,ev){
+  const set=t=>{MEET.saving=t;MEET.bump();};MEET.eventId=ev.id;MEET.title=ev.title;
+  try{const rec=await recFromFile(file,lang,ev.title||'회의',set);
+    const link={id:rec.id,title:rec.title,created:rec.created};
+    window.dispatchEvent(new CustomEvent('meet-linked',{detail:{eventId:ev.id,link}}));
+    const cur={...ev,tbrec:[...(ev.tbrec||[]).filter(r=>r.id!==link.id),link]};
+    if(!(ev.minutes||'').trim()||window.confirm('녹음 전사를 마쳤습니다. 지금 회의록을 새 내용으로 바꿀까요?')){
+      const md=await makeMinutes(cur,set);
+      window.dispatchEvent(new CustomEvent('meet-minutes',{detail:{eventId:ev.id,md}}));}
+    set('');return true;}
+  catch(x){set('⚠ '+x.message);setTimeout(()=>{if(/^⚠/.test(MEET.saving))set('');},12000);return false;}
+}
+Object.assign(window,{fileToMinutes,retranscribeRec,recFromFile,transcribeFile,MeetRecorder,MeetPill,MinutesBox,MEET,LiveSession,askClaude,makeMinutes,mdToDocx,downloadDocx,tbrecText});
 </script>
 
 <script type="text/babel">/* 일정 관리: 월간(주간 서브) · 목록 — 카테고리(색) · 기간 일정 · 공휴일 · 드래그 이동 */
@@ -37248,8 +37388,9 @@ function CalendarView({db,setDb,st,set,toast,slots}){
     const split=x=>{const ev=x.detail;if(!ev)return;
       const one={...ev,id:uid(),date:todayISO(),dateEnd:'',repeat:'none',notes:'',notesHtml:'',notesAt:'',tbrec:[],tbrecOff:[],minutes:'',minutesAt:''};
       save(one);set({edit:one});toast('오늘 회차 일정을 따로 만들었습니다 — 여기서 녹음하세요');};
-    window.addEventListener('meet-linked',on);window.addEventListener('meet-split',split);
-    return()=>{window.removeEventListener('meet-linked',on);window.removeEventListener('meet-split',split);};},[]);
+    const mm=x=>{const {eventId,md}=x.detail||{};if(eventId)setDb('events',arr=>arr.map(e=>e.id===eventId?{...e,minutes:md,minutesAt:nowStamp()}:e));};
+    window.addEventListener('meet-linked',on);window.addEventListener('meet-split',split);window.addEventListener('meet-minutes',mm);
+    return()=>{window.removeEventListener('meet-linked',on);window.removeEventListener('meet-split',split);window.removeEventListener('meet-minutes',mm);};},[]);
   /* 통번역 기록 자동 연결 — 앱을 열 때와 다시 볼 때 */
   React.useEffect(()=>{let busy=false,lastRun=0;
     const run=async()=>{if(busy||Date.now()-lastRun<60000)return;busy=true;lastRun=Date.now();
@@ -37724,7 +37865,9 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
   /* 이 창에서 녹음한 기록이 저장되면 열려 있는 일정에도 바로 붙인다 */
   React.useEffect(()=>{const on=x=>{const {eventId,link}=x.detail||{};
       setE(p=>p&&p.id===eventId?{...p,tbrec:[...(p.tbrec||[]).filter(r=>r.id!==link.id),link]}:p);};
-    window.addEventListener('meet-linked',on);return()=>window.removeEventListener('meet-linked',on);},[]);
+    const mm=x=>{const {eventId,md}=x.detail||{};setE(p=>p&&p.id===eventId?{...p,minutes:md,minutesAt:nowStamp()}:p);};
+    window.addEventListener('meet-linked',on);window.addEventListener('meet-minutes',mm);
+    return()=>{window.removeEventListener('meet-linked',on);window.removeEventListener('meet-minutes',mm);};},[]);
   const flush=cur=>{clearTimeout(timer.current);const j=JSON.stringify(cur);
     if(!cur||!(cur.title||'').trim()||j===last.current)return;last.current=j;onSave(cur);setSavedAt(new Date().toTimeString().slice(0,5));};
   React.useEffect(()=>{if(!e||!ev||e.id!==ev.id)return;clearTimeout(timer.current);timer.current=setTimeout(()=>flush(e),1000);return()=>clearTimeout(timer.current);},[e]);
@@ -37809,7 +37952,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.0';
+const APP_VERSION='v2.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
