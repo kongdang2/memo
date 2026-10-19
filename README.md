@@ -8,6 +8,29 @@
 |---|---|
 | `index.html` | 바로 열리는 일정 관리 앱 (v1.0). 로그인 → 월간·주간·목록 달력 |
 | `cal.config.js` | 서버 설정. 비워 두면 로컬 모드(브라우저 저장), Supabase 값을 넣으면 클라우드 동기화 |
+| `supabase/functions/gemini/index.ts` | Edge Function `gemini` — 「🔗 링크 정리」가 유튜브 영상을 제미나이에게 보여 주는 중계(v2.7). 키는 서버 Secrets 에만 |
+
+## 🔗 링크 정리 — 유튜브를 제미나이가 직접 본다 (v2.7)
+
+일정 메모에 유튜브 링크를 넣고 「🔗 링크 정리」를 누르면 두 단계로 읽습니다.
+
+1. **제미나이 시청** — Edge Function `gemini` 가 유튜브 주소를 Google 제미나이에 넘기고, 제미나이가 영상(화면+소리)을 처음부터 끝까지 보고 `[mm:ss]` 시각이 붙은 메모를 돌려줍니다. 자막이 없는 영상도 됩니다. 영상을 받거나 올리지 않습니다(주소만 보냄).
+2. **자막·장면** — 전처럼 `webdigest` 가 자막·설명·장면 그림판을 받아 옵니다.
+
+두 결과를 Claude(`claude` 함수)가 기존 양식(요약·주요 내용·핵심 수치·시사점)으로 정리하고 장면 캡처를 넣습니다. 출처 줄에 「제미나이 시청」이 붙으면 1단계가 들어간 것입니다. `gemini` 함수가 없거나 실패하면 전처럼 자막만으로 정리하고, 그 이유는 브라우저 콘솔에만 남깁니다.
+
+**배포(한 번만)** — Supabase 대시보드 → Edge Functions:
+
+1. **Deploy a new function** → 이름 `gemini` → `supabase/functions/gemini/index.ts` 내용 붙여넣기 → Deploy
+2. 그 함수의 **Details** 에서 "Verify JWT with legacy secret" 을 끕니다(`claude`·`livetranslate` 와 같음. 로그인 확인은 함수 코드가 합니다)
+3. **Edge Functions → Secrets** 에 `GEMINI_API_KEY` 추가 (무료 키: https://aistudio.google.com/apikey)
+
+CLI 를 쓰면 저장소 루트에서 `supabase functions deploy gemini --no-verify-jwt` 와 `supabase secrets set GEMINI_API_KEY=...` 입니다.
+
+- 쓸 수 있는 사람: 로그인했고 `tb_members` 에 있는 계정(다른 함수와 같은 규칙). 사용량은 `tb_usage` 에 `제미나이(링크 정리)` 로 남습니다.
+- 모델: 기본 `gemini-3.6-flash`. 팀 설정(`tb_config.data.geminiModel`)으로 바꿀 수 있습니다. 2026-10 기준 `gemini-3.7-flash`·`3.8-flash` 는 응답이 자주 끊겨 3.6 을 기본으로 두었습니다.
+- 긴 영상: 제미나이 응답 제한 300초, Edge Function 실행 한도(요금제별 150~400초)에 걸리면 「제한 시간」 오류가 납니다. 함수는 `start`·`end`(초)로 구간만 보기를 지원하지만 앱 화면에는 아직 구간 입력이 없습니다.
+- 로컬 시험 기록(2026-10-19): Deno 2.9 에서 함수를 그대로 띄우고(supabase-js 만 가짜) 19초 영상으로 401·400·정상·구간 응답을 확인했습니다.
 
 ## 출처
 

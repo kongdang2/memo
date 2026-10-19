@@ -37117,7 +37117,7 @@ Object.assign(window,{MemoBoard,bdText,boardOf,boardToMd,htmlToMd,bdAppend,bdPut
 const blobB64=blob=>new Promise((ok,err)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]);r.onerror=()=>err(r.error);r.readAsDataURL(blob);});
 
 /* ── 팀 공통 설정(통번역 앱 관리자가 정한 모델·용어 힌트) — 한 번만 읽는다 ── */
-const MEET_DEF={liveAsrModel:'qwen-audio-3.1-asr-flash-streaming',liveTrModel:'claude-haiku-5-5',claudeModel:'claude-sonnet-5-5',tbSttModel:'qwen3-asr-flash',sttHint:'',liveSil:''};
+const MEET_DEF={liveAsrModel:'qwen-audio-3.1-asr-flash-streaming',liveTrModel:'claude-haiku-5-5',claudeModel:'claude-sonnet-5-5',tbSttModel:'qwen3-asr-flash',sttHint:'',liveSil:'',geminiModel:'gemini-3.6-flash'};
 const MeetCfg={v:{...MEET_DEF},loaded:false,
   async load(){if(this.loaded||Store.mode!=='supabase')return this.v;this.loaded=true;
     try{const {data}=await Store.sb.from('tb_config').select('data').eq('id',1).maybeSingle();const d=(data&&data.data)||{};
@@ -37156,6 +37156,28 @@ function meetUsage(model,u,tag){if(!u||Store.mode!=='supabase')return;
   const row={user_id:Store.user.id,email:Store.user.email,kind:'Claude('+(tag||'일정 회의록')+')',seconds:0,calls:1,model,
     tok_in:(u.input_tokens||0)+(u.cache_creation_input_tokens||0)+(u.cache_read_input_tokens||0),tok_out:u.output_tokens||0};
   Store.sb.from('tb_usage').insert(row).then(({error})=>{if(error&&/tok_/.test(error.message)){delete row.tok_in;delete row.tok_out;Store.sb.from('tb_usage').insert(row);}},()=>{});}
+
+/* ── 제미나이 — Edge Function 'gemini' 경유(v2.7) ──
+   유튜브 주소를 보내면 Google 제미나이가 영상(화면+소리)을 직접 보고 시각별 메모를 돌려준다. 자막이 없어도 된다.
+   키(GEMINI_API_KEY)는 서버 Secrets 에만 있다. 사용량은 서버가 tb_usage 에 남긴다. 모델은 팀 설정 geminiModel(tb_config) */
+const WATCH_Q='이 영상을 처음부터 끝까지 보고, 업무 회의록을 쓰기 위한 메모를 한국어로 적는다.\n'
+  +'- 시간 순서대로, 주제가 바뀌는 곳마다 [mm:ss] 시각을 줄 앞에 붙인다\n'
+  +'- 말한 내용(주장·근거·숫자·예시·전망)은 요약해 줄이지 말고 빠짐없이 개조식으로 옮긴다. 외국어는 한국어로, 고유명사는 원어를 괄호로\n'
+  +'- 화면에만 보이는 것(도표·표·자료 화면·화면 글자·수치)은 「[화면 mm:ss] 설명」으로 따로 한 줄씩 적는다\n'
+  +'- 영상에 없는 내용은 지어내지 않는다. 잘 안 들리거나 안 보이면 (?)\n'
+  +'- 마크다운 목록만 출력한다(앞뒤 설명 금지)';
+async function askGemini(url,question,opt={}){
+  if(Store.mode!=='supabase')throw new Error('영상 보기는 클라우드(Supabase)에 로그인해야 쓸 수 있습니다');
+  const model=opt.model||MeetCfg.v.geminiModel;
+  const {data,error}=await Store.sb.functions.invoke('gemini',{body:{url,question,model,start:opt.start,end:opt.end}});
+  if(error){let d='',st=0;try{st=(error.context&&error.context.status)||0;const j=await error.context?.json();d=j&&j.error;}catch(_){}
+    const m=d||error.message||'';
+    if(st===404)throw new Error("영상 보기 서버(Edge Function 'gemini')가 아직 없습니다 — 배포가 필요합니다");
+    throw new Error(/Failed to send|FunctionsFetchError|Failed to fetch/i.test(m)?'제미나이 연결(Edge Function "gemini")에 닿지 못했습니다 — 네트워크를 확인하세요':m);}
+  if(data&&data.error)throw new Error(data.error);
+  console.info('[Gemini]',opt.tag||'',{model:data.model,usage:data.usage});
+  return String(data.text||'');
+}
 
 /* ── 실시간 받아쓰기 · 통역 (통번역 앱의 LiveConn/LiveSession 을 줄여 옮김) ── */
 const LIVE_RATE=16000,LIVE_CHUNK=1600,LIVE_ROTATE_MS=120*1000,LIVE_REC_SPLIT=15*60*1000;
@@ -37789,8 +37811,11 @@ async function fillTemplate(ev,tpl,onStep){
   return String(out||'').replace(/^```(?:markdown|md)?\s*/,'').replace(/```\s*$/,'').trim();
 }
 /* ── 🔗 링크 정리 — 유튜브·블로그·기사를 회의록처럼 정리하고 장면·사진을 넣는다 ──
-   읽기는 Edge Function 'webdigest'(yt·page·img)가 대신 한다(브라우저는 다른 사이트를 직접 못 읽는다) */
+   읽기는 Edge Function 'webdigest'(yt·page·img)가 대신 한다(브라우저는 다른 사이트를 직접 못 읽는다)
+   유튜브는 먼저 Edge Function 'gemini'로 제미나이가 영상(화면+소리)을 직접 보고 시각별 메모를 쓴다(v2.7).
+   그 메모와 자막을 함께 Claude 에 넘겨 양식대로 정리한다. 제미나이가 없거나 실패하면 전처럼 자막만으로 간다 */
 const isYt=u=>/(youtube\.com\/(watch|shorts|live|embed)|youtu\.be\/)/i.test(u||'');
+const ytId=u=>{try{const x=new URL(u);return x.searchParams.get('v')||x.pathname.split('/').filter(Boolean).pop()||'';}catch(_){return '';}};
 const linkUrls=e=>[...new Set(String(e.links||'').match(/https?:\/\/[^\s<>"')]+/g)||[])];
 async function webRead(action,url){let data;
   try{data=await sttCall('webdigest',{action,url});}
@@ -37866,19 +37891,30 @@ async function digestNotes(text,onStep,what){
   return '(긴 원문을 조각별로 정리한 메모)\n\n'+notes.join('\n\n');}
 async function digestLink(ev,url,onStep){
   await MeetCfg.load();let prompt,info,pick;
-  if(isYt(url)){onStep&&onStep('유튜브 읽는 중…');info=await webRead('yt',url);if(info.error)throw new Error(info.error);
+  if(isYt(url)){
+    /* 1) 제미나이가 영상(화면+소리)을 직접 본다 — 자막이 없어도 된다. 실패하면 자막 방식만으로 간다 */
+    let watched='',gemErr='';onStep&&onStep('제미나이가 영상 보는 중…');
+    try{watched=await askGemini(url,WATCH_Q,{tag:'링크 정리'});}catch(e){gemErr=e.message;console.warn('[링크 정리] 제미나이',e.message);}
+    /* 2) 자막·설명·장면 그림판은 전처럼 webdigest 로 — 시청 메모가 있으면 이게 실패해도 계속 간다 */
+    onStep&&onStep('유튜브 읽는 중…');
+    try{info=await webRead('yt',url);if(info.error)throw new Error(info.error);}
+    catch(e){if(!watched)throw e;console.warn('[링크 정리] 유튜브 읽기',e.message);info={id:ytId(url),url,title:'',description:'',status:'읽기 실패'};}
     const cues=(info.captions&&info.captions.cues)||[];
     /* 자막을 20초 안팎 단락으로 — 단락마다 [mm:ss] */
     const paras=[];let cur=null;cues.forEach(c=>{if(!cur||c.t-cur.t>=20){cur={t:c.t,x:[]};paras.push(cur);}cur.x.push(c.text);});
     const script=paras.map(p=>'['+tmss(p.t)+'] '+p.x.join(' ')).join('\n');
-    if(!script&&!info.description)throw new Error('이 영상은 자막도 설명도 받지 못했습니다'+(info.status&&info.status!=='OK'?' ('+info.status+')':'')+' — 자막이 있는 영상인지 확인하세요');
-    const body=await digestNotes(script,onStep,'영상 자막');
-    const src=[info.channel,info.published,info.duration?tmss(info.duration):''].filter(Boolean).join(' · ')+' · 유튜브';
-    prompt=DIGEST_FMT.replace('{제목}',info.title||ev.title||'영상 정리').replace('{출처}',src).replace('{링크}',info.url).replace('{시각}',' [시작 mm:ss]')
-      +'\n\n그림: 화면을 보여 주면 이해가 쉬운 곳(도표·자료 화면·핵심 장면)에 [[IMG mm:ss | 설명]] 을 4~10개 넣는다. mm:ss 는 자막에 나온 그 내용의 시각이다. 첫 그림은 영상 소개 장면.'
-      +(info.captions?'':'\n자막을 받지 못해 영상 설명만 있다 — 그 사실을 「기타」에 적는다.')
+    if(!script&&!info.description&&!watched)throw new Error('이 영상은 자막도 설명도 받지 못했습니다'+(info.status&&info.status!=='OK'?' ('+info.status+')':'')+(gemErr?' · 제미나이: '+gemErr:'')+' — 자막이 있는 영상인지 확인하세요');
+    const seen=watched?await digestNotes(watched,onStep,'영상 시청 메모'):'';
+    const body=script?await digestNotes(script,onStep,'영상 자막'):'';
+    const src=[info.channel,info.published,info.duration?tmss(info.duration):''].filter(Boolean).join(' · ')+' · 유튜브'+(watched?' · 제미나이 시청':'');
+    prompt=DIGEST_FMT.replace('{제목}',info.title||ev.title||'영상 정리').replace('{출처}',src).replace('{링크}',info.url||url).replace('{시각}',' [시작 mm:ss]')
+      +'\n\n그림: 화면을 보여 주면 이해가 쉬운 곳(도표·자료 화면·핵심 장면)에 [[IMG mm:ss | 설명]] 을 4~10개 넣는다. mm:ss 는 '+(watched?'시청 메모의 [화면 mm:ss]·':'')+'자막에 나온 그 내용의 시각이다. 첫 그림은 영상 소개 장면.'
+      +(watched?'\n시청 메모는 제미나이가 영상을 직접 보고 적은 것이다. 자막과 다르면 숫자·고유명사는 화면 글자를 적은 쪽을 믿는다.':'')
+      +(info.captions||watched?'':'\n자막을 받지 못해 영상 설명만 있다 — 그 사실을 「기타」에 적는다.')
       +(info.captions&&info.captions.auto?'\n(자막은 자동 생성 자막이라 오인식이 있을 수 있다)':'')
-      +'\n\n--- 영상 설명 ---\n'+(info.description||'')+'\n\n--- 자막 ---\n'+body;
+      +'\n\n--- 영상 설명 ---\n'+(info.description||'')
+      +(seen?'\n\n--- 시청 메모 (제미나이, 화면·소리) ---\n'+seen:'')
+      +(body?'\n\n--- 자막 ---\n'+body:'');
     pick=async list=>{const times=[...new Set(list.map(x=>tsec(x.v)).filter(t=>t>=0&&(!info.duration||t<=info.duration)))];
       const fr=await ytFrames(info,times,onStep);
       if(!Object.keys(fr).length){try{fr._thumb=await putPicture(await webPicture(info.thumb).catch(()=>webPicture(info.thumbAlt)),'yt-'+info.id+'-thumb');}catch(_){}}
@@ -38134,7 +38170,7 @@ function MinutesBox({e,setE,toast}){
     {src>0&&<Button size="sm" variant="ghost" onClick={()=>make(false)} title="붙은 녹음·통번역 기록과 메모로 회의록을 만들어 아래 메모에 넣습니다(Claude)">{has?'↻ 회의록 다시 만들기':'✨ 회의록 만들기'}</Button>}
     {src>0&&<Button size="sm" variant="ghost" onClick={()=>make(true)} title="붙은 기록의 녹음 파일을 처음부터 다시 받아쓰고(더 정확) 다듬은 뒤 회의록을 만듭니다">🎧 다시 전사</Button>}
     {links.length>0&&<Button size="sm" variant={lpick?undefined:'ghost'} onClick={()=>links.length===1?digest(links[0]):setLpick(v=>!v)}
-      title="관련 링크의 유튜브 영상·블로그·기사 내용을 회의록처럼 정리하고, 장면 캡처·본문 사진을 넣어 아래 메모에 붙입니다(Claude)">🔗 링크 정리</Button>}
+      title="관련 링크의 유튜브 영상·블로그·기사 내용을 회의록처럼 정리하고, 장면 캡처·본문 사진을 넣어 아래 메모에 붙입니다(유튜브는 제미나이가 영상을 직접 보고, 정리는 Claude)">🔗 링크 정리</Button>}
     <Button size="sm" variant="ghost" onClick={()=>setPv(true)} title="보드 내용을 양식에 맞춰 정리해 미리 보고, 인쇄(PDF)·워드로 내보냅니다">🖨 출력·워드</Button>
     {lpick&&<span style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center',flexBasis:'100%',padding:'6px 8px',background:'var(--surface-calc-cell)',borderRadius:6}}>
       <span style={{fontSize:'var(--fs-sm2)',color:'var(--text-muted)'}}>정리할 링크</span>
@@ -38828,7 +38864,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.6';
+const APP_VERSION='v2.7';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
