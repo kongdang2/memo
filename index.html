@@ -37227,10 +37227,10 @@ const evColor=e=>catColor(e&&e.category)||'#4E82AE';
 const weekStart=iso=>{const d=new Date(iso+'T00:00:00');return shiftDay(iso,-d.getDay());};
 
 
-function CalendarView({db,setDb,st,set,toast}){
+function CalendarView({db,setDb,st,set,toast,slots}){
   const mobile=useMobile();
   /* 폰에서는 월간 격자가 너무 좁다 — 처음 열 때 목록으로 */
-  const {Card,Button,Badge,Modal,InfoBar}=window.HDWorkbookDesignSystem_ad60e4;
+  const {Card,Button,Badge,Modal,InfoBar,SessionDivider}=window.HDWorkbookDesignSystem_ad60e4;
   const today=todayISO();const anchor=st.anchor||today;const view=st.view||'month';const sub=st.sub||'month';
   const events=db.events;
   const categories=[...new Set(db.events.map(e=>e.category).filter(Boolean))].sort();
@@ -37271,14 +37271,16 @@ function CalendarView({db,setDb,st,set,toast}){
     save({...e,...patch});toast('『'+(e.title||'제목 없음')+'』 → '+(patch.date||e.date)+(patch.start?' '+patch.start:patch.start===''?' 종일':''));};
   const step=n=>{const d=new Date(anchor+'T00:00:00');if(sub==='week')d.setDate(d.getDate()+7*n);else d.setMonth(d.getMonth()+n);set({anchor:isoDate(d)});};
   const label=view==='list'?'목록':sub==='week'?weekStart(anchor)+' 주':anchor.slice(0,4)+'년 '+Number(anchor.slice(5,7))+'월';
-  const seg=view==='month'&&<span style={{display:'inline-flex',border:'1px solid var(--border-strong)',borderRadius:6,padding:2,gap:2,marginLeft:6}}>
-    {[['month','월간'],['week','주간']].map(([k,l])=><button key={k} type="button" onClick={()=>set({sub:k})} style={{border:'none',borderRadius:4,padding:'3px 11px',fontSize:'var(--fs-sm2)',fontWeight:sub===k?600:500,background:sub===k?'var(--surface-active)':'transparent',color:sub===k?'var(--text-body)':'var(--text-muted)',cursor:'pointer',fontFamily:'inherit'}}>{l}</button>)}</span>;
-  const nav=view==='month'&&<><Button variant="ghost" size="sm" onClick={()=>step(-1)}>◂</Button><Button variant="ghost" size="sm" onClick={()=>set({anchor:today})}>오늘</Button><Button variant="ghost" size="sm" onClick={()=>step(1)}>▸</Button></>;
+  /* 보기: 월간 · 주간 · 목록 — 위쪽 세션 줄에 둔다 */
+  const cur=view==='list'?'list':sub==='week'?'week':'month';
+  const seg=<span style={{display:'inline-flex',border:'1px solid var(--border-strong)',borderRadius:6,padding:2,gap:2}}>
+    {[['month','월간'],['week','주간'],['list','목록']].map(([k,l])=><button key={k} type="button" onClick={()=>set(k==='list'?{view:'list'}:{view:'month',sub:k})} style={{border:'none',borderRadius:4,padding:'2px 10px',fontSize:'var(--fs-sm2)',fontWeight:cur===k?600:500,background:cur===k?'var(--surface-active)':'transparent',color:cur===k?'var(--text-body)':'var(--text-muted)',cursor:'pointer',fontFamily:'inherit'}}>{l}</button>)}</span>;
+  const nav=view==='month'&&<span style={{display:'inline-flex',alignItems:'center',gap:2}}><Button variant="ghost" size="xs" onClick={()=>step(-1)}>◂</Button><Button variant="ghost" size="xs" onClick={()=>set({anchor:today})}>오늘</Button><Button variant="ghost" size="xs" onClick={()=>step(1)}>▸</Button></span>;
   const q=(st.q||'').trim().toLowerCase();
   const hits=q?db.events.filter(e=>[e.title,e.notes,e.links,e.category,e.minutes].some(t=>(t||'').toLowerCase().includes(q)))
     .sort((a,b)=>String(b.date).localeCompare(String(a.date))):[];
   const search=<input type="search" value={st.q||''} onChange={x=>set({q:x.target.value})} placeholder="🔍 제목·메모 검색"
-    style={{...inputStyle,width:mobile?'100%':220,padding:'4px 8px'}}/>;
+    style={{...inputStyle,width:mobile?150:200,padding:'3px 8px',fontSize:'var(--fs-sm2)'}}/>;
   const body=q
     ? <SearchResults hits={hits} q={q} onOpen={e=>set({edit:e})}/>
     : view==='list'
@@ -37287,11 +37289,11 @@ function CalendarView({db,setDb,st,set,toast}){
       ? <WeekGrid events={events} anchor={anchor} today={today} onOpen={e=>set({edit:e})} onNew={openNew} onMove={moveEvent} onDelete={delQuiet} zoom={zoom}/>
       : <MonthGrid events={events} anchor={anchor} today={today} onOpen={e=>set({edit:e})} onNew={openNew} onMove={moveEvent} onDelete={delQuiet} zoom={zoom}/>;
   return <>
-    <Card title={q?'검색':label} badge={<Badge tone="muted">{q?hits.length:events.length}건</Badge>}
-      toolbar={<><Button icon="+" onClick={()=>openNew(view==='month'?anchor:today)}>새 일정</Button>{nav}{seg}{zoomSeg}</>}
-      toolbarRight={search}>
-      {body}
-    </Card>
+    {slots&&slots.mid&&ReactDOM.createPortal(<><SessionDivider/>{nav}
+      <b style={{fontSize:'var(--fs-md)',fontFamily:'var(--font-num)',margin:'0 4px',whiteSpace:'nowrap'}}>{label}</b>{seg}{zoomSeg}</>,slots.mid)}
+    {slots&&slots.right&&ReactDOM.createPortal(<span style={{display:'inline-flex',alignItems:'center',gap:6}}>{search}<Button size="xs" icon="+" onClick={()=>openNew(view==='month'?anchor:today)}>새 일정</Button></span>,slots.right)}
+    {q&&<div style={{fontSize:'var(--fs-sm2)',color:'var(--text-muted)',margin:'2px 0 8px'}}>검색 결과 {hits.length}건</div>}
+    {body}
     <EventPanel ev={st.edit} categories={categories} onClose={()=>set({edit:null})} onSave={save} onDelete={del} toast={toast}/>
     {!st.edit&&<MeetPill onOpen={id=>{const x=db.events.find(e=>e.id===id);if(x)set({edit:x});}}/>}
   </>;
@@ -37547,7 +37549,10 @@ function MonthGrid({events,anchor,today,onOpen,onNew,onMove,onDelete,zoom}){
   /* 폰에서는 글자와 칸을 키우고, 배율이 1을 넘으면 가로로 넘겨 본다 */
   /* 글자는 살짝만 키우고 "칸 너비"를 늘린다 — 2× 면 한 칸이 130px 남짓이라 제목 10글자쯤 들어간다 */
   const cellW=Math.round(66*z);
-  const cellH=mobile?(z>=2?146:z>=1.5?132:110):96;
+  const [vh,setVh]=React.useState(window.innerHeight);
+  React.useEffect(()=>{const f=()=>setVh(window.innerHeight);window.addEventListener('resize',f);return()=>window.removeEventListener('resize',f);},[]);
+  /* 데스크톱은 화면 높이를 꽉 채운다(머리줄·세션 줄·요일 줄·안내 줄을 뺀 나머지를 6주로 나눔) */
+  const cellH=mobile?(z>=2?146:z>=1.5?132:110):Math.max(96,Math.floor((vh-170)/6));
   const fs=mobile?(z>=1.5?12.5:11.5):11;
   const maxShow=mobile?(z>=2?4:3):3;
   const inner={minWidth:mobile&&z>1?(7*cellW)+'px':'auto'};
@@ -37804,7 +37809,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v1.9';
+const APP_VERSION='v2.0';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
@@ -37920,9 +37925,8 @@ function Shell({user,onLogout}){
   const [trashOpen,setTrash]=React.useState(false);const [saved,setSaved]=React.useState('');const [toastMsg,setToastMsg]=React.useState('');const [cfgOpen,setCfg]=React.useState(false);const [err,setErr]=React.useState('');
   const [calSt,setCalSt]=React.useState({view:'month',sub:'month',anchor:todayISO()});
   const timers=React.useRef({});const mobile=useMobile();const updated=useAppUpdate();
-  /* 왼쪽 「보기」 칸 — 기본은 숨김(월간만 보임). ☰ 단추로 열고 닫으며, 고른 상태를 기억한다 */
-  const [navOpen,setNavOpen]=React.useState(()=>{try{return localStorage.getItem('cal.navOpen')==='1';}catch(_){return false;}});
-  const toggleNav=()=>setNavOpen(v=>{const n=!v;try{localStorage.setItem('cal.navOpen',n?'1':'0');}catch(_){}return n;});
+  /* 세션 줄 안의 자리 — 일정 화면이 연월·이동·보기 단추와 검색·새 일정을 여기에 그린다 */
+  const [slotMid,setSlotMid]=React.useState(null);const [slotRight,setSlotRight]=React.useState(null);
   const [dbForNoti,setDbForNoti]=React.useState(null);
   useNotifications(dbForNoti);
   React.useEffect(()=>{Store.loadAll().then(d=>{setDbRaw(d);
@@ -38058,23 +38062,22 @@ function Shell({user,onLogout}){
   const savedBadge=saved==='saving'?'⏳ 저장 중…':saved==='error'?'⚠ 저장 실패':saved?'✓ 자동저장됨 · '+saved:'✓ 불러옴';
   return <div style={{minHeight:'100vh',display:'flex',flexDirection:'column',background:'#fff'}}>
     <AppHeader mark="📅" title="일정 관리" version={APP_VERSION} tools={mobile
-      ?<><Button variant="ghost" size="xs" title={navOpen?'보기 칸 숨기기':'보기 칸 열기 (월간·목록)'} onClick={toggleNav}>☰</Button><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기" onClick={undo}>↶</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기" onClick={redo}>↷</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)}>🗑</Button><Button variant="ghost" size="xs" title="알림 설정" onClick={()=>setCfg(true)}>🔔</Button><Button variant="ghost" size="xs" onClick={onLogout}>나가기</Button></>
-      :<><Button variant="ghost" size="xs" title={navOpen?'보기 칸 숨기기':'보기 칸 열기 (월간·목록)'} onClick={toggleNav}>☰ {navOpen?'보기 숨기기':'보기'}</Button><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳ 새로고침</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기 (Ctrl+Z)" onClick={undo}>↶ 되돌리기</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기 (Ctrl+Y)" onClick={redo}>↷ 다시</Button><Button variant="ghost" size="xs" onClick={()=>Store.exportJSON(db)} title="전체 데이터 JSON 백업">💾 백업</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)} title={'지운 항목 보관함('+TRASH_DAYS+'일)'}>🗑 휴지통</Button><Button variant="ghost" size="xs" onClick={()=>setCfg(true)}>🔔 알림</Button><span style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>👤 {user.email}</span><Button variant="ghost" size="xs" onClick={onLogout}>로그아웃</Button></>}/>
+      ?<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기" onClick={undo}>↶</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기" onClick={redo}>↷</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)}>🗑</Button><Button variant="ghost" size="xs" title="알림 설정" onClick={()=>setCfg(true)}>🔔</Button><Button variant="ghost" size="xs" onClick={onLogout}>나가기</Button></>
+      :<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳ 새로고침</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기 (Ctrl+Z)" onClick={undo}>↶ 되돌리기</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기 (Ctrl+Y)" onClick={redo}>↷ 다시</Button><Button variant="ghost" size="xs" onClick={()=>Store.exportJSON(db)} title="전체 데이터 JSON 백업">💾 백업</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)} title={'지운 항목 보관함('+TRASH_DAYS+'일)'}>🗑 휴지통</Button><Button variant="ghost" size="xs" onClick={()=>setCfg(true)}>🔔 알림</Button><span style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>👤 {user.email}</span><Button variant="ghost" size="xs" onClick={onLogout}>로그아웃</Button></>}/>
     {updated&&<div onClick={hardReload} role="button" style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',
       padding:'8px 14px',background:'var(--wb-ink)',color:'#fff',fontSize:'var(--fs-md)',fontWeight:600,fontFamily:'var(--font-sans)'}}>
       <span style={{fontSize:15}}>🔄</span>새 버전이 올라왔습니다
       <span style={{marginLeft:'auto',border:'1px solid rgba(255,255,255,.55)',borderRadius:6,padding:'3px 12px',fontSize:'var(--fs-sm2)'}}>지금 새로고침</span>
     </div>}
-    <SessionBar icon="📅" name={mobile?'일정'+(todayN?' · 오늘 '+todayN:''):user.name+' 일정'+(todayN?' · 오늘 '+todayN+'건':'')}>
+    <SessionBar right={<span ref={setSlotRight} style={{display:'contents'}}/>} icon="📅" name={mobile?'일정'+(todayN?' · 오늘 '+todayN:''):user.name+' 일정'+(todayN?' · 오늘 '+todayN+'건':'')}>
       <Badge tone="pill">{mobile?(saved==='saving'?'⏳':saved==='error'?'⚠':'✓'):savedBadge}</Badge>
       {!mobile&&<><SessionDivider/>
-      {Store.mode==='supabase'?<Badge tone="linked">☁ Supabase · {new URL(Store.cfg.supabaseUrl).host}</Badge>:<Badge tone="pill">💾 로컬 저장</Badge>}
-      <SessionDivider/><span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>📅 {todayISO()}</span></>}
+      {Store.mode!=='supabase'&&<Badge tone="pill">💾 로컬 저장</Badge>}</>}
+      <span ref={setSlotMid} style={{display:'contents'}}/>
     </SessionBar>
     <div style={{display:'flex',flexDirection:mobile?'column':'row',alignItems:'stretch',flex:1,minHeight:'calc(100vh - 90px)'}}>
-      {navOpen&&(mobile?<MobileNav sections={nav}/>:<NavSidebar sections={nav}/>)}
-      <main style={{flex:1,minWidth:0,padding:mobile?'10px 10px calc(16px + env(safe-area-inset-bottom))':'var(--pad-content)'}}>
-        <CalendarView db={db} setDb={setDb} st={calSt} set={merge(setCalSt)} toast={toast}/>
+      <main style={{flex:1,minWidth:0,padding:mobile?'8px 8px calc(16px + env(safe-area-inset-bottom))':'10px 16px 14px'}}>
+        <CalendarView db={db} setDb={setDb} st={calSt} set={merge(setCalSt)} toast={toast} slots={{mid:slotMid,right:slotRight}}/>
       </main>
     </div>
     <SettingsModal open={cfgOpen} onClose={()=>setCfg(false)} onToast={toast}/>
