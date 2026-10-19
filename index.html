@@ -36421,7 +36421,10 @@ function CalendarView({db,setDb,st,set,toast}){
   const cals=st.cals||{work:true,personal:true};
   const events=db.events.filter(e=>cals[e.cal]);
   const categories=[...new Set(db.events.map(e=>e.category).filter(Boolean))].sort();
-  const save=ev=>setDb('events',arr=>arr.some(e=>e.id===ev.id)?arr.map(e=>e.id===ev.id?ev:e):[...arr,ev]);
+  const save=ev=>setDb('events',arr=>{const old=arr.find(e=>e.id===ev.id);
+    /* 메모가 바뀐 시각 — "메모 붙은 일정" 집계에 쓴다 */
+    if((old?old.notes||'':'')!==(ev.notes||''))ev={...ev,notesAt:nowStamp()};
+    return old?arr.map(e=>e.id===ev.id?ev:e):[...arr,ev];});
   const del=id=>{Store.why='일정 삭제(직접)';setDb('events',arr=>arr.filter(e=>e.id!==id));set({edit:null});toast('삭제됨');};
   /* 휴지통에 떨궈 지우기 — 되돌리기(↶ · Ctrl+Z)로 되살릴 수 있다 */
   const delQuiet=id=>{Store.why='일정 삭제(휴지통에 떨굼)';const e=db.events.find(x=>x.id===id);if(!e)return;
@@ -36443,19 +36446,39 @@ function CalendarView({db,setDb,st,set,toast}){
   const seg=view==='month'&&<span style={{display:'inline-flex',border:'1px solid var(--border-strong)',borderRadius:6,padding:2,gap:2,marginLeft:6}}>
     {[['month','월간'],['week','주간']].map(([k,l])=><button key={k} type="button" onClick={()=>set({sub:k})} style={{border:'none',borderRadius:4,padding:'3px 11px',fontSize:'var(--fs-sm2)',fontWeight:sub===k?600:500,background:sub===k?'var(--surface-active)':'transparent',color:sub===k?'var(--text-body)':'var(--text-muted)',cursor:'pointer',fontFamily:'inherit'}}>{l}</button>)}</span>;
   const nav=view==='month'&&<><Button variant="ghost" size="sm" onClick={()=>step(-1)}>◂</Button><Button variant="ghost" size="sm" onClick={()=>set({anchor:today})}>오늘</Button><Button variant="ghost" size="sm" onClick={()=>step(1)}>▸</Button></>;
-  const body=view==='list'
+  const q=(st.q||'').trim().toLowerCase();
+  const hits=q?db.events.filter(e=>[e.title,e.notes,e.links,e.category].some(t=>(t||'').toLowerCase().includes(q)))
+    .sort((a,b)=>String(b.date).localeCompare(String(a.date))):[];
+  const search=<input type="search" value={st.q||''} onChange={x=>set({q:x.target.value})} placeholder="🔍 제목·메모 검색"
+    style={{...inputStyle,width:mobile?'100%':220,padding:'4px 8px'}}/>;
+  const body=q
+    ? <SearchResults hits={hits} q={q} onOpen={e=>set({edit:e})}/>
+    : view==='list'
     ? <ListView events={events} categories={categories} st={st} set={set} onOpen={e=>set({edit:e})} onNotes={(e,notes)=>save({...e,notes})}/>
     : sub==='week'
       ? <WeekGrid events={events} anchor={anchor} today={today} onOpen={e=>set({edit:e})} onNew={openNew} onMove={moveEvent} onDelete={delQuiet} zoom={zoom}/>
       : <MonthGrid events={events} anchor={anchor} today={today} onOpen={e=>set({edit:e})} onNew={openNew} onMove={moveEvent} onDelete={delQuiet} zoom={zoom}/>;
   return <>
-    <Card title={label} badge={<Badge tone="muted">{events.length}건</Badge>}
+    <Card title={q?'검색':label} badge={<Badge tone="muted">{q?hits.length:events.length}건</Badge>}
       toolbar={<><Button icon="+" onClick={()=>openNew(view==='month'?anchor:today)}>새 일정</Button>{nav}{seg}{zoomSeg}</>}
-      toolbarRight={<><CalToggle cals={cals} onChange={c=>set({cals:c})}/></>}>
+      toolbarRight={<>{search}<CalToggle cals={cals} onChange={c=>set({cals:c})}/></>}>
       {body}
     </Card>
-    <EventPanel ev={st.edit} categories={categories} onClose={()=>set({edit:null})} onSave={ev=>{save(ev);set({edit:null});}} onDelete={del}/>
+    <EventPanel ev={st.edit} categories={categories} onClose={()=>set({edit:null})} onSave={save} onDelete={del}/>
   </>;
+}
+
+/* 검색 결과: 날짜 최신순, 메모에서 찾은 경우 그 앞뒤를 보여 준다 */
+function SearchResults({hits,q,onOpen}){
+  if(!hits.length)return <div style={{padding:30,textAlign:'center',color:'var(--text-label)'}}>찾는 일정이 없습니다</div>;
+  const snip=t=>{const i=(t||'').toLowerCase().indexOf(q);if(i<0)return '';
+    return (i>20?'…':'')+t.slice(Math.max(0,i-20),i+q.length+40).replace(/\n/g,' ')+'…';};
+  return <div>{hits.map(e=><div key={e.id} onClick={()=>onOpen(e)} style={{display:'flex',gap:10,padding:'8px 4px',borderBottom:'1px solid var(--border-default)',cursor:'pointer'}}>
+    <span style={{flex:'none',width:86,fontFamily:'var(--font-num)',color:'var(--text-muted)',fontSize:'var(--fs-sm)'}}>{e.date}</span>
+    <span style={{flex:1,minWidth:0}}>
+      <span style={{display:'flex',gap:6,alignItems:'center'}}>{e.category&&<CatTag cat={e.category} fs={11}/>}<b style={{fontSize:'var(--fs-md)'}}>{e.title||'(제목 없음)'}</b></span>
+      {!(e.title||'').toLowerCase().includes(q)&&<div style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{snip(e.notes)||snip(e.links)}</div>}
+    </span></div>)}</div>;
 }
 
 function EvChip({e,onClick,compact,draggable,onDragStart,onDragEnd,carrying,fs,touch,pos,wrap}){
@@ -36488,6 +36511,7 @@ function EvChip({e,onClick,compact,draggable,onDragStart,onDragEnd,carrying,fs,t
           <span style={{overflow:'hidden',textOverflow:'ellipsis',opacity:pos==='mid'||pos==='last'?.6:1}}>
             {(pos==='mid'||pos==='last')?'↳ '+(e.title||''):(e.title||'(제목 없음)')}</span>
         </>}
+    {head&&(e.notes||'').trim()&&<span title="메모 있음" style={{flex:'none',width:5,height:5,borderRadius:'50%',background:'var(--text-muted)'}}/>}
     {e.status==='doing'&&<span style={{color:CAL_COLOR[e.cal],fontSize:9}}>◐</span>}
     {e.repeat!=='none'&&<span style={{color:'var(--text-label)'}}>↻</span>}</div>;
 }
@@ -36779,15 +36803,24 @@ function ListView({events,categories,st,set,onOpen,onNotes}){
 /* 속성 패널: 제목 · 기간 · 시간 · 캘린더 · 카테고리(색) · 상태 · 반복 · 비고 */
 function EventPanel({ev,categories,onClose,onSave,onDelete}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
-  const [e,setE]=React.useState(ev);const [pv,setPv]=React.useState('edit');
-  React.useEffect(()=>{setE(ev);setPv('edit');},[ev]);if(!e)return null;
-  const f=k=>v=>setE({...e,[k]:v});const isNew=!e.title&&ev&&!ev.title;
+  const [e,setE]=React.useState(ev);const [pv,setPv]=React.useState('edit');const [savedAt,setSavedAt]=React.useState('');
+  /* 자동 저장: 입력이 멈추고 1초 뒤 저장. 닫을 때는 기다리지 않고 바로 저장한다.
+     제목이 비어 있으면 저장하지 않는다(새 일정을 열었다 그냥 닫은 경우) */
+  const last=React.useRef(null);const timer=React.useRef(null);
+  React.useEffect(()=>{setE(ev);setPv('edit');setSavedAt('');last.current=ev?JSON.stringify(ev):null;},[ev]);
+  const flush=cur=>{clearTimeout(timer.current);const j=JSON.stringify(cur);
+    if(!cur||!(cur.title||'').trim()||j===last.current)return;last.current=j;onSave(cur);setSavedAt(new Date().toTimeString().slice(0,5));};
+  React.useEffect(()=>{if(!e||!ev||e.id!==ev.id)return;clearTimeout(timer.current);timer.current=setTimeout(()=>flush(e),1000);return()=>clearTimeout(timer.current);},[e]);
+  if(!e)return null;
+  const close=()=>{flush(e);onClose();};
+  const f=k=>v=>setE({...e,[k]:v});const isNew=!(ev&&ev.title)&&!savedAt;
+  const linkList=(e.links||'').split('\n').map(x=>x.trim()).filter(Boolean);
   const bare={border:'none',background:'transparent',fontSize:'var(--fs-base)',fontFamily:'var(--font-sans)',color:'var(--text-body)',padding:'4px 6px',borderRadius:4,outline:'none'};
-  return <div style={{position:'fixed',inset:0,zIndex:'var(--z-modal)'}} onClick={onClose}>
+  return <div style={{position:'fixed',inset:0,zIndex:'var(--z-modal)'}} onClick={close}>
     <div onClick={x=>x.stopPropagation()} style={{position:'absolute',top:0,right:0,bottom:0,width:480,maxWidth:'95vw',background:'#fff',boxShadow:'var(--shadow-popover)',borderLeft:'1px solid var(--border-default)',display:'flex',flexDirection:'column',fontFamily:'var(--font-sans)'}}>
-      <div style={{display:'flex',gap:6,padding:'10px 14px',borderBottom:'1px solid var(--border-default)',alignItems:'center'}}><Button variant="ghost" size="xs" onClick={onClose}>✕</Button><span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>{isNew?'새 일정':'일정'}</span><span style={{marginLeft:'auto',display:'flex',gap:4}}>{!isNew&&<Button variant="ghost" size="xs" onClick={()=>onDelete(e.id)}>🗑</Button>}</span></div>
+      <div style={{display:'flex',gap:6,padding:'10px 14px',borderBottom:'1px solid var(--border-default)',alignItems:'center'}}><Button variant="ghost" size="xs" onClick={close}>✕</Button><span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>{isNew?'새 일정':'일정'}</span><span style={{marginLeft:'auto',display:'flex',gap:4}}>{!isNew&&<Button variant="ghost" size="xs" onClick={()=>onDelete(e.id)}>🗑</Button>}</span></div>
       <div style={{padding:'18px 22px',overflowY:'auto',flex:1}}>
-        <input autoFocus value={e.title} onChange={x=>f('title')(x.target.value)} placeholder="제목 없음" onKeyDown={x=>x.key==='Enter'&&onSave(e)} style={{...bare,fontSize:22,fontWeight:700,width:'100%',padding:'0 0 12px',marginBottom:6}}/>
+        <input autoFocus value={e.title} onChange={x=>f('title')(x.target.value)} placeholder="제목 없음" onKeyDown={x=>x.key==='Enter'&&close()} style={{...bare,fontSize:22,fontWeight:700,width:'100%',padding:'0 0 12px',marginBottom:6}}/>
         <PRow icon="📅" label="날짜">
           <input type="date" value={e.date} onChange={x=>{const v=x.target.value;setE(p=>({...p,date:v,dateEnd:p.dateEnd&&p.dateEnd<v?v:p.dateEnd}));}} style={bare}/>
           {e.dateEnd
@@ -36819,8 +36852,18 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
         </PRow>
         <PRow icon="◐" label="상태">{STATUS_KEYS.map(s=><Chip key={s} on={e.status===s} color={s==='done'?'#0a6b3b':s==='doing'?'#4E82AE':undefined} onClick={()=>f('status')(s)}>{STATUS_LABEL[s]}</Chip>)}</PRow>
         <PRow icon="↻" label="반복">{[['none','없음'],['daily','매일'],['weekly','매주'],['monthly','매월']].map(([k,l])=><Chip key={k} on={e.repeat===k} onClick={()=>f('repeat')(k)}>{l}</Chip>)}</PRow>
+        <PRow icon="🔗" label="관련 링크" top>
+          <div style={{width:'100%'}}>
+            <textarea value={e.links||''} onChange={x=>f('links')(x.target.value)} rows={Math.max(2,linkList.length+1)} placeholder="자료 위치를 한 줄에 하나씩 (URL 또는 드라이브 경로)"
+              style={{...bare,width:'100%',resize:'vertical',lineHeight:1.5,borderBottom:'1px dashed var(--border-strong)'}}/>
+            {linkList.some(l=>/^https?:\/\//i.test(l))&&<div style={{display:'flex',flexDirection:'column',gap:2,marginTop:4}}>
+              {linkList.filter(l=>/^https?:\/\//i.test(l)).map((l,k)=><a key={k} href={l} target="_blank" rel="noopener noreferrer"
+                style={{fontSize:'var(--fs-sm)',color:'var(--color-link, #2563eb)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>↗ {l}</a>)}
+            </div>}
+          </div>
+        </PRow>
         <div style={{marginTop:14,display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
-          <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>비고 · 마크다운, [[위키링크]] 가능</span>
+          <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>메모 · 마크다운 가능</span>
           {e.notes&&<span style={{marginLeft:'auto',display:'inline-flex',border:'1px solid var(--border-strong)',borderRadius:6,padding:2,gap:2}}>
             {[['edit','편집'],['view','미리보기']].map(([k,l])=><button key={k} type="button" onClick={()=>setPv(k)}
               style={{border:'none',borderRadius:4,padding:'2px 9px',fontSize:'var(--fs-sm2)',fontFamily:'inherit',
@@ -36832,14 +36875,16 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
           ? <div style={{border:'1px solid var(--border-default)',borderRadius:4,padding:'8px 10px',minHeight:120}}><Markdown md={e.notes}/></div>
           : <textarea value={e.notes} onChange={x=>f('notes')(x.target.value)} rows={9} placeholder="내용을 입력하세요" style={{...inputStyle,border:'none',padding:'6px 0',resize:'vertical',lineHeight:1.6,fontSize:'var(--fs-md2)'}}/>}
       </div>
-      <div style={{padding:'10px 14px',borderTop:'1px solid var(--border-default)',display:'flex',justifyContent:'flex-end',gap:6}}><Button variant="gray" onClick={onClose}>취소</Button><Button variant="primary" icon="💾" onClick={()=>onSave(e)}>저장</Button></div>
+      <div style={{padding:'10px 14px',borderTop:'1px solid var(--border-default)',display:'flex',alignItems:'center',justifyContent:'flex-end',gap:8}}>
+        <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>{!(e.title||'').trim()?'제목을 넣으면 자동 저장됩니다':savedAt?'✓ 자동 저장됨 · '+savedAt:'입력하면 자동 저장됩니다'}</span>
+        <Button variant="primary" onClick={close}>닫기</Button></div>
     </div>
   </div>;
 }
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v1.1';
+const APP_VERSION='v1.2';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
