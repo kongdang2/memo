@@ -36759,6 +36759,424 @@ function RichNote({docKey,html,onChange,placeholder}){
 Object.assign(window,{Files,RichNote,mdToHtml,htmlToText,rnClean,noteHtmlOf,shrinkImage,escH});
 </script>
 
+<script type="text/babel">/* ── 회의 녹음 · 통역 · 회의록 ─────────────────────────────────────
+   통번역 앱(kongdang2/record)과 같은 엔진을 그대로 쓴다. 키는 모두 Supabase Edge Function 쪽에 있다.
+   · 국문 회의: 마이크 → 16kHz PCM → WebSocket → Edge Function 'livetranslate'(mode=asr, from=ko) → 받아쓰기만
+   · 외국어 통역: 같은 경로로 받아쓰기(asr) + 문장마다 Claude 번역 → 한국어 자막
+   · 정지하면 녹음(webm)을 저장소 'pms-files'에 올리고, 기록을 통번역 앱과 같은 모양(kind='tbrec')으로 남긴 뒤 이 일정에 붙인다
+   · 회의록: 붙은 기록들의 글을 Claude(Edge Function 'claude')로 정리 → 일정의 minutes(마크다운) → Word(.docx)로 내려받기 */
+const blobB64=blob=>new Promise((ok,err)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(',')[1]);r.onerror=()=>err(r.error);r.readAsDataURL(blob);});
+
+/* ── 팀 공통 설정(통번역 앱 관리자가 정한 모델·용어 힌트) — 한 번만 읽는다 ── */
+const MEET_DEF={liveAsrModel:'qwen-audio-3.1-asr-flash-streaming',liveTrModel:'claude-haiku-5-5',claudeModel:'claude-sonnet-5-5',sttHint:'',liveSil:''};
+const MeetCfg={v:{...MEET_DEF},loaded:false,
+  async load(){if(this.loaded||Store.mode!=='supabase')return this.v;this.loaded=true;
+    try{const {data}=await Store.sb.from('tb_config').select('data').eq('id',1).maybeSingle();const d=(data&&data.data)||{};
+      Object.keys(MEET_DEF).forEach(k=>{if(d[k]!==undefined&&d[k]!=='')this.v[k]=d[k];});}catch(_){}
+    return this.v;}};
+
+/* ── Claude — Edge Function 'claude' 경유 ── */
+async function askClaude(prompt,opt={}){
+  if(Store.mode!=='supabase')throw new Error('회의록 정리는 클라우드(Supabase)에 로그인해야 쓸 수 있습니다');
+  const model=opt.model||MeetCfg.v.claudeModel;
+  const {data,error}=await Store.sb.functions.invoke('claude',{body:{prompt,model,max_tokens:opt.max_tokens||1500,system:opt.system,images:[]}});
+  if(error){let d='';try{const j=await error.context?.json();d=j&&j.error;}catch(_){}
+    const m=d||error.message||'';
+    throw new Error(/Failed to send|FunctionsFetchError|Failed to fetch/i.test(m)?'Claude 연결(Edge Function "claude")에 닿지 못했습니다 — 네트워크를 확인하세요':m);}
+  if(data&&data.error)throw new Error(data.error);
+  meetUsage(data.model||model,data.usage,opt.tag);
+  return data.text;
+}
+/* 사용량 — 통번역 앱의 사용량 표(tb_usage)에 남긴다(요금 집계용). 실패해도 넘어간다 */
+function meetUsage(model,u,tag){if(!u||Store.mode!=='supabase')return;
+  const row={user_id:Store.user.id,email:Store.user.email,kind:'Claude('+(tag||'일정 회의록')+')',seconds:0,calls:1,model,
+    tok_in:(u.input_tokens||0)+(u.cache_creation_input_tokens||0)+(u.cache_read_input_tokens||0),tok_out:u.output_tokens||0};
+  Store.sb.from('tb_usage').insert(row).then(({error})=>{if(error&&/tok_/.test(error.message)){delete row.tok_in;delete row.tok_out;Store.sb.from('tb_usage').insert(row);}},()=>{});}
+
+/* ── 실시간 받아쓰기 · 통역 (통번역 앱의 LiveConn/LiveSession 을 줄여 옮김) ── */
+const LIVE_RATE=16000,LIVE_CHUNK=1600,LIVE_ROTATE_MS=120*1000,LIVE_REC_SPLIT=15*60*1000;
+const MEET_LANGS=[{id:'ko',label:'한국어 회의 (받아쓰기)'},{id:'zh',label:'중국어 → 한국어 통역'},{id:'en',label:'영어 → 한국어 통역'},{id:'ja',label:'일본어 → 한국어 통역'}];
+const langName={ko:'한국어',zh:'중국어',en:'영어',ja:'일본어'};
+function pcm16b64(f32){const b=new Uint8Array(f32.length*2);const v=new DataView(b.buffer);
+  for(let i=0;i<f32.length;i++){const s=Math.max(-1,Math.min(1,f32[i]));v.setInt16(i*2,s<0?s*0x8000:s*0x7fff,true);}
+  let bin='';for(let i=0;i<b.length;i+=0x8000)bin+=String.fromCharCode.apply(null,b.subarray(i,i+0x8000));return btoa(bin);}
+const liveMerge=(have,got)=>!got?have:(!have||got.startsWith(have))?got:have+got;
+class LiveConn{
+  constructor(sess,n){this.sess=sess;this.n=n;this.segs=[];this.si=0;this.ready=false;this.finishing=false;this.gone=false;}
+  seg(i){while(this.segs.length<=i)this.segs.push({src:'',srcS:'',ko:'',koS:'',srcDone:false,koDone:false});
+    const g=this.segs[i];if(g.t==null&&this.sess.t0)g.t=Math.max(0,(Date.now()-this.sess.t0)/1000-2);return g;}
+  async open(){const s=this.sess,o=s.opt;
+    const {data}=await Store.sb.auth.getSession();const jwt=data&&data.session&&data.session.access_token;
+    if(!jwt)throw new Error('로그인 세션이 없습니다 — 다시 로그인하세요');
+    const q=new URLSearchParams({jwt,mode:'asr',model:o.asrModel,from:o.from,to:'ko'});
+    const hot=String(MeetCfg.v.sttHint||'').trim();if(hot)q.set('hot',hot.slice(0,1200));
+    if(MeetCfg.v.liveSil)q.set('sil',String(MeetCfg.v.liveSil));
+    if(Store.cfg.supabaseKey)q.set('apikey',Store.cfg.supabaseKey);
+    const url=String(Store.cfg.supabaseUrl||'').replace(/\/+$/,'').replace(/^http/i,'ws')+'/functions/v1/livetranslate?'+q;
+    const ws=new WebSocket(url);this.ws=ws;
+    ws.onopen=()=>s.onConnOpen(this);
+    ws.onmessage=e=>{let ev;try{ev=JSON.parse(e.data);}catch(_){return;}this.handle(ev);};
+    ws.onclose=e=>{this.gone=true;s.onConnClose(this,e);};ws.onerror=()=>{};}
+  send(o){if(this.ws&&this.ws.readyState===1){this.ws.send(typeof o==='string'?o:JSON.stringify(o));return true;}return false;}
+  finish(){if(this.finishing)return;this.finishing=true;this.send({type:'session.finish'});setTimeout(()=>this.close(),8000);}
+  close(){try{this.ws&&this.ws.close();}catch(_){}}
+  handle(ev){const s=this.sess,t=ev.type||'';
+    if(t==='relay.ready'){this.ready=true;this.readyAt=Date.now();s.log('연결 '+this.n+' 준비');s.bump();return;}
+    if(t==='relay.asrok'){if(s.err&&this.ready)s.err='';s.bump();return;}
+    if(t==='relay.note'){s.log(ev.message||'');return;}
+    if(t==='relay.error'){s.fail(ev.message||'중계 오류');return;}
+    if(t==='error'){s.fail((ev.error&&(ev.error.message||ev.error.code))||'받아쓰기 서버 오류');return;}
+    if(t==='session.finished'){this.close();return;}
+    if(t==='conversation.item.input_audio_transcription.delta'){const g=this.seg(this.si);g.src+=ev.delta||'';s.bump();return;}
+    if(t==='conversation.item.input_audio_transcription.text'){const g=this.seg(this.si);g.src=liveMerge(g.src,ev.text||'');g.srcS=ev.stash||'';s.bump();return;}
+    if(t==='conversation.item.input_audio_transcription.completed'){const g=this.seg(this.si);g.src=ev.transcript||g.src;g.srcS='';g.srcDone=true;this.si++;
+      if(s.opt.from!=='ko'&&g.src.trim())s.translate(g);else g.koDone=true;s.bump();return;}
+  }
+}
+class LiveSession{
+  constructor(opt,onChange){this.opt=opt;this.onChange=onChange;this.conns=[];this.active=null;this.queue=[];this.n=0;
+    this.running=false;this.err='';this.logs=[];this.level=0;this.t0=0;this.fails=0;this.recParts=[];}
+  log(m){this.logs.push(new Date().toLocaleTimeString('ko-KR')+' '+m);if(this.logs.length>60)this.logs.shift();console.log('[회의 녹음]',m);}
+  bump(){if(this._raf)return;this._raf=requestAnimationFrame(()=>{this._raf=0;this.onChange&&this.onChange();});}
+  get segs(){return this.conns.flatMap(c=>c.segs);}
+  async start(){
+    if(Store.mode!=='supabase')throw new Error('녹음·받아쓰기는 클라우드(Supabase)에 로그인해야 쓸 수 있습니다');
+    await MeetCfg.load();this.opt.asrModel=this.opt.asrModel||MeetCfg.v.liveAsrModel;
+    await this.openMic();
+    this.running=true;this.t0=Date.now();this.err='';LiveSession.all.add(this);
+    this.startRec();
+    try{if(navigator.wakeLock)this.lock=await navigator.wakeLock.request('screen');}catch(_){}
+    KeepAwake.on();
+    await this.connect();
+    this.rot=setInterval(()=>this.rotate(),LIVE_ROTATE_MS);}
+  async openMic(){
+    this.stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    const AC=window.AudioContext||window.webkitAudioContext;let ctx;try{ctx=new AC({sampleRate:LIVE_RATE});}catch(_){ctx=new AC();}this.ctx=ctx;
+    const src=ctx.createMediaStreamSource(this.stream);const proc=ctx.createScriptProcessor(4096,1,1);this.proc=proc;
+    const ratio=ctx.sampleRate/LIVE_RATE;let carry=new Float32Array(0);let pos=0;
+    proc.onaudioprocess=e=>{
+      const inp=e.inputBuffer.getChannelData(0);this.lastAudio=Date.now();
+      let pk=0;for(let i=0;i<inp.length;i+=16){const a=Math.abs(inp[i]);if(a>pk)pk=a;}this.level=this.level*0.6+pk*0.4;
+      let out;if(Math.abs(ratio-1)<1e-3)out=inp.slice(0);
+      else{const n=Math.ceil((inp.length-pos)/ratio);out=new Float32Array(Math.max(0,n));
+        for(let i=0;i<out.length;i++){const x=pos+i*ratio,k=Math.floor(x),f=x-k;out[i]=inp[k]*(1-f)+(inp[k+1]!==undefined?inp[k+1]:inp[k])*f;}
+        pos=pos+out.length*ratio-inp.length;}
+      const all=new Float32Array(carry.length+out.length);all.set(carry);all.set(out,carry.length);
+      let o=0;for(;o+LIVE_CHUNK<=all.length;o+=LIVE_CHUNK)this.push(pcm16b64(all.subarray(o,o+LIVE_CHUNK)));
+      carry=all.slice(o);this.bump();};
+    src.connect(proc);const mute=ctx.createGain();mute.gain.value=0;proc.connect(mute);mute.connect(ctx.destination);}
+  /* 앱 밖에 나갔다 돌아오면 마이크·연결을 다시 잇는다 */
+  async wake(){if(!this.running||this.waking)return;this.waking=true;
+    try{const tr=this.stream&&this.stream.getAudioTracks()[0];
+      try{if(this.ctx&&this.ctx.state!=='running')await this.ctx.resume();}catch(_){}
+      if(!tr||tr.readyState==='ended'||tr.muted||!this.ctx||this.ctx.state!=='running'){
+        this.log('마이크 다시 연결');try{this.proc&&(this.proc.onaudioprocess=null);}catch(_){}
+        const old=this.stream;try{this.ctx&&this.ctx.close();}catch(_){}
+        await this.openMic();try{old&&old.getTracks().forEach(t=>t.stop());}catch(_){}
+        if(this.rec&&this.rec.state!=='inactive'){try{this.rec.stop();}catch(_){}}else this.startRec();}
+      try{if(navigator.wakeLock)this.lock=await navigator.wakeLock.request('screen');}catch(_){}
+      if(!this.active&&!this.pendingConn)this.connect();}
+    catch(e){this.fail('마이크를 다시 켜지 못했습니다 — '+(e.message||e));}
+    this.waking=false;this.bump();}
+  startRec(){
+    if(!window.MediaRecorder||!this.stream)return;
+    const mime=['audio/webm;codecs=opus','audio/webm','audio/mp4'].find(m=>MediaRecorder.isTypeSupported(m))||'';
+    let rec;try{rec=new MediaRecorder(this.stream,mime?{mimeType:mime,audioBitsPerSecond:32000}:undefined);}catch(e){this.log('녹음 불가: '+e.message);return;}
+    const chunks=[];const t0=Date.now();this.rec=rec;
+    rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+    rec.onstop=()=>{const blob=new Blob(chunks,{type:(chunks[0]&&chunks[0].type)||mime||'audio/webm'});
+      if(blob.size>2000)this.recParts.push({blob,t0,sec:Math.round((Date.now()-t0)/1000)});
+      if(this.running)this.startRec();else{this.rec=null;this.recDone&&this.recDone();}};
+    try{rec.start(1000);}catch(e){this.rec=null;return;}
+    clearTimeout(this.recT);this.recT=setTimeout(()=>{if(this.running&&this.rec===rec)try{rec.stop();}catch(_){}},LIVE_REC_SPLIT);}
+  recFinished(){return new Promise(ok=>{if(!this.rec)return ok();this.recDone=ok;setTimeout(ok,4000);});}
+  async translate(g){
+    const all=this.segs.filter(x=>x.srcDone&&x.src.trim());const i=all.indexOf(g);
+    const prev=all.slice(Math.max(0,i-5),i).map(x=>'- '+x.src+(x.ko?'\n  → '+x.ko:'')).join('\n');
+    const hint=String(MeetCfg.v.sttHint||'').trim();g.koS='번역 중…';this.bump();
+    const system='너는 석유화학 회사 회의의 실시간 통역사다. '+langName[this.opt.from]+' 발화를 한국어 자막으로 옮긴다.\n'
+      +'- 번역문만 출력한다(설명·따옴표·원문 반복 금지)\n- 받아쓰기가 잘못 들은 낱말은 앞뒤 문맥과 용어 목록을 보고 바로잡아 번역한다\n'
+      +'- 인명·회사명·지명은 한국어 발음으로 적는다\n- 숫자·단위·가격·수량은 정확히\n- 회의체 존댓말 구어체'+(hint?'\n\n자주 나오는 용어: '+hint:'');
+    try{const out=await askClaude((prev?'앞선 발화(참고용):\n'+prev+'\n\n':'')+'이번 발화를 번역하라:\n'+g.src,{system,model:MeetCfg.v.liveTrModel,max_tokens:600,tag:'통역 번역'});
+      g.ko=String(out||'').trim().replace(/^["“「]|["”」]$/g,'');g.koS='';}
+    catch(e){g.koS='⚠ 번역 실패 — '+(e.message||e);}
+    g.koDone=true;this.bump();}
+  async connect(){const c=new LiveConn(this,++this.n);this.conns.push(c);this.pendingConn=c;
+    try{await c.open();}catch(e){this.fail(e.message);}return c;}
+  onConnOpen(c){if(this.pendingConn!==c)return;const old=this.active;this.active=c;this.pendingConn=null;
+    for(const m of this.queue.splice(0))c.send(m);if(old&&!old.gone)old.finish();this.bump();}
+  onConnClose(c,e){
+    this.log('연결 '+c.n+' 닫힘'+(e&&e.code?' ('+e.code+')':''));
+    const MSG='받아쓰기 서버(livetranslate)에 연결하지 못했습니다 — 통번역 앱에서 통역이 되는지 확인해 보세요';
+    if(c===this.active){this.active=null;
+      if(this.running&&!c.finishing){const quick=!c.ready||(Date.now()-(c.readyAt||0)<8000&&!c.segs.length);
+        if(quick){this.fails++;if(this.fails>=3){this.fail(this.err||MSG);this.stop(true);return;}}else this.fails=0;
+        setTimeout(()=>this.running&&!this.pendingConn&&this.connect(),quick?1500:200);}}
+    else if(c===this.pendingConn&&this.running){this.pendingConn=null;this.fails++;
+      if(this.fails>=3&&!this.active){this.fail(this.err||MSG);this.stop(true);return;}
+      if(!this.active)setTimeout(()=>this.running&&!this.pendingConn&&this.connect(),1500);}
+    this.bump();}
+  push(m){const msg='{"type":"input_audio_buffer.append","audio":"'+m+'"}';
+    if(this.active&&this.active.send(msg))return;this.queue.push(msg);if(this.queue.length>300)this.queue.shift();}
+  rotate(){if(!this.running||this.pendingConn)return;this.connect();}
+  fail(msg){this.err=msg;this.log('⚠ '+msg);if(!this.conns.some(c=>c.ready))this.stop(true);this.bump();}
+  stop(hard){const was=this.running;this.running=false;LiveSession.all.delete(this);clearInterval(this.rot);clearTimeout(this.recT);
+    if(was&&!this.tEnd)this.tEnd=Date.now();
+    try{this.rec&&this.rec.state!=='inactive'&&this.rec.stop();}catch(_){}
+    try{this.proc&&(this.proc.onaudioprocess=null);}catch(_){}
+    try{this.stream&&this.stream.getTracks().forEach(t=>t.stop());}catch(_){}
+    try{this.ctx&&this.ctx.close();}catch(_){}try{this.lock&&this.lock.release();}catch(_){}KeepAwake.off();
+    for(const c of this.conns)if(!c.gone){if(hard)c.close();else c.finish();}
+    this.level=0;this.bump();}
+  get minutes(){return Math.max(1,Math.round(((this.tEnd||Date.now())-this.t0)/60000));}
+  /* 통번역 앱 기록과 같은 모양의 마크다운 */
+  toMarkdown(title,audioLinks){
+    const segs=this.segs.filter(g=>(g.src||g.ko).trim());
+    const raw=segs.map(g=>(g.src||g.srcS).trim()).filter(Boolean).join('\n');
+    const head='# '+title+'\n\n> '+(this.opt.from==='ko'?'🎙 회의 받아쓰기 · 한국어':'🗣 실시간 통역 · '+langName[this.opt.from]+' → 한국어')+' · 약 '+this.minutes+'분 · 일정 앱에서 녹음\n\n'
+      +(audioLinks&&audioLinks.length?audioLinks.join('\n')+'\n\n':'');
+    if(this.opt.from==='ko')return head+'## 실시간 원문\n'+(raw||'(없음)')+'\n';
+    const pairs=segs.map(g=>'**'+(((g.ko||'').trim()||'(번역 없음)').replace(/\*/g,''))+'**\n'+(g.src||g.srcS).trim()).join('\n\n');
+    return head+'## 실시간 통역\n'+(pairs||'(자막 없음)')+'\n\n## 실시간 원문\n'+(raw||'(없음)')+'\n';}
+}
+LiveSession.all=new Set();
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)for(const x of LiveSession.all)x.wake();});
+window.addEventListener('beforeunload',e=>{if(MEET.sess&&MEET.sess.running){e.preventDefault();e.returnValue='';}});
+/* 진행 중인 녹음 — 일정 창을 닫아도 계속된다. 다시 열면 이어서 보인다 */
+const MEET={sess:null,eventId:null,saving:'',listeners:new Set(),
+  bump(){this.listeners.forEach(f=>f());}};
+function useMeet(){const [,force]=React.useReducer(x=>x+1,0);
+  React.useEffect(()=>{MEET.listeners.add(force);return()=>MEET.listeners.delete(force);},[]);return MEET;}
+
+/* 기록 저장 (통번역 앱의 기록 목록에도 보인다) */
+async function saveTbrec(rec){
+  const {error}=await Store.sb.from('pms_items').upsert({user_id:Store.user.id,kind:'tbrec',item_id:rec.id,data:rec,updated_at:new Date().toISOString(),deleted_at:null});
+  if(error)throw new Error(error.message);}
+const mmss=s=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
+
+/* 일정 상세의 녹음 칸 */
+function MeetRecorder({ev,onLinked,toast}){
+  const {Button}=window.HDWorkbookDesignSystem_ad60e4;
+  const M=useMeet();const [from,setFrom]=React.useState(()=>localStorage.getItem('cal.meetFrom')||'ko');
+  const [,tick]=React.useReducer(x=>x+1,0);const box=React.useRef(null);const stick=React.useRef(true);
+  const mine=M.sess&&M.eventId===ev.id;const other=M.sess&&M.sess.running&&M.eventId!==ev.id;
+  const s=mine?M.sess:null;const running=!!(s&&s.running);
+  React.useEffect(()=>{const t=running&&setInterval(tick,1000);return()=>clearInterval(t);},[running]);
+  React.useEffect(()=>{const el=box.current;if(el&&stick.current)el.scrollTop=el.scrollHeight;});
+  const start=async()=>{
+    if(!(ev.title||'').trim()){toast&&toast('제목을 먼저 넣어 주세요 — 기록 이름으로 씁니다');return;}
+    try{localStorage.setItem('cal.meetFrom',from);}catch(_){}
+    const ss=new LiveSession({from},()=>MEET.bump());MEET.sess=ss;MEET.eventId=ev.id;MEET.title=ev.title;MEET.saving='';MEET.bump();
+    try{await ss.start();}
+    catch(e){ss.stop(true);ss.err=/NotAllowed|Permission/i.test(e.name+e.message)?'마이크 사용이 거부됐습니다 — 주소창의 자물쇠에서 마이크를 허용하세요':e.message;MEET.bump();}};
+  const stop=async()=>{
+    const ss=MEET.sess;if(!ss)return;ss.stop(false);MEET.bump();
+    const set=t=>{MEET.saving=t;MEET.bump();};
+    set('녹음 정리 중…');await ss.recFinished();
+    const hasText=ss.segs.some(g=>(g.src||g.ko).trim());
+    if(!hasText&&!ss.recParts.length){set('');return;}
+    for(let i=0;i<16&&ss.segs.some(g=>g.srcDone&&!g.koDone);i++)await new Promise(r=>setTimeout(r,500));
+    const d=new Date(ss.t0||Date.now());const stamp=isoDate(d)+' '+pad2(d.getHours())+':'+pad2(d.getMinutes());
+    const title=(MEET.title||'회의')+' · '+stamp.slice(5);const links=[];
+    for(let i=0;i<ss.recParts.length;i++){set('녹음 올리는 중 '+(i+1)+'/'+ss.recParts.length);
+      const p=ss.recParts[i];const ext=/mp4/.test(p.blob.type)?'m4a':'webm';
+      const name='회의녹음 '+stamp.replace(':','')+(ss.recParts.length>1?' ('+(i+1)+')':'')+'.'+ext;
+      try{const r=await Files.put(new File([p.blob],name,{type:p.blob.type||'audio/webm'}));links.push('[🎙 '+name+'](pms:'+r.path+')');}
+      catch(e){ss.log('녹음 올리기 실패: '+e.message);toast&&toast('⚠ 녹음 올리기 실패 — '+e.message);}}
+    set('기록 저장 중…');
+    const rec={id:uid(),title,scope:'work',tags:[ss.opt.from==='ko'?'회의':'통역'],updated:nowStamp(),created:new Date(ss.t0).toISOString(),md:ss.toMarkdown(title,links),
+      live:{parts:ss.recParts.map(p=>Math.max(0,Math.round((p.t0-ss.t0)/100)/10)),secs:ss.recParts.map(p=>p.sec),
+        segs:ss.segs.filter(g=>(g.src||g.ko).trim()).map(g=>({t:Math.round((g.t||0)*10)/10,ko:(g.ko||'').trim(),zh:(g.src||g.srcS||'').trim()}))}};
+    try{await saveTbrec(rec);window.dispatchEvent(new CustomEvent('meet-linked',{detail:{eventId:MEET.eventId,link:{id:rec.id,title:rec.title,created:rec.created}}}));
+      MEET.sess=null;MEET.eventId=null;set('');toast&&toast('🎙 녹음 기록을 저장해 이 일정에 붙였습니다'+(links.length?' · 녹음 '+links.length+'개':''));}
+    catch(e){set('⚠ 기록 저장 실패 — '+e.message);}};
+  const segs=s?s.segs.filter(g=>g.src||g.srcS||g.ko||g.koS):[];
+  const secs=s&&s.t0?Math.floor(((s.running?Date.now():(s.tEnd||Date.now()))-s.t0)/1000):0;
+  const lvl=Math.min(1,(s&&s.level||0)*3);const ko=s?s.opt.from==='ko':from==='ko';
+  if(other)return <div style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>● 다른 일정(『{M.title}』)에서 녹음 중입니다 — 그 일정에서 정지한 뒤 시작하세요</div>;
+  /* 반복 일정에 붙이면 모든 회차에 같은 기록이 보인다 — 그날 회차를 따로 만들어 거기에 녹음한다 */
+  if(!mine&&(ev.repeat||'none')!=='none')return <div style={{display:'flex',flexWrap:'wrap',alignItems:'center',gap:6,fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>
+    반복 일정입니다 — 녹음은 오늘 회차 일정을 따로 만들어 남깁니다
+    <Button size="sm" onClick={()=>window.dispatchEvent(new CustomEvent('meet-split',{detail:ev}))}>오늘 회차 만들기</Button></div>;
+  return <div style={{width:'100%'}}>
+    <div style={{display:'flex',flexWrap:'wrap',alignItems:'center',gap:6}}>
+      {!running&&!M.saving&&<><select value={from} onChange={x=>setFrom(x.target.value)} style={{...inputStyle,width:'auto',padding:'3px 6px',fontSize:'var(--fs-sm2)'}}>
+          {MEET_LANGS.map(l=><option key={l.id} value={l.id}>{l.label}</option>)}</select>
+        <Button size="sm" onClick={start}>● 녹음 시작</Button></>}
+      {running&&<><Button variant="danger" size="sm" onClick={stop}>■ 정지하고 저장</Button>
+        <span title="입력 소리 크기" style={{width:60,height:7,background:'var(--surface-calc-cell)',border:'1px solid var(--border-default)',borderRadius:4,overflow:'hidden'}}>
+          <span style={{display:'block',height:'100%',width:(lvl*100)+'%',background:lvl>0.9?'var(--color-danger)':'#16a34a'}}/></span>
+        <span style={{fontFamily:'var(--font-num)',fontSize:'var(--fs-sm2)'}}>{mmss(secs)}</span>
+        <span style={{color:'var(--color-danger)',fontSize:'var(--fs-sm2)'}}>● {s.active&&s.active.ready?(ko?'받아쓰는 중':'통역 중'):'연결 중…'}</span></>}
+      {M.saving&&<span style={{fontSize:'var(--fs-sm2)',color:/^⚠/.test(M.saving)?'var(--color-danger)':'var(--text-muted)'}}>{M.saving}</span>}
+      {M.saving&&/^⚠/.test(M.saving)&&mine&&<Button variant="ghost" size="xs" onClick={stop}>다시 저장</Button>}
+    </div>
+    {s&&s.err&&<div style={{fontSize:'var(--fs-sm)',color:'var(--color-danger)',marginTop:4}}>⚠ {s.err}</div>}
+    {(running||segs.length>0)&&<div ref={box} onScroll={x=>{const el=x.currentTarget;stick.current=el.scrollHeight-el.scrollTop-el.clientHeight<30;}}
+      style={{marginTop:6,maxHeight:220,overflowY:'auto',border:'1px solid var(--border-default)',borderRadius:4,padding:'6px 10px',background:'#fff',fontSize:'var(--fs-base)'}}>
+      {!segs.length&&<div style={{color:'var(--text-label)',padding:'8px 0'}}>듣고 있습니다 — 말이 시작되면 몇 초 뒤 글자가 나옵니다</div>}
+      {segs.map((g,i)=><div key={i} style={{padding:'3px 0',borderBottom:'1px dashed var(--border-default)'}}>
+        {ko?<div>{g.src}<span style={{color:'var(--text-label)'}}>{g.srcS}</span></div>
+          :<><div>{g.ko}<span style={{color:'var(--text-label)'}}>{g.koS}</span>{!g.ko&&!g.koS&&<span style={{color:'var(--text-label)'}}>…</span>}</div>
+            <div style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>{g.src}<span style={{opacity:.6}}>{g.srcS}</span></div></>}
+      </div>)}
+    </div>}
+    {!running&&!M.saving&&<div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',marginTop:4}}>
+      정지하면 녹음과 글이 기록으로 저장되어 이 일정에 붙습니다(통번역 앱 기록 목록에도 보임) · 녹음 중에는 일정 창을 닫아도 계속됩니다</div>}
+  </div>;
+}
+/* 녹음 중 표시 — 일정 창을 닫아도 화면 아래에 떠 있다 */
+function MeetPill({onOpen}){
+  const M=useMeet();const [,tick]=React.useReducer(x=>x+1,0);
+  React.useEffect(()=>{const t=setInterval(tick,1000);return()=>clearInterval(t);},[]);
+  if(!M.sess||(!M.sess.running&&!M.saving))return null;
+  const secs=M.sess.t0?Math.floor(((M.sess.running?Date.now():(M.sess.tEnd||Date.now()))-M.sess.t0)/1000):0;
+  return <div onClick={()=>onOpen(M.eventId)} role="button" style={{position:'fixed',right:16,bottom:'calc(16px + env(safe-area-inset-bottom))',zIndex:150,cursor:'pointer',
+    background:'#b91c1c',color:'#fff',borderRadius:20,padding:'8px 14px',fontSize:13,fontWeight:600,boxShadow:'0 4px 14px rgba(0,0,0,.25)',fontFamily:'var(--font-sans)'}}>
+    ● {M.saving||('녹음 중 '+mmss(secs))} · 『{M.title}』</div>;
+}
+
+/* ── 회의록 만들기 ── */
+/* 기록 하나에서 회의록 재료가 될 글 — 정리본이 있으면 그것, 없으면 실시간 번역/원문 */
+function tbrecText(md){
+  const sec=h=>mdSection(md,h);
+  const polished=sec('정리·번역');if(polished)return polished;
+  const live=sec('실시간 통역');
+  if(live){const ko=live.split(/\n\n+/).map(b=>(/^\*\*(.+?)\*\*/.exec(b.trim())||[])[1]).filter(Boolean);if(ko.length)return ko.join('\n');}
+  return sec('녹취 (받아쓰기)')||sec('실시간 원문')||String(md||'').replace(/^#.*$/m,'');
+}
+const MINUTES_SYS='너는 석유화학 회사의 회의록 작성자다. 회의 녹취(기계 받아쓰기·통역)를 읽고 업무용 한국어 회의록을 만든다.\n'
+  +'- 녹취에 실제로 나온 내용만 쓴다. 없는 내용·참석자·숫자를 지어내지 않는다\n'
+  +'- 받아쓰기가 잘못 들은 것이 분명한 전문용어·고유명사는 문맥에 맞게 바로잡는다. 애매하면 (?)를 붙인다\n'
+  +'- 숫자·단위·가격·기한은 정확히 옮긴다\n- 문장은 「~함」「~임」 같은 개조식으로 짧게\n- 마크다운만 출력한다(앞뒤 설명 금지)';
+const MINUTES_FMT='아래 형식을 지킨다. 해당 내용이 없는 절은 「- 없음」으로 둔다.\n\n'
+  +'# 회의록 · {제목}\n\n'
+  +'- 일시: {일시}\n- 참석: (녹취에서 확인되는 사람·소속만. 모르면 「확인 필요」)\n- 안건: (한 줄)\n\n'
+  +'## 요약\n(3~5줄)\n\n## 논의 내용\n### (주제 1)\n- …\n### (주제 2)\n- …\n\n'
+  +'## 결정 사항\n- …\n\n## 할 일\n| 할 일 | 담당 | 기한 |\n|---|---|---|\n| … | … | … |\n\n## 기타·다음 회의\n- …';
+async function makeMinutes(ev,onStep){
+  const recs=ev.tbrec||[];const parts=[];
+  for(let i=0;i<recs.length;i++){onStep&&onStep('녹취 불러오는 중 '+(i+1)+'/'+recs.length);
+    const r=await Store.getTbrec(recs[i].id);if(r&&r.md){const t=tbrecText(r.md).trim();if(t)parts.push((recs.length>1?'### 녹취 '+(i+1)+' — '+(recs[i].title||'')+'\n':'')+t);}}
+  const memo=(ev.notes||'').trim();
+  if(!parts.length&&!memo)throw new Error('정리할 내용이 없습니다 — 먼저 녹음하거나 통번역 기록을 붙이세요');
+  let text=parts.join('\n\n');
+  const when=ev.date+(ev.start?' '+ev.start+(ev.end?'~'+ev.end:''):'');
+  /* 긴 녹취는 조각마다 요점을 먼저 뽑은 뒤 합친다(한 번에 넣으면 답이 잘리거나 놓치는 게 생긴다) */
+  const CH=14000;
+  if(text.length>CH*1.4){const chunks=[];let buf='';
+    text.split(/\n/).forEach(l=>{if((buf+l).length>CH){chunks.push(buf);buf='';}buf+=l+'\n';});if(buf.trim())chunks.push(buf);
+    const notes=[];
+    for(let i=0;i<chunks.length;i++){onStep&&onStep('녹취 읽는 중 '+(i+1)+'/'+chunks.length);
+      notes.push(await askClaude('아래는 긴 회의 녹취의 일부('+(i+1)+'/'+chunks.length+')다. 회의록을 쓰기 위한 메모를 만들어라: 다룬 주제, 나온 숫자·사실, 결정된 것, 할 일(담당·기한), 누가 무엇을 말했는지(이름이 나오면). 개조식으로, 빠짐없이. 마크다운만.\n\n'+chunks[i],
+        {system:MINUTES_SYS,max_tokens:2500,tag:'일정 회의록'}));}
+    text='(긴 녹취를 조각별로 정리한 메모)\n\n'+notes.join('\n\n');}
+  onStep&&onStep('회의록 쓰는 중…');
+  const out=await askClaude(MINUTES_FMT.replace('{제목}',ev.title||'회의').replace('{일시}',when)
+    +'\n\n--- 일정 정보 ---\n제목: '+(ev.title||'')+'\n일시: '+when+(ev.category?'\n분류: '+ev.category:'')
+    +(memo?'\n\n--- 사용자가 적어 둔 메모(참고) ---\n'+memo.slice(0,4000):'')
+    +(text?'\n\n--- 회의 녹취 ---\n'+text:''),{system:MINUTES_SYS,max_tokens:4000,tag:'일정 회의록'});
+  return String(out||'').replace(/^```(?:markdown|md)?\s*/,'').replace(/```\s*$/,'').trim();
+}
+
+/* ── Word(.docx) — 라이브러리 없이 최소 구성 (통번역 앱과 같은 방식 + 표) ── */
+function crc32(buf){let t=crc32.t;
+  if(!t){t=crc32.t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}}
+  let crc=0xFFFFFFFF;for(let i=0;i<buf.length;i++)crc=(crc>>>8)^t[(crc^buf[i])&255];return (crc^0xFFFFFFFF)>>>0;}
+function zipMake(files){
+  const enc=new TextEncoder();const body=[],central=[];let off=0;
+  files.forEach(f=>{const name=enc.encode(f.name),data=enc.encode(f.text),crc=crc32(data);
+    const lh=new Uint8Array(30+name.length),dv=new DataView(lh.buffer);
+    dv.setUint32(0,0x04034b50,true);dv.setUint16(4,20,true);dv.setUint16(6,0x0800,true);
+    dv.setUint32(14,crc,true);dv.setUint32(18,data.length,true);dv.setUint32(22,data.length,true);dv.setUint16(26,name.length,true);
+    lh.set(name,30);body.push(lh,data);
+    const ch=new Uint8Array(46+name.length),cv=new DataView(ch.buffer);
+    cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);cv.setUint16(8,0x0800,true);
+    cv.setUint32(16,crc,true);cv.setUint32(20,data.length,true);cv.setUint32(24,data.length,true);cv.setUint16(28,name.length,true);cv.setUint32(42,off,true);
+    ch.set(name,46);central.push(ch);off+=lh.length+data.length;});
+  let csize=0;central.forEach(c=>csize+=c.length);
+  const end=new Uint8Array(22),ev=new DataView(end.buffer);
+  ev.setUint32(0,0x06054b50,true);ev.setUint16(8,files.length,true);ev.setUint16(10,files.length,true);ev.setUint32(12,csize,true);ev.setUint32(16,off,true);
+  return new Blob([...body,...central,end],{type:'application/zip'});}
+const xmlEsc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function docxRuns(text,base){const out=[];const parts=String(text).replace(/`/g,'').replace(/\[([^\]]+)\]\([^)]*\)/g,'$1').split(/(\*\*[^*]+\*\*)/);
+  for(const p of parts){if(!p)continue;const b=/^\*\*[^*]+\*\*$/.test(p);const t=b?p.slice(2,-2):p;
+    out.push('<w:r><w:rPr>'+(base||'')+(b?'<w:b/>':'')+'</w:rPr><w:t xml:space="preserve">'+xmlEsc(t)+'</w:t></w:r>');}
+  return out.join('');}
+function mdToDocxXml(md){
+  const P=[];const para=(style,text,rpr)=>P.push('<w:p><w:pPr>'+(style?'<w:pStyle w:val="'+style+'"/>':'')+'</w:pPr>'+docxRuns(text,rpr)+'</w:p>');
+  const lines=String(md||'').replace(/!?\[([^\]]*)\]\(pms:[^)]*\)/g,'($1)').split('\n');
+  const isRow=l=>/^\s*\|.*\|\s*$/.test(l);
+  for(let i=0;i<lines.length;i++){const l=lines[i].replace(/\s+$/,'');let m;
+    if(!l.trim())continue;
+    if(isRow(l)){const rows=[];while(i<lines.length&&isRow(lines[i])){if(!/^\s*\|[\s:|-]+\|\s*$/.test(lines[i]))rows.push(lines[i].trim().slice(1,-1).split('|').map(c=>c.trim()));i++;}i--;
+      const n=Math.max(...rows.map(r=>r.length));const w=Math.floor(9298/n);
+      P.push('<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders>'+['top','left','bottom','right','insideH','insideV'].map(b=>'<w:'+b+' w:val="single" w:sz="4" w:space="0" w:color="A8A29E"/>').join('')+'</w:tblBorders><w:tblCellMar><w:left w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>'+Array.from({length:n},()=>'<w:gridCol w:w="'+w+'"/>').join('')+'</w:tblGrid>'
+        +rows.map((r,k)=>'<w:tr>'+Array.from({length:n},(_,j)=>'<w:tc><w:tcPr><w:tcW w:w="'+w+'" w:type="dxa"/>'+(k===0?'<w:shd w:val="clear" w:color="auto" w:fill="F1F5F9"/>':'')+'</w:tcPr><w:p><w:pPr><w:spacing w:after="0"/></w:pPr>'+docxRuns(r[j]||'',k===0?'<w:b/>':'')+'</w:p></w:tc>').join('')+'</w:tr>').join('')+'</w:tbl>');
+      P.push('<w:p/>');continue;}
+    if((m=/^#\s+(.*)/.exec(l))){para('Title',m[1]);continue;}
+    if((m=/^##\s+(.*)/.exec(l))){para('Heading1',m[1]);continue;}
+    if((m=/^###\s+(.*)/.exec(l))){para('Heading2',m[1]);continue;}
+    if((m=/^####\s+(.*)/.exec(l))){para('Heading3',m[1]);continue;}
+    if((m=/^>\s?(.*)/.exec(l))){para('Quote',m[1]);continue;}
+    if((m=/^\s*[-*]\s+\[([ xX])\]\s+(.*)/.exec(l))){para('ListPara',(m[1]===' '?'☐ ':'☑ ')+m[2]);continue;}
+    if((m=/^(\s*)[-*]\s+(.*)/.exec(l))){para(m[1].length>=2?'ListPara2':'ListPara','• '+m[2]);continue;}
+    if((m=/^\s*(\d+)[.)]\s+(.*)/.exec(l))){para('ListPara',m[1]+'. '+m[2]);continue;}
+    if(/^(-{3,}|\*{3,})$/.test(l.trim()))continue;
+    para(null,l);}
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+P.join('')
+    +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1304" w:bottom="1440" w:left="1304" w:header="709" w:footer="709" w:gutter="0"/></w:sectPr></w:body></w:document>';}
+const DOCX_STYLES='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+ +'<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Malgun Gothic" w:hAnsi="Malgun Gothic" w:eastAsia="Malgun Gothic" w:cs="Malgun Gothic"/><w:sz w:val="21"/><w:szCs w:val="21"/><w:lang w:val="ko-KR" w:eastAsia="ko-KR"/></w:rPr></w:rPrDefault>'
+ +'<w:pPrDefault><w:pPr><w:spacing w:after="120" w:line="300" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>'
+ +'<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>'
+ +'<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="240"/><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="4" w:color="244A70"/></w:pBdr></w:pPr><w:rPr><w:b/><w:color w:val="1F2A37"/><w:sz w:val="34"/></w:rPr></w:style>'
+ +'<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="300" w:after="100"/><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:b/><w:color w:val="244A70"/><w:sz w:val="26"/></w:rPr></w:style>'
+ +'<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="200" w:after="60"/><w:outlineLvl w:val="1"/></w:pPr><w:rPr><w:b/><w:color w:val="1F2A37"/><w:sz w:val="23"/></w:rPr></w:style>'
+ +'<w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="160" w:after="60"/><w:outlineLvl w:val="2"/></w:pPr><w:rPr><w:b/><w:sz w:val="21"/></w:rPr></w:style>'
+ +'<w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="284"/></w:pPr><w:rPr><w:color w:val="5B6573"/><w:sz w:val="19"/></w:rPr></w:style>'
+ +'<w:style w:type="paragraph" w:styleId="ListPara"><w:name w:val="List Paragraph"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="60"/><w:ind w:left="284" w:hanging="200"/></w:pPr></w:style>'
+ +'<w:style w:type="paragraph" w:styleId="ListPara2"><w:name w:val="List Paragraph 2"/><w:basedOn w:val="Normal"/><w:pPr><w:spacing w:after="60"/><w:ind w:left="568" w:hanging="200"/></w:pPr></w:style>'
+ +'</w:styles>';
+function mdToDocx(md){
+  return zipMake([
+    {name:'[Content_Types].xml',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>'},
+    {name:'_rels/.rels',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'},
+    {name:'word/_rels/document.xml.rels',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'},
+    {name:'word/styles.xml',text:DOCX_STYLES},
+    {name:'word/document.xml',text:mdToDocxXml(md)}]);}
+function downloadDocx(md,name){
+  const u=URL.createObjectURL(new Blob([mdToDocx(md)],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}));
+  const a=document.createElement('a');a.href=u;a.download=String(name||'회의록').replace(/[\\/:*?"<>|]+/g,' ').trim().slice(0,80)+'.docx';document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},1500);}
+
+/* 일정 상세의 회의록 칸 */
+function MinutesBox({e,setE,toast}){
+  const {Button}=window.HDWorkbookDesignSystem_ad60e4;
+  const [busy,setBusy]=React.useState('');const [err,setErr]=React.useState('');const [edit,setEdit]=React.useState(false);
+  const has=!!(e.minutes||'').trim();const src=(e.tbrec||[]).length;
+  const make=async()=>{if(has&&!window.confirm('지금 회의록을 새로 만든 것으로 바꿉니다. 계속할까요?'))return;
+    setErr('');setBusy('준비 중…');
+    try{await MeetCfg.load();const md=await makeMinutes(e,setBusy);setE(p=>({...p,minutes:md,minutesAt:nowStamp()}));setEdit(false);toast&&toast('📝 회의록을 만들었습니다');}
+    catch(x){setErr(x.message);}setBusy('');};
+  return <div style={{width:'100%'}}>
+    <div style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center'}}>
+      <Button size="sm" variant={has?'ghost':undefined} disabled={!!busy} onClick={make} title="붙은 녹음·통번역 기록과 메모로 회의록을 만듭니다(Claude)">{busy?'⏳ '+busy:has?'↻ 다시 만들기':'✨ 회의록 만들기'}</Button>
+      {has&&<><Button size="sm" onClick={()=>downloadDocx(e.minutes,(e.title||'회의')+' 회의록 '+(e.date||''))}>📄 워드로 저장</Button>
+        <Button size="sm" variant="ghost" onClick={()=>setEdit(v=>!v)}>{edit?'미리보기':'✎ 고치기'}</Button></>}
+      {!has&&!busy&&<span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>{src?'붙은 기록 '+src+'건 + 메모로 만듭니다':'녹음하거나 통번역 기록을 붙이면 그 내용으로, 없으면 메모로 만듭니다'}</span>}
+    </div>
+    {err&&<div style={{fontSize:'var(--fs-sm)',color:'var(--color-danger)',marginTop:4}}>⚠ {err}</div>}
+    {has&&(edit
+      ? <textarea value={e.minutes} onChange={x=>{const v=x.target.value;setE(p=>({...p,minutes:v}));}} rows={18}
+          style={{...inputStyle,width:'100%',marginTop:6,fontFamily:'var(--font-num),monospace',fontSize:13,lineHeight:1.55}}/>
+      : <div className="rn-ed" style={{marginTop:6,minHeight:0,padding:'8px 12px',border:'1px solid var(--border-default)',borderRadius:4,maxHeight:460,overflowY:'auto',fontSize:14}}
+          dangerouslySetInnerHTML={{__html:mdToHtml(e.minutes)}}/>)}
+  </div>;
+}
+Object.assign(window,{MeetRecorder,MeetPill,MinutesBox,MEET,LiveSession,askClaude,makeMinutes,mdToDocx,downloadDocx,tbrecText});
+</script>
+
 <script type="text/babel">/* 일정 관리: 월간(주간 서브) · 목록 — 카테고리(색) · 기간 일정 · 공휴일 · 드래그 이동 */
 const CAL_VIEWS=[{id:'month',num:'①',label:'월간'},{id:'list',num:'②',label:'목록'}];
 function calNav(st,set){return [{label:'보기',items:CAL_VIEWS,value:st.view||'month',onChange:v=>set({view:v})}];}
@@ -36824,6 +37242,14 @@ function CalendarView({db,setDb,st,set,toast}){
   /* 휴지통에 떨궈 지우기 — 되돌리기(↶ · Ctrl+Z)로 되살릴 수 있다 */
   const delQuiet=id=>{Store.why='일정 삭제(휴지통에 떨굼)';const e=db.events.find(x=>x.id===id);if(!e)return;
     setDb('events',arr=>arr.filter(x=>x.id!==id));toast('🗑 『'+(e.title||'제목 없음')+'』 삭제 · ↶ 로 되돌릴 수 있습니다');};
+  /* 일정 창에서 녹음을 마치면 그 기록을 일정에 붙인다(창을 닫은 뒤 끝나도) */
+  React.useEffect(()=>{const on=x=>{const {eventId,link}=x.detail||{};if(!eventId)return;
+      setDb('events',arr=>arr.map(e=>e.id===eventId?{...e,tbrec:[...(e.tbrec||[]).filter(r=>r.id!==link.id),link],tbrecOff:(e.tbrecOff||[]).filter(id=>id!==link.id)}:e));};
+    const split=x=>{const ev=x.detail;if(!ev)return;
+      const one={...ev,id:uid(),date:todayISO(),dateEnd:'',repeat:'none',notes:'',notesHtml:'',notesAt:'',tbrec:[],tbrecOff:[],minutes:'',minutesAt:''};
+      save(one);set({edit:one});toast('오늘 회차 일정을 따로 만들었습니다 — 여기서 녹음하세요');};
+    window.addEventListener('meet-linked',on);window.addEventListener('meet-split',split);
+    return()=>{window.removeEventListener('meet-linked',on);window.removeEventListener('meet-split',split);};},[]);
   /* 통번역 기록 자동 연결 — 앱을 열 때와 다시 볼 때 */
   React.useEffect(()=>{let busy=false,lastRun=0;
     const run=async()=>{if(busy||Date.now()-lastRun<60000)return;busy=true;lastRun=Date.now();
@@ -36849,7 +37275,7 @@ function CalendarView({db,setDb,st,set,toast}){
     {[['month','월간'],['week','주간']].map(([k,l])=><button key={k} type="button" onClick={()=>set({sub:k})} style={{border:'none',borderRadius:4,padding:'3px 11px',fontSize:'var(--fs-sm2)',fontWeight:sub===k?600:500,background:sub===k?'var(--surface-active)':'transparent',color:sub===k?'var(--text-body)':'var(--text-muted)',cursor:'pointer',fontFamily:'inherit'}}>{l}</button>)}</span>;
   const nav=view==='month'&&<><Button variant="ghost" size="sm" onClick={()=>step(-1)}>◂</Button><Button variant="ghost" size="sm" onClick={()=>set({anchor:today})}>오늘</Button><Button variant="ghost" size="sm" onClick={()=>step(1)}>▸</Button></>;
   const q=(st.q||'').trim().toLowerCase();
-  const hits=q?db.events.filter(e=>[e.title,e.notes,e.links,e.category].some(t=>(t||'').toLowerCase().includes(q)))
+  const hits=q?db.events.filter(e=>[e.title,e.notes,e.links,e.category,e.minutes].some(t=>(t||'').toLowerCase().includes(q)))
     .sort((a,b)=>String(b.date).localeCompare(String(a.date))):[];
   const search=<input type="search" value={st.q||''} onChange={x=>set({q:x.target.value})} placeholder="🔍 제목·메모 검색"
     style={{...inputStyle,width:mobile?'100%':220,padding:'4px 8px'}}/>;
@@ -36866,7 +37292,8 @@ function CalendarView({db,setDb,st,set,toast}){
       toolbarRight={search}>
       {body}
     </Card>
-    <EventPanel ev={st.edit} categories={categories} onClose={()=>set({edit:null})} onSave={save} onDelete={del}/>
+    <EventPanel ev={st.edit} categories={categories} onClose={()=>set({edit:null})} onSave={save} onDelete={del} toast={toast}/>
+    {!st.edit&&<MeetPill onOpen={id=>{const x=db.events.find(e=>e.id===id);if(x)set({edit:x});}}/>}
   </>;
 }
 
@@ -37275,7 +37702,7 @@ function ListView({events,categories,st,set,onOpen,onNotes}){
 }
 
 /* 속성 패널: 제목 · 기간 · 시간 · 캘린더 · 카테고리(색) · 상태 · 반복 · 비고 */
-function EventPanel({ev,categories,onClose,onSave,onDelete}){
+function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
   const [e,setE]=React.useState(ev);const [rev,setRev]=React.useState(0);const [savedAt,setSavedAt]=React.useState('');
   /* 자동 저장: 입력이 멈추고 1초 뒤 저장. 닫을 때는 기다리지 않고 바로 저장한다.
@@ -37289,6 +37716,10 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
     const ro=new ResizeObserver(()=>{try{localStorage.setItem('cal.panelSize',JSON.stringify({w:el.offsetWidth,h:el.offsetHeight}));}catch(_){}});
     ro.observe(el);return()=>ro.disconnect();},[ev&&ev.id,mobile]);
   React.useEffect(()=>{setE(ev);setSavedAt('');last.current=ev?JSON.stringify(ev):null;},[ev]);
+  /* 이 창에서 녹음한 기록이 저장되면 열려 있는 일정에도 바로 붙인다 */
+  React.useEffect(()=>{const on=x=>{const {eventId,link}=x.detail||{};
+      setE(p=>p&&p.id===eventId?{...p,tbrec:[...(p.tbrec||[]).filter(r=>r.id!==link.id),link]}:p);};
+    window.addEventListener('meet-linked',on);return()=>window.removeEventListener('meet-linked',on);},[]);
   const flush=cur=>{clearTimeout(timer.current);const j=JSON.stringify(cur);
     if(!cur||!(cur.title||'').trim()||j===last.current)return;last.current=j;onSave(cur);setSavedAt(new Date().toTimeString().slice(0,5));};
   React.useEffect(()=>{if(!e||!ev||e.id!==ev.id)return;clearTimeout(timer.current);timer.current=setTimeout(()=>flush(e),1000);return()=>clearTimeout(timer.current);},[e]);
@@ -37348,7 +37779,9 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
         </PRow>
         <PRow icon="◐" label="상태">{STATUS_KEYS.map(s=><Chip key={s} on={e.status===s} color={s==='done'?'#0a6b3b':s==='doing'?'#4E82AE':undefined} onClick={()=>f('status')(s)}>{STATUS_LABEL[s]}</Chip>)}</PRow>
         <PRow icon="↻" label="반복">{[['none','없음'],['daily','매일'],['weekly','매주'],['monthly','매월']].map(([k,l])=><Chip key={k} on={e.repeat===k} onClick={()=>f('repeat')(k)}>{l}</Chip>)}</PRow>
-        <PRow icon="🎙" label="통번역" top><TbrecBox date={e.date} list={e.tbrec||[]} onAttach={attachTb} onDetach={detachTb}/></PRow>
+        <PRow icon="🔴" label="녹음·통역" top><MeetRecorder ev={e} toast={toast}/></PRow>
+        <PRow icon="🎙" label="기록" top><TbrecBox date={e.date} list={e.tbrec||[]} onAttach={attachTb} onDetach={detachTb}/></PRow>
+        <PRow icon="📝" label="회의록" top><MinutesBox e={e} setE={setE} toast={toast}/></PRow>
         <PRow icon="🔗" label="관련 링크" top>
           <div style={{width:'100%'}}>
             <textarea value={e.links||''} onChange={x=>f('links')(x.target.value)} rows={Math.max(2,linkList.length+1)} placeholder="자료 위치를 한 줄에 하나씩 (URL 또는 드라이브 경로)"
@@ -37371,7 +37804,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v1.8';
+const APP_VERSION='v1.9';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
