@@ -37157,7 +37157,8 @@ class LiveConn{
   async open(){const s=this.sess,o=s.opt;
     const {data}=await Store.sb.auth.getSession();const jwt=data&&data.session&&data.session.access_token;
     if(!jwt)throw new Error('로그인 세션이 없습니다 — 다시 로그인하세요');
-    const q=new URLSearchParams({jwt,mode:'asr',model:o.asrModel,from:o.from,to:'ko'});
+    /* 한국어 받아쓰기는 통번역 앱 「대화」의 내 말 연결처럼 to를 외국어로 둔다 — ko→ko 조합은 통번역 앱이 쓴 적이 없어 서버가 받지 않는 것으로 보인다(번역은 어차피 앱이 따로 한다) */
+    const q=new URLSearchParams({jwt,mode:'asr',model:o.asrModel,from:o.from,to:o.from==='ko'?'en':'ko'});
     const hot=String(MeetCfg.v.sttHint||'').trim();if(hot)q.set('hot',hot.slice(0,1200));
     if(MeetCfg.v.liveSil)q.set('sil',String(MeetCfg.v.liveSil));
     if(Store.cfg.supabaseKey)q.set('apikey',Store.cfg.supabaseKey);
@@ -38619,7 +38620,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.5.2';
+const APP_VERSION='v2.5.3';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
