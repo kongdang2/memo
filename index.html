@@ -37834,6 +37834,7 @@ async function webPicture(url){const r=await webRead('img',url);return b64Blob(r
 /* 유튜브 장면 — 미리보기 그림판(storyboard)에서 그 시각의 칸을 오려 낸다. 가장 큰 단계(보통 320×180) */
 async function ytFrames(info,times,onStep){
   const lv=(info.storyboard||[]).slice().sort((a,b)=>b.w-a.w)[0];const out={};const sheets={};
+  if(!lv){out._why='유튜브가 장면 그림판을 주지 않음'+(info.status&&info.status!=='OK'?' ('+info.status+')':'');console.warn('[링크 정리] 장면',out._why,info.diag||'');return out;}
   for(let i=0;i<times.length;i++){const t=times[i];onStep&&onStep('장면 캡처 '+(i+1)+'/'+times.length);
     try{if(!lv)throw new Error('장면 정보 없음');
       const per=lv.cols*lv.rows;const idx=Math.min(lv.count-1,Math.floor(t*1000/Math.max(1,lv.interval)));const sh=Math.floor(idx/per),pos=idx%per;
@@ -37843,7 +37844,22 @@ async function ytFrames(info,times,onStep){
       const c=document.createElement('canvas');c.width=Math.round(cw);c.height=Math.round(chh);
       c.getContext('2d').drawImage(bm,(pos%lv.cols)*cw,Math.floor(pos/lv.cols)*chh,cw,chh,0,0,c.width,c.height);
       const b=await new Promise(r=>c.toBlob(r,'image/jpeg',0.92));out[t]=await putPicture(b,'yt-'+info.id+'-'+Math.round(t));}
-    catch(e){console.warn('[링크 정리] 장면',t,e.message);}}
+    catch(e){out._why=out._why||('장면 그림판 받기 실패: '+e.message);console.warn('[링크 정리] 장면',t,e.message);}}
+  return out;}
+/* 그림판이 없을 때 — 유튜브가 늘 만들어 두는 자동 미리보기(영상의 약 1/4·2/4·3/4 지점, hq1~3)로 대신한다 */
+const YT_AUTO=[{f:.25,n:'hq1'},{f:.5,n:'hq2'},{f:.75,n:'hq3'}];
+async function ytAutoShots(id,list,dur,have,onStep){
+  const out={};const free=YT_AUTO.slice();let first=true;
+  for(const x of list){const t=tsec(x.v);if(have[t]||out[t]!==undefined){first=false;continue;}
+    let name;
+    if(first)name='maxresdefault';
+    else if(free.length&&dur){free.sort((a,b)=>Math.abs(a.f*dur-t)-Math.abs(b.f*dur-t));name=free.shift().n;}
+    else if(free.length)name=free.shift().n;
+    first=false;if(!name)continue;
+    onStep&&onStep('미리보기 그림 받는 중…');
+    try{const u='https://i.ytimg.com/vi/'+id+'/'+name+'.jpg';
+      out[t]=await putPicture(await webPicture(u).catch(e=>{if(name==='maxresdefault')return webPicture('https://i.ytimg.com/vi/'+id+'/hqdefault.jpg');throw e;}),'yt-'+id+'-'+name);}
+    catch(e){out[t]='';console.warn('[링크 정리] 미리보기',name,e.message);}}
   return out;}
 /* 블로그·기사 HTML → 본문 글(그림 자리는 [그림 n]) + 그림 목록 */
 function pageArticle(html,base){
@@ -37889,7 +37905,7 @@ async function digestNotes(text,onStep,what){
     notes.push(await askClaude('아래는 긴 '+what+'의 일부('+(i+1)+'/'+chunks.length+')다. 정리 문서를 쓰기 위한 메모를 만들어라: 다룬 주제와 그 시작 시각/위치, 주장·근거·숫자·예시·전망. 개조식으로 빠짐없이. 시각 표시 [mm:ss]와 [그림 n] 표시는 그대로 남긴다.\n\n'+chunks[i],
       {system:DIGEST_SYS,max_tokens:4000,cont:2,tag:'링크 정리'}));}
   return '(긴 원문을 조각별로 정리한 메모)\n\n'+notes.join('\n\n');}
-async function digestLink(ev,url,onStep){
+async function digestLink(ev,url,onStep,onNote){
   await MeetCfg.load();let prompt,info,pick;
   if(isYt(url)){
     /* 1) 제미나이가 영상(화면+소리)을 직접 본다 — 자막이 없어도 된다. 실패하면 자막 방식만으로 간다 */
@@ -37916,9 +37932,12 @@ async function digestLink(ev,url,onStep){
       +(seen?'\n\n--- 시청 메모 (제미나이, 화면·소리) ---\n'+seen:'')
       +(body?'\n\n--- 자막 ---\n'+body:'');
     pick=async list=>{const times=[...new Set(list.map(x=>tsec(x.v)).filter(t=>t>=0&&(!info.duration||t<=info.duration)))];
-      const fr=await ytFrames(info,times,onStep);
-      if(!Object.keys(fr).length){try{fr._thumb=await putPicture(await webPicture(info.thumb).catch(()=>webPicture(info.thumbAlt)),'yt-'+info.id+'-thumb');}catch(_){}}
-      return x=>fr[tsec(x.v)]||(x===list[0]&&fr._thumb)||'';};}
+      const fr=await ytFrames(info,times,onStep);const got=times.filter(t=>fr[t]).length;
+      if(got<times.length){const vid=info.id||ytId(url);const auto=vid?await ytAutoShots(vid,list,info.duration||0,fr,onStep):{};
+        Object.keys(auto).forEach(t=>{if(auto[t])fr[t]=auto[t];});
+        const n=Object.keys(auto).filter(t=>auto[t]).length;
+        onNote&&onNote((got?'장면 '+times.length+'곳 중 '+got+'곳만 캡처했고, 나머지는 ':'장면 캡처를 못 해 ')+(n?'유튜브 자동 미리보기 '+n+'장으로 대신했습니다':'그림 없이 두었습니다')+(fr._why?' (이유: '+fr._why+')':''));}
+      return x=>fr[tsec(x.v)]||'';};}
   else{onStep&&onStep('글 읽는 중…');const pg=await webRead('page',url);if(pg.error)throw new Error(pg.error);
     const a=pageArticle(pg.html,pg.url||url);if(a.text.length<80)throw new Error('본문을 찾지 못했습니다 — 로그인이 필요한 글이거나 앱으로만 열리는 페이지일 수 있습니다');
     const body=await digestNotes(a.text,onStep,'글');
@@ -38148,8 +38167,8 @@ function MinutesBox({e,setE,toast}){
   const has=bdHasMinutes(boardOf(e));const src=(e.tbrec||[]).length;
   const links=linkUrls(e);const [lpick,setLpick]=React.useState(false);
   const digest=async url=>{setLpick(false);setErr('');setBusy('링크 정리 준비 중…');
-    try{const md=await digestLink(e,url,setBusy);setE(p=>({...p,board:bdPutDigest(boardOf(p),url,md)}));
-      toast&&toast('🔗 링크 내용을 정리해 아래 메모에 넣었습니다 — 「🖨 출력·워드」로 같은 양식의 문서를 만들 수 있습니다');}
+    try{let note='';const md=await digestLink(e,url,setBusy,t=>{note=t;});setE(p=>({...p,board:bdPutDigest(boardOf(p),url,md)}));
+      toast&&toast('🔗 링크 내용을 정리해 아래 메모에 넣었습니다'+(note?' · '+note:' — 「🖨 출력·워드」로 같은 양식의 문서를 만들 수 있습니다'));}
     catch(x){setErr(x.message);}setBusy('');};
   const linkName=u=>{try{const x=new URL(u);return (isYt(u)?'▶ 유튜브 ':'📄 ')+(isYt(u)?(x.searchParams.get('v')||x.pathname.split('/').pop()):x.hostname.replace(/^www\./,'')+x.pathname.slice(0,24));}catch(_){return u.slice(0,40);}};
   const make=async full=>{if(has&&!window.confirm('메모에 있는 회의록 상자를 새로 만든 것으로 바꿉니다. 계속할까요?'))return;
@@ -38864,7 +38883,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.7';
+const APP_VERSION='v2.7.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
