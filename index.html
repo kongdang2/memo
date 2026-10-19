@@ -36176,17 +36176,16 @@ function Login({onLogin}){
   return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--surface-sidebar)',fontFamily:'var(--font-sans)'}}>
     <div style={{width:380,background:'#fff',border:'1px solid var(--border-default)',borderRadius:8,padding:'28px 28px 22px'}}>
       <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}><span style={{fontSize:24}} aria-hidden="true">📅</span><h1 style={{margin:0,font:'600 18px/1.3 var(--font-sans)'}}>일정 관리</h1><Badge tone="version">{window.APP_VERSION||'v5.0'}</Badge></div>
-      <div style={{fontSize:'var(--fs-base)',color:'var(--text-muted)',marginBottom:18}}>월간 · 주간 · 목록 · ICS</div>
-      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:14}}>{cloud?<Badge tone="linked">☁ Supabase 연결됨 · {new URL(Store.cfg.supabaseUrl).host}</Badge>:<Badge tone="pill">💾 로컬 모드 · 이 브라우저에만 저장</Badge>}<Button variant="ghost" size="xs" onClick={()=>setCfg(true)}>⚙ 연결 설정</Button></div>
+      <div style={{fontSize:'var(--fs-base)',color:'var(--text-muted)',marginBottom:18}}>월간 · 주간 · 목록</div>
+      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:14}}>{cloud?<Badge tone="linked">☁ Supabase 연결됨 · {new URL(Store.cfg.supabaseUrl).host}</Badge>:<Badge tone="pill">💾 로컬 모드 · 이 브라우저에만 저장</Badge>}</div>
       <Field label="이메일"><TextInput type="email" value={email} onChange={e=>setE(e.target.value)} placeholder="me@example.com" autoFocus/></Field>
       <Field label="비밀번호"><TextInput type="password" value={pw} onChange={e=>setP(e.target.value)} onKeyDown={e=>e.key==='Enter'&&go(false)} placeholder={cloud?'':'처음 입력한 비밀번호가 등록됩니다'}/></Field>
       {Store.initError&&<InfoBar tone="warn">클라우드 연결 실패로 로컬 모드로 열렸습니다: {Store.initError}</InfoBar>}
       {err&&<InfoBar tone="warn">{err}</InfoBar>}
-      <div style={{display:'flex',gap:6,justifyContent:'flex-end',marginTop:6}}><Button variant="gray" disabled={busy} onClick={()=>go(true)}>계정 만들기</Button><Button variant="primary" icon="🔐" disabled={busy} onClick={()=>go(false)}>로그인</Button></div>
-      {!cloud&&<div style={{marginTop:14,fontSize:'var(--fs-sm)',color:'var(--text-label)',lineHeight:1.5}}>클라우드 동기화와 실제 계정 인증은 ⚙ 연결 설정에서 Supabase 프로젝트 URL과 anon 키를 입력하면 활성화됩니다.</div>}
+      <div style={{display:'flex',gap:6,justifyContent:'flex-end',marginTop:6}}><Button variant="primary" icon="🔐" disabled={busy} onClick={()=>go(false)}>로그인</Button></div>
+      
     </div>
-    <SettingsModal open={cfgOpen} onClose={()=>setCfg(false)}/>
-  </div>;
+    </div>;
 }
 
 
@@ -36240,31 +36239,11 @@ function TrashModal({open,onClose,onRestore,onToast}){
 /* 첨부 파일 저장소(Supabase Storage) 준비 상태 */
 function SettingsModal({open,onClose,onToast}){
   const {Button,InfoBar,Modal}=window.HDWorkbookDesignSystem_ad60e4;
-  const [c,setC]=React.useState(Store.cfg);const [tab,setTab]=React.useState('cloud');const [test,setTest]=React.useState(null);const [testing,setTesting]=React.useState(false);
-  const runTest=async()=>{setTesting(true);setTest(null);try{setTest(await Store.testConnection(c.supabaseUrl,c.supabaseKey));}catch(e){setTest({ok:false,msg:explainSbError(e)});}setTesting(false);};
-  React.useEffect(()=>{if(open){setC(Store.cfg);setTest(null);}},[open]);
-  const set=k=>e=>setC({...c,[k]:e.target.value});
-  const prevUrl=Store.cfg.supabaseUrl||'',prevKey=Store.cfg.supabaseKey||'';
-  const save=()=>{const clean={...c,supabaseUrl:(c.supabaseUrl||'').trim().replace(/\/+$/,''),supabaseKey:(c.supabaseKey||'').trim()};Store.saveCfg(clean);onClose();if(clean.supabaseUrl!==prevUrl||clean.supabaseKey!==prevKey)setTimeout(()=>location.reload(),300);else onToast&&onToast('설정 저장');};
-  const tabs=[{id:'cloud',label:'☁ 저장/계정'},{id:'noti',label:'🔔 알림'}];
-  return <Modal open={open} onClose={onClose} title="연결 설정" width={560} footer={<><Button variant="gray" onClick={onClose}>취소</Button><Button variant="accent" icon="💾" onClick={save}>저장</Button></>}>
-    <div style={{display:'flex',gap:4,borderBottom:'1px solid var(--border-default)',marginBottom:12}}>{tabs.map(t=><button key={t.id} type="button" onClick={()=>setTab(t.id)} style={{border:'none',background:'transparent',padding:'6px 10px',fontSize:'var(--fs-md)',fontWeight:tab===t.id?600:500,color:tab===t.id?'var(--text-body)':'var(--text-muted)',borderBottom:tab===t.id?'2px solid var(--wb-ink)':'2px solid transparent',cursor:'pointer',fontFamily:'inherit'}}>{t.label}</button>)}</div>
-    {tab==='cloud'&&<>
-      <InfoBar>Supabase 무료 프로젝트 → Settings › API Keys에서 Project URL과 Publishable key(또는 Legacy anon 키)를 복사해 넣으세요. 저장 후 새로 고침되며 이메일 로그인·동기화가 실제로 작동합니다. 비워두면 로컬 모드입니다.</InfoBar>
-      <Field label="Supabase URL"><TextInput value={c.supabaseUrl||''} onChange={set('supabaseUrl')} placeholder="https://xxxx.supabase.co"/></Field>
-      <Field label="Publishable key (또는 anon public key)"><TextInput value={c.supabaseKey||''} onChange={set('supabaseKey')} placeholder="sb_publishable_... 또는 eyJ..."/></Field>
-      <div style={{display:'flex',alignItems:'center',gap:8,margin:'2px 0 10px'}}>
-        <Button variant="classic" size="sm" icon="🔌" disabled={testing||!c.supabaseUrl||!c.supabaseKey} onClick={runTest}>{testing?'확인 중…':'연결 테스트'}</Button>
-        {test&&<span style={{fontSize:'var(--fs-sm)',color:test.ok?'var(--color-success)':'var(--color-danger)',lineHeight:1.4}}>{test.ok?'✓ ':'✗ '}{test.msg}</span>}
-      </div>
-      <div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',margin:'4px 0'}}>테이블 생성 SQL (SQL Editor에서 1회 실행)</div>
-      <pre style={{font:'11px/1.45 var(--font-mono)',background:'var(--surface-hover)',border:'1px solid var(--border-default)',padding:'8px 10px',borderRadius:4,maxHeight:150,overflow:'auto',margin:0,whiteSpace:'pre-wrap'}}>{SUPABASE_SQL}</pre>
-      <div style={{marginTop:6}}><Button variant="ghost" size="sm" onClick={()=>{navigator.clipboard.writeText(SUPABASE_SQL);onToast&&onToast('SQL 복사됨');}}>📋 SQL 복사</Button></div>
-      <DeleteLog/>
-      <CloudDiag onToast={onToast}/>
-      <RowModeSection onToast={onToast}/>
-    </>}
-    {tab==='noti'&&<NotiTab c={c} setC={setC} onToast={onToast}/>}
+  const [c,setC]=React.useState(Store.cfg);
+  React.useEffect(()=>{if(open)setC(Store.cfg);},[open]);
+  const save=()=>{Store.saveCfg(c);onClose();onToast&&onToast('설정 저장');};
+  return <Modal open={open} onClose={onClose} title="🔔 알림 설정" width={560} footer={<><Button variant="gray" onClick={onClose}>취소</Button><Button variant="accent" icon="💾" onClick={save}>저장</Button></>}>
+    <NotiTab c={c} setC={setC} onToast={onToast}/>
   </Modal>;
 }
 
@@ -36460,8 +36439,6 @@ function CalendarView({db,setDb,st,set,toast}){
     if(Object.keys(patch).every(k=>e[k]===patch[k]))return;
     save({...e,...patch});toast('『'+(e.title||'제목 없음')+'』 → '+(patch.date||e.date)+(patch.start?' '+patch.start:patch.start===''?' 종일':''));};
   const step=n=>{const d=new Date(anchor+'T00:00:00');if(sub==='week')d.setDate(d.getDate()+7*n);else d.setMonth(d.getMonth()+n);set({anchor:isoDate(d)});};
-  const exportICS=()=>{const blob=new Blob([toICS(db.events)],{type:'text/calendar'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='pms-calendar.ics';a.click();toast('ICS 내보내기');};
-  const importICS=async fs=>{let n=0;for(const f of fs){const evs=fromICS(await f.text());n+=evs.length;setDb('events',arr=>[...arr,...evs]);}set({icsOpen:false});toast(n+'건 가져옴');};
   const label=view==='list'?'목록':sub==='week'?weekStart(anchor)+' 주':anchor.slice(0,4)+'년 '+Number(anchor.slice(5,7))+'월';
   const seg=view==='month'&&<span style={{display:'inline-flex',border:'1px solid var(--border-strong)',borderRadius:6,padding:2,gap:2,marginLeft:6}}>
     {[['month','월간'],['week','주간']].map(([k,l])=><button key={k} type="button" onClick={()=>set({sub:k})} style={{border:'none',borderRadius:4,padding:'3px 11px',fontSize:'var(--fs-sm2)',fontWeight:sub===k?600:500,background:sub===k?'var(--surface-active)':'transparent',color:sub===k?'var(--text-body)':'var(--text-muted)',cursor:'pointer',fontFamily:'inherit'}}>{l}</button>)}</span>;
@@ -36474,14 +36451,10 @@ function CalendarView({db,setDb,st,set,toast}){
   return <>
     <Card title={label} badge={<Badge tone="muted">{events.length}건</Badge>}
       toolbar={<><Button icon="+" onClick={()=>openNew(view==='month'?anchor:today)}>새 일정</Button>{nav}{seg}{zoomSeg}</>}
-      toolbarRight={<><CalToggle cals={cals} onChange={c=>set({cals:c})}/><Button variant="classic" size="sm" icon="📥" onClick={exportICS}>ICS 내보내기</Button><Button variant="accent" size="sm" icon="📤" onClick={()=>set({icsOpen:true})}>ICS 가져오기</Button></>}>
+      toolbarRight={<><CalToggle cals={cals} onChange={c=>set({cals:c})}/></>}>
       {body}
     </Card>
     <EventPanel ev={st.edit} categories={categories} onClose={()=>set({edit:null})} onSave={ev=>{save(ev);set({edit:null});}} onDelete={del}/>
-    <Modal open={!!st.icsOpen} onClose={()=>set({icsOpen:false})} title="ICS 가져오기" footer={<Button variant="gray" onClick={()=>set({icsOpen:false})}>닫기</Button>}>
-      <window.HDWorkbookDesignSystem_ad60e4.DropZone title="📅 .ics 파일을 여기에 놓으세요" sub="Google 캘린더 › 설정 › 내보내기 / Outlook › 일정 저장(.ics)" accept=".ics" onFiles={importICS}/>
-      <InfoBar>CATEGORIES에 personal이 있으면 개인 캘린더로, 그 외는 회사로 분류됩니다.</InfoBar>
-    </Modal>
   </>;
 }
 
@@ -36866,7 +36839,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v1.0';
+const APP_VERSION='v1.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
@@ -37109,7 +37082,7 @@ function Shell({user,onLogout}){
   const canUndo=hist.current.past.length>0,canRedo=hist.current.future.length>0;
   /* 휴지통에서 되살리기 — 평소 저장 경로를 그대로 타서 화면과 저장소가 함께 되돌아온다 */
   const restoreItem=(kind,item)=>{if(!item)return;setDb(kind,arr=>arr.some(x=>x.id===item.id)?arr:[...arr,item]);};
-  if(err)return <div style={{padding:40}}><InfoBar tone="warn">{err}</InfoBar><Button variant="gray" onClick={()=>setCfg(true)}>⚙ 연결 설정</Button><SettingsModal open={cfgOpen} onClose={()=>setCfg(false)} onToast={toast}/></div>;
+  if(err)return <div style={{padding:40}}><InfoBar tone="warn">{err}</InfoBar><Button variant="gray" onClick={()=>location.reload()}>⟳ 다시 시도</Button></div>;
   if(!db)return <div style={{padding:40,color:'var(--text-label)'}}>데이터 불러오는 중…</div>;
   const merge=set=>p=>set(s=>({...s,...p}));
   const nav=calNav(calSt,merge(setCalSt));
@@ -37117,8 +37090,8 @@ function Shell({user,onLogout}){
   const savedBadge=saved==='saving'?'⏳ 저장 중…':saved==='error'?'⚠ 저장 실패':saved?'✓ 자동저장됨 · '+saved:'✓ 불러옴';
   return <div style={{minHeight:'100vh',display:'flex',flexDirection:'column',background:'#fff'}}>
     <AppHeader mark="📅" title="일정 관리" version={APP_VERSION} tools={mobile
-      ?<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기" onClick={undo}>↶</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기" onClick={redo}>↷</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)}>🗑</Button><Button variant="ghost" size="xs" onClick={()=>setCfg(true)}>⚙</Button><Button variant="ghost" size="xs" onClick={onLogout}>나가기</Button></>
-      :<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳ 새로고침</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기 (Ctrl+Z)" onClick={undo}>↶ 되돌리기</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기 (Ctrl+Y)" onClick={redo}>↷ 다시</Button><Button variant="ghost" size="xs" onClick={()=>Store.exportJSON(db)} title="전체 데이터 JSON 백업">💾 백업</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)} title={'지운 항목 보관함('+TRASH_DAYS+'일)'}>🗑 휴지통</Button><Button variant="ghost" size="xs" onClick={()=>setCfg(true)}>⚙ 설정</Button><span style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>👤 {user.email}</span><Button variant="ghost" size="xs" onClick={onLogout}>로그아웃</Button></>}/>
+      ?<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기" onClick={undo}>↶</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기" onClick={redo}>↷</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)}>🗑</Button><Button variant="ghost" size="xs" title="알림 설정" onClick={()=>setCfg(true)}>🔔</Button><Button variant="ghost" size="xs" onClick={onLogout}>나가기</Button></>
+      :<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳ 새로고침</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기 (Ctrl+Z)" onClick={undo}>↶ 되돌리기</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기 (Ctrl+Y)" onClick={redo}>↷ 다시</Button><Button variant="ghost" size="xs" onClick={()=>Store.exportJSON(db)} title="전체 데이터 JSON 백업">💾 백업</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)} title={'지운 항목 보관함('+TRASH_DAYS+'일)'}>🗑 휴지통</Button><Button variant="ghost" size="xs" onClick={()=>setCfg(true)}>🔔 알림</Button><span style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>👤 {user.email}</span><Button variant="ghost" size="xs" onClick={onLogout}>로그아웃</Button></>}/>
     {updated&&<div onClick={hardReload} role="button" style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',
       padding:'8px 14px',background:'var(--wb-ink)',color:'#fff',fontSize:'var(--fs-md)',fontWeight:600,fontFamily:'var(--font-sans)'}}>
       <span style={{fontSize:15}}>🔄</span>새 버전이 올라왔습니다
@@ -37127,7 +37100,7 @@ function Shell({user,onLogout}){
     <SessionBar icon="📅" name={mobile?'일정'+(todayN?' · 오늘 '+todayN:''):user.name+' 일정'+(todayN?' · 오늘 '+todayN+'건':'')}>
       <Badge tone="pill">{mobile?(saved==='saving'?'⏳':saved==='error'?'⚠':'✓'):savedBadge}</Badge>
       {!mobile&&<><SessionDivider/>
-      {Store.mode==='supabase'?<Badge tone="linked">☁ Supabase · {new URL(Store.cfg.supabaseUrl).host}</Badge>:<Badge tone="pill" style={{cursor:'pointer'}} onClick={()=>setCfg(true)}>💾 로컬 저장 · 클릭해 클라우드 연결</Badge>}
+      {Store.mode==='supabase'?<Badge tone="linked">☁ Supabase · {new URL(Store.cfg.supabaseUrl).host}</Badge>:<Badge tone="pill">💾 로컬 저장</Badge>}
       <SessionDivider/><span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>📅 {todayISO()}</span></>}
     </SessionBar>
     <div style={{display:'flex',flexDirection:mobile?'column':'row',alignItems:'stretch',flex:1,minHeight:'calc(100vh - 90px)'}}>
