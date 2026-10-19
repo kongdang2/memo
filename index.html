@@ -36448,6 +36448,8 @@ function mdToHtml(md){
   const isRow=l=>/^\s*\|.*\|\s*$/.test(l);
   while(i<L.length){const l=L[i];let m;
     if(!l.trim()){i++;continue;}
+    /* 그림 줄 ![설명](pms:경로) — 저장소 그림. 설명은 그림 아래 작은 글씨로 */
+    if((m=/^\s*!\[([^\]]*)\]\(pms:([^)\s]+)\)\s*$/.exec(l))){out.push('<p class="pic"><img data-pms="'+escH(m[2])+'"></p>'+(m[1].trim()?'<p class="cap"><i>▲ '+escH(m[1].trim())+'</i></p>':''));i++;continue;}
     if((m=/^(#{1,4})\s+(.*)/.exec(l))){const n=Math.min(3,m[1].length);out.push('<h'+n+'>'+mdInline(m[2])+'</h'+n+'>');i++;continue;}
     if(/^\s*(-{3,}|\*{3,})\s*$/.test(l)){out.push('<hr>');i++;continue;}
     if(isRow(l)){const rows=[];while(i<L.length&&isRow(L[i])){if(!/^\s*\|[\s:|-]+\|\s*$/.test(L[i]))rows.push(L[i].trim().slice(1,-1).split('|').map(c=>c.trim()));i++;}
@@ -36903,7 +36905,7 @@ const bdGridHtml=g=>'<table><tbody>'+g.map(r=>'<tr>'+r.map(v=>'<td>'+(v?escH(v).
 function htmlToMd(html){
   const d=document.createElement('div');d.innerHTML=html||'';const out=[];
   const inl=n=>{if(n.nodeType===3)return n.nodeValue.replace(/\s+/g,' ');if(n.nodeType!==1)return '';const t=n.tagName;
-    if(t==='BR')return '\n';if(t==='IMG')return '(이미지)';const inner=[...n.childNodes].map(inl).join('');
+    if(t==='BR')return '\n';if(t==='IMG')return n.getAttribute('data-pms')?'\n![](pms:'+n.getAttribute('data-pms')+')\n':'(이미지)';const inner=[...n.childNodes].map(inl).join('');
     if(/^(B|STRONG)$/.test(t)&&inner.trim())return '**'+inner.trim()+'**';return inner;};
   const cell=c=>inl(c).replace(/\n/g,' ').replace(/\|/g,'/').trim();
   const blk=(n,depth)=>{
@@ -36917,12 +36919,16 @@ function htmlToMd(html){
       out.push('  '.repeat(depth)+(t==='OL'?(k++)+'. ':'- ')+(chk!=null?(chk==='true'?'[x] ':'[ ] '):'')+txt);
       [...li.children].filter(c=>/^(UL|OL)$/.test(c.tagName)).forEach(sub=>blk(sub,depth+1));});return;}
     if(t==='BLOCKQUOTE'){inl(n).split('\n').forEach(l=>{if(l.trim())out.push('> '+l.trim());});return;}
-    if(t==='HR'){out.push('---');return;}if(t==='PRE'){out.push(n.textContent);return;}if(t==='IMG'){out.push('(이미지)');return;}
+    if(t==='HR'){out.push('---');return;}if(t==='PRE'){out.push(n.textContent);return;}if(t==='IMG'){out.push(n.getAttribute('data-pms')?'![](pms:'+n.getAttribute('data-pms')+')':'(이미지)');return;}
     if(n.querySelector('table,ul,ol,h1,h2,h3,p,div,blockquote,pre,hr')){[...n.childNodes].forEach(c=>blk(c,depth));return;}
     inl(n).split('\n').forEach(l=>{if(l.trim())out.push(l.trim());});};
-  [...d.childNodes].forEach(c=>blk(c,0));return out.join('\n');}
+  [...d.childNodes].forEach(c=>blk(c,0));
+  /* 그림 바로 아래 「▲ 설명」 줄은 그림 줄의 설명으로 되돌린다 */
+  for(let k=out.length-1;k>0;k--){const cap=/^\*?\*?▲\s*(.+?)\*?\*?$/.exec(out[k].trim());let j=k-1;while(j>=0&&!out[j].trim())j--;
+    if(cap&&j>=0&&/^!\[\]\(pms:[^)]+\)$/.test(out[j].trim())){out[j]=out[j].trim().replace('![]','!['+cap[1].replace(/[\[\]]/g,'')+']');out.splice(j+1,k-j);}}
+  return out.join('\n');}
 /* 보드 → 마크다운 — 위에서 아래, 왼쪽에서 오른쪽 순서 */
-const boardToMd=items=>(items||[]).filter(i=>i.type!=='img').slice().sort((a,b)=>a.y-b.y||a.x-b.x).map(i=>htmlToMd(i.html||'')).filter(x=>x.trim()).join('\n\n');
+const boardToMd=items=>(items||[]).slice().sort((a,b)=>a.y-b.y||a.x-b.x).map(i=>i.type==='img'?(i.path?'![](pms:'+i.path+')':''):htmlToMd(i.html||'')).filter(x=>x.trim()).join('\n\n');
 /* 새 상자들을 보드 맨 아래에 차례로 쌓는다 — 실제 높이는 화면에 그린 뒤 MemoBoard 가 재서 맞춘다(stk) */
 const bdAppend=(board,news)=>{const items=(board&&board.items)||[];const tag='s'+Date.now().toString(36);
   return {...(board||{}),items:[...items,...news.map((n,k)=>({id:uid(),x:20,y:100000+k*10,w:680,z:0,type:'text',...n,stk:tag,ord:k}))]};};
@@ -37679,7 +37685,7 @@ function crc32(buf){let t=crc32.t;
   let crc=0xFFFFFFFF;for(let i=0;i<buf.length;i++)crc=(crc>>>8)^t[(crc^buf[i])&255];return (crc^0xFFFFFFFF)>>>0;}
 function zipMake(files){
   const enc=new TextEncoder();const body=[],central=[];let off=0;
-  files.forEach(f=>{const name=enc.encode(f.name),data=enc.encode(f.text),crc=crc32(data);
+  files.forEach(f=>{const name=enc.encode(f.name),data=f.data||enc.encode(f.text),crc=crc32(data);
     const lh=new Uint8Array(30+name.length),dv=new DataView(lh.buffer);
     dv.setUint32(0,0x04034b50,true);dv.setUint16(4,20,true);dv.setUint16(6,0x0800,true);
     dv.setUint32(14,crc,true);dv.setUint32(18,data.length,true);dv.setUint32(22,data.length,true);dv.setUint16(26,name.length,true);
@@ -37761,7 +37767,9 @@ const PRINT_SYS='너는 석유화학 회사의 전략기획 담당자다. 사용
   +'- 목록은 「- 」(1단: 요점)와 두 칸 들여쓴 「  - 」(2단: 세부·근거·수치) 두 단계만 쓴다\n'
   +'- 메모에 실제로 있는 내용만 쓴다. 없는 사실·숫자·참석자를 지어내지 않는다. 받아쓰기 오류가 분명한 용어는 바로잡고, 애매하면 (?)\n'
   +'- 숫자·단위·기한은 정확히 옮긴다. 메모의 표는 행·열을 살려 마크다운 표로 옮기고 단위를 표 아래 「(단위: …)」로 적는다\n'
-  +'- 문장은 「~함」「~임」 개조식. 링크(URL)는 「참고 자료」에 그대로\n- 마크다운만 출력한다(앞뒤 설명·코드블록 금지)';
+  +'- 문장은 「~함」「~임」 개조식. 링크(URL)는 「참고 자료」에 그대로\n'
+  +'- 메모의 그림 줄 「![설명](pms:…)」은 고치거나 빼지 말고, 관련 내용 바로 아래에 한 줄로 그대로 둔다(설명이 비었으면 알맞은 짧은 설명을 넣어도 된다)\n'
+  +'- 마크다운만 출력한다(앞뒤 설명·코드블록 금지)';
 async function fillTemplate(ev,tpl,onStep){
   onStep&&onStep('메모 읽는 중…');
   const items=boardOf(ev).items||[];let memo=boardToMd(items).trim();
@@ -37780,6 +37788,122 @@ async function fillTemplate(ev,tpl,onStep){
     {system:PRINT_SYS,max_tokens:8000,cont:2,tag:'일정 출력 정리'});
   return String(out||'').replace(/^```(?:markdown|md)?\s*/,'').replace(/```\s*$/,'').trim();
 }
+/* ── 🔗 링크 정리 — 유튜브·블로그·기사를 회의록처럼 정리하고 장면·사진을 넣는다 ──
+   읽기는 Edge Function 'webdigest'(yt·page·img)가 대신 한다(브라우저는 다른 사이트를 직접 못 읽는다) */
+const isYt=u=>/(youtube\.com\/(watch|shorts|live|embed)|youtu\.be\/)/i.test(u||'');
+const linkUrls=e=>[...new Set(String(e.links||'').match(/https?:\/\/[^\s<>"')]+/g)||[])];
+async function webRead(action,url){let data;
+  try{data=await sttCall('webdigest',{action,url});}
+  catch(e){if(/닿지 못했|404|not found/i.test(e.message))throw new Error("링크 읽기 서버(Edge Function 'webdigest')가 아직 없습니다 — 배포가 필요합니다");throw e;}
+  return data;}
+const tmss=t=>{t=Math.max(0,Math.round(t));const h=Math.floor(t/3600),m=Math.floor(t%3600/60),x=t%60;return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(x).padStart(2,'0');};
+const tsec=s=>String(s||'').split(':').map(Number).reduce((a,b)=>a*60+(b||0),0);
+/* 그림 → 저장소(가로 최대 1280, jpeg) */
+async function putPicture(blob,name){
+  const bm=await createImageBitmap(blob);const k=Math.min(1,1280/bm.width);const c=document.createElement('canvas');
+  c.width=Math.round(bm.width*k);c.height=Math.round(bm.height*k);const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(bm,0,0,c.width,c.height);bm.close&&bm.close();
+  const out=await new Promise(r=>c.toBlob(r,'image/jpeg',0.9));
+  return (await Files.put(new File([out],name.replace(/\.\w+$/,'')+'.jpg',{type:'image/jpeg'}))).path;}
+const b64Blob=(b64,mime)=>{const bin=atob(b64);const u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return new Blob([u],{type:mime||'image/jpeg'});};
+async function webPicture(url){const r=await webRead('img',url);return b64Blob(r.b64,r.mime);}
+/* 유튜브 장면 — 미리보기 그림판(storyboard)에서 그 시각의 칸을 오려 낸다. 가장 큰 단계(보통 320×180) */
+async function ytFrames(info,times,onStep){
+  const lv=(info.storyboard||[]).slice().sort((a,b)=>b.w-a.w)[0];const out={};const sheets={};
+  for(let i=0;i<times.length;i++){const t=times[i];onStep&&onStep('장면 캡처 '+(i+1)+'/'+times.length);
+    try{if(!lv)throw new Error('장면 정보 없음');
+      const per=lv.cols*lv.rows;const idx=Math.min(lv.count-1,Math.floor(t*1000/Math.max(1,lv.interval)));const sh=Math.floor(idx/per),pos=idx%per;
+      const url=lv.url.replace('$M',String(sh));
+      if(!sheets[url])sheets[url]=webPicture(url).then(b=>createImageBitmap(b));
+      const bm=await sheets[url];const cw=bm.width/lv.cols,chh=bm.height/lv.rows;
+      const c=document.createElement('canvas');c.width=Math.round(cw);c.height=Math.round(chh);
+      c.getContext('2d').drawImage(bm,(pos%lv.cols)*cw,Math.floor(pos/lv.cols)*chh,cw,chh,0,0,c.width,c.height);
+      const b=await new Promise(r=>c.toBlob(r,'image/jpeg',0.92));out[t]=await putPicture(b,'yt-'+info.id+'-'+Math.round(t));}
+    catch(e){console.warn('[링크 정리] 장면',t,e.message);}}
+  return out;}
+/* 블로그·기사 HTML → 본문 글(그림 자리는 [그림 n]) + 그림 목록 */
+function pageArticle(html,base){
+  const d=new DOMParser().parseFromString(html,'text/html');
+  const meta=n=>{const m=d.querySelector('meta[property="'+n+'"],meta[name="'+n+'"]');return m?m.getAttribute('content')||'':'';};
+  const title=meta('og:title')||(d.querySelector('title')||{}).textContent||'';
+  d.querySelectorAll('script,style,noscript,iframe,nav,footer,header,aside,form,button,svg,.comment,#comment,.related,.share').forEach(n=>n.remove());
+  const cands=['.se-main-container','#postViewArea','.post_ct','.tt_article_useless_p_margin','.entry-content','.article_view','#articleBodyContents','#dic_area','#newsct_article','article','[itemprop="articleBody"]','main','#content','.content','body'];
+  let root=null;for(const c of cands){const el=d.querySelector(c);if(el&&el.textContent.trim().length>200){root=el;break;}}root=root||d.body;
+  const imgs=[];const lines=[];
+  const abs=u=>{try{return new URL(u,base).toString();}catch(_){return '';}};
+  const walk=n=>{if(n.nodeType===3){const t=n.nodeValue.replace(/\s+/g,' ');if(t.trim())lines.push(t);return;}if(n.nodeType!==1)return;
+    const tg=n.tagName;
+    if(tg==='IMG'){const src=abs(n.getAttribute('data-lazy-src')||n.getAttribute('data-src')||n.getAttribute('data-original')||n.getAttribute('src')||'');
+      const w=+(n.getAttribute('width')||n.getAttribute('data-width')||0);
+      if(/^https?:/.test(src)&&!/\.(svg|gif)(\?|$)|emoji|icon|logo|sprite|blank|spacer|profile/i.test(src)&&!(w&&w<120)&&imgs.length<30&&!imgs.some(x=>x.src===src)){
+        imgs.push({src,alt:(n.getAttribute('alt')||'').trim().slice(0,80)});lines.push('\n[그림 '+imgs.length+(imgs[imgs.length-1].alt?' · '+imgs[imgs.length-1].alt:'')+']\n');}return;}
+    const blk=/^(P|DIV|H\d|LI|TR|BR|BLOCKQUOTE|SECTION|FIGURE|FIGCAPTION|TABLE|UL|OL)$/.test(tg);
+    if(/^H[1-4]$/.test(tg))lines.push('\n'+'#'.repeat(Math.min(3,+tg[1]+1))+' ');
+    if(tg==='LI')lines.push('\n- ');
+    [...n.childNodes].forEach(walk);if(blk)lines.push('\n');};
+  walk(root);
+  const text=lines.join('').replace(/[ \t]+\n/g,'\n').replace(/\n{3,}/g,'\n\n').trim();
+  const og=meta('og:image');
+  return {title:title.trim(),site:meta('og:site_name')||new URL(base).hostname,date:meta('article:published_time')||meta('og:regDate')||'',
+    desc:meta('og:description'),text,imgs,og:og?abs(og):''};}
+const DIGEST_SYS='너는 석유화학 회사의 전략기획 담당자다. 유튜브 영상·블로그·기사 내용을 업무 회의록처럼 정리한다.\n'
+  +'- 원문에 실제로 나온 내용만 쓴다. 없는 사실·숫자를 지어내지 않는다. 자동 자막 오류가 분명한 용어는 바로잡고, 애매하면 (?)\n'
+  +'- 「주요 내용」은 주제별로 ### 소제목을 달아 묶되 요약해 줄이지 않는다. 주장·근거·숫자·예시·전망을 처음부터 끝까지 빠짐없이 옮긴다(뒷부분일수록 빠뜨리기 쉬우니 끝까지 확인)\n'
+  +'- 외국어 원문은 자연스러운 한국어로 옮긴다. 고유명사는 원어를 괄호로\n'
+  +'- 목록은 「- 」(요점)와 두 칸 들여쓴 「  - 」(세부·근거·수치) 두 단계. 문장은 「~함」「~임」 개조식\n'
+  +'- 그림 넣을 자리는 따로 한 줄로 [[IMG 값 | 짧은 설명]] 이라고 쓴다. 관련 내용 바로 아래에 둔다\n'
+  +'- 마크다운만 출력한다(앞뒤 설명·코드블록 금지)';
+const DIGEST_FMT='아래 형식을 지킨다. 해당 내용이 없는 절은 「- 없음」으로 둔다.\n\n'
+  +'# {제목}\n\n- 출처: {출처}\n- 링크: {링크}\n- 주제: (한 줄)\n\n'
+  +'## 요약\n(3~5줄)\n\n## 주요 내용\n### (주제 1){시각}\n- …\n  - …\n[[IMG …]]\n### (주제 2)\n- …\n\n'
+  +'## 핵심 수치·데이터\n| 항목 | 내용 | 비고 |\n|---|---|---|\n\n## 시사점\n- (석유화학 사업·업무 관점에서 눈여겨볼 점. 원문 내용에 근거해서만)\n\n## 기타\n- …';
+/* 긴 원문은 조각마다 빠짐없는 메모를 먼저 뽑는다 */
+async function digestNotes(text,onStep,what){
+  const CH=16000;if(text.length<=CH*1.3)return text;
+  const chunks=[];let buf='';text.split('\n').forEach(l=>{if((buf+l).length>CH){chunks.push(buf);buf='';}buf+=l+'\n';});if(buf.trim())chunks.push(buf);
+  const notes=[];for(let i=0;i<chunks.length;i++){onStep&&onStep('원문 읽는 중 '+(i+1)+'/'+chunks.length);
+    notes.push(await askClaude('아래는 긴 '+what+'의 일부('+(i+1)+'/'+chunks.length+')다. 정리 문서를 쓰기 위한 메모를 만들어라: 다룬 주제와 그 시작 시각/위치, 주장·근거·숫자·예시·전망. 개조식으로 빠짐없이. 시각 표시 [mm:ss]와 [그림 n] 표시는 그대로 남긴다.\n\n'+chunks[i],
+      {system:DIGEST_SYS,max_tokens:4000,cont:2,tag:'링크 정리'}));}
+  return '(긴 원문을 조각별로 정리한 메모)\n\n'+notes.join('\n\n');}
+async function digestLink(ev,url,onStep){
+  await MeetCfg.load();let prompt,info,pick;
+  if(isYt(url)){onStep&&onStep('유튜브 읽는 중…');info=await webRead('yt',url);if(info.error)throw new Error(info.error);
+    const cues=(info.captions&&info.captions.cues)||[];
+    /* 자막을 20초 안팎 단락으로 — 단락마다 [mm:ss] */
+    const paras=[];let cur=null;cues.forEach(c=>{if(!cur||c.t-cur.t>=20){cur={t:c.t,x:[]};paras.push(cur);}cur.x.push(c.text);});
+    const script=paras.map(p=>'['+tmss(p.t)+'] '+p.x.join(' ')).join('\n');
+    if(!script&&!info.description)throw new Error('이 영상은 자막도 설명도 받지 못했습니다'+(info.status&&info.status!=='OK'?' ('+info.status+')':'')+' — 자막이 있는 영상인지 확인하세요');
+    const body=await digestNotes(script,onStep,'영상 자막');
+    const src=[info.channel,info.published,info.duration?tmss(info.duration):''].filter(Boolean).join(' · ')+' · 유튜브';
+    prompt=DIGEST_FMT.replace('{제목}',info.title||ev.title||'영상 정리').replace('{출처}',src).replace('{링크}',info.url).replace('{시각}',' [시작 mm:ss]')
+      +'\n\n그림: 화면을 보여 주면 이해가 쉬운 곳(도표·자료 화면·핵심 장면)에 [[IMG mm:ss | 설명]] 을 4~10개 넣는다. mm:ss 는 자막에 나온 그 내용의 시각이다. 첫 그림은 영상 소개 장면.'
+      +(info.captions?'':'\n자막을 받지 못해 영상 설명만 있다 — 그 사실을 「기타」에 적는다.')
+      +(info.captions&&info.captions.auto?'\n(자막은 자동 생성 자막이라 오인식이 있을 수 있다)':'')
+      +'\n\n--- 영상 설명 ---\n'+(info.description||'')+'\n\n--- 자막 ---\n'+body;
+    pick=async list=>{const times=[...new Set(list.map(x=>tsec(x.v)).filter(t=>t>=0&&(!info.duration||t<=info.duration)))];
+      const fr=await ytFrames(info,times,onStep);
+      if(!Object.keys(fr).length){try{fr._thumb=await putPicture(await webPicture(info.thumb).catch(()=>webPicture(info.thumbAlt)),'yt-'+info.id+'-thumb');}catch(_){}}
+      return x=>fr[tsec(x.v)]||(x===list[0]&&fr._thumb)||'';};}
+  else{onStep&&onStep('글 읽는 중…');const pg=await webRead('page',url);if(pg.error)throw new Error(pg.error);
+    const a=pageArticle(pg.html,pg.url||url);if(a.text.length<80)throw new Error('본문을 찾지 못했습니다 — 로그인이 필요한 글이거나 앱으로만 열리는 페이지일 수 있습니다');
+    const body=await digestNotes(a.text,onStep,'글');
+    prompt=DIGEST_FMT.replace('{제목}',a.title||ev.title||'글 정리').replace('{출처}',[a.site,a.date.slice(0,10)].filter(Boolean).join(' · ')).replace('{링크}',pg.url||url).replace('{시각}','')
+      +'\n\n그림: 본문의 [그림 n] 가운데 내용 이해에 도움이 되는 것(도표·표·사진)을 골라 관련 내용 아래에 [[IMG n | 설명]] 으로 넣는다(최대 10개). 장식용·광고·프로필 사진은 넣지 않는다.'
+      +'\n\n--- 글 ---\n'+body;
+    pick=async list=>{const map={};const ns=[...new Set(list.map(x=>parseInt(x.v,10)).filter(n=>n>=1&&n<=a.imgs.length))];
+      for(let i=0;i<ns.length;i++){onStep&&onStep('그림 가져오는 중 '+(i+1)+'/'+ns.length);
+        try{map[ns[i]]=await putPicture(await webPicture(a.imgs[ns[i]-1].src),'web-'+ns[i]);}catch(e){console.warn('[링크 정리] 그림',ns[i],e.message);}}
+      return x=>map[parseInt(x.v,10)]||'';};}
+  onStep&&onStep('정리하는 중…');
+  let md=String(await askClaude(prompt,{system:DIGEST_SYS,max_tokens:8000,cont:3,done:/##\s*기타/,tag:'링크 정리'})||'')
+    .replace(/^```(?:markdown|md)?\s*/,'').replace(/```\s*$/,'').trim();
+  /* [[IMG 값 | 설명]] → 실제 그림 */
+  const re=/^\s*\[\[\s*IMG\s+([^\]|]+?)\s*(?:\|\s*([^\]]*?))?\s*\]\]\s*$/gm;const list=[];let m;while((m=re.exec(md)))list.push({v:m[1],cap:(m[2]||'').replace(/[\[\]]/g,'')});
+  const get=list.length?await pick(list):()=> '';
+  let k=0;md=md.replace(re,()=>{const x=list[k++];const p=x&&get(x);return p?'!['+x.cap+'](pms:'+p+')':'';}).replace(/\n{3,}/g,'\n\n');
+  return md;}
+/* 정리 결과 → 보드 상자(## 단위). 같은 링크로 다시 정리하면 그 상자들만 바꾼다 */
+const bdPutDigest=(board,url,md)=>{const b=board||{items:[]};
+  return bdAppend({...b,items:(b.items||[]).filter(i=>i.src!==url)},minutesToItems(md).map(x=>({...x,grp:'digest',src:url})));};
 /* 마크다운 → A안 모양의 HTML. 제목은 남색 띠, 「핵심 요약」 장은 상자로 감싼다 */
 function aDocHtml(md,ev,tpl){
   /* 목록은 들여쓰기 단계를 살린다(1단 □·○, 2단 ○·-) — 공용 mdToHtml 은 목록을 한 단으로 펴므로 여기서 따로 만든다 */
@@ -37816,9 +37940,26 @@ const PRINT_CSS='@page{size:A4;margin:16mm 16mm 16mm 18mm}body{font-family:"Malg
   +'table{border-collapse:collapse;width:100%;margin:5pt 0 2pt;font-size:9pt}th,td{border:0.75pt solid #8a94a6;padding:2.5pt 6pt;vertical-align:top;text-align:left}'
   +'th{background:'+A_NAVY+';color:#fff;text-align:center;font-weight:700}td.num{text-align:right}td:first-child{font-weight:600}'
   +'tr{page-break-inside:avoid}img{max-width:100%;height:auto;margin:6pt 0}blockquote{margin:3pt 0;padding-left:8pt;border-left:3px solid #ccc;color:#555;font-size:9pt}'
+  +'p.pic{text-align:center;margin:6pt 0 0}p.pic img{max-height:120mm;margin:0}p.cap{text-align:center;font-size:8.5pt;color:#555;margin:1pt 0 6pt}'
   +'a{color:#1d4ed8;word-break:break-all}.pv-box{margin:0 0 10pt}hr{border:none;border-top:1px solid #bbb}h2,h3{page-break-after:avoid}';
 /* ── A안 워드 — 미리보기(고친 내용 포함)를 그대로 옮긴다 ── */
-function aDocx(root){
+/* 문서 속 그림 → 워드에 넣을 바이트(jpeg·png)와 크기. 저장소 그림(data-pms)은 내려받는다 */
+async function docxImage(im){
+  let blob=null;const p=im.getAttribute('data-pms');const src=im.getAttribute('src')||'';
+  if(p)blob=await Files.blob(p);else if(/^(data:|blob:|https?:)/.test(src))blob=await (await fetch(src)).blob();
+  if(!blob)return null;
+  const bm=await createImageBitmap(blob);let w=bm.width,h=bm.height;
+  const keep=/^image\/(jpeg|png)$/.test(blob.type)&&w<=1600;let out=blob;
+  if(!keep){const k=Math.min(1,1600/w);const c=document.createElement('canvas');c.width=Math.round(w*k);c.height=Math.round(h*k);
+    const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(bm,0,0,c.width,c.height);
+    out=await new Promise(r=>c.toBlob(r,'image/jpeg',0.9));w=c.width;h=c.height;}
+  bm.close&&bm.close();
+  return {data:new Uint8Array(await out.arrayBuffer()),ext:out.type==='image/png'?'png':'jpeg',w,h};}
+async function aDocx(root){
+  const pics=new Map();let pn=0;
+  for(const im of root.querySelectorAll('img')){try{const x=await docxImage(im);if(x){pn++;pics.set(im,{...x,id:pn});}}catch(e){console.warn('[워드] 그림을 넣지 못했습니다',e);}}
+  return aDocxBuild(root,pics);}
+function aDocxBuild(root,pics){
   const B=[];const W=9638;   /* 본문 너비(dxa) — A4 210mm − 여백 16+18mm */
   const rpr=(o={})=>'<w:rPr>'+(o.b?'<w:b/>':'')+(o.i?'<w:i/>':'')+(o.color?'<w:color w:val="'+o.color+'"/>':'')+(o.sz?'<w:sz w:val="'+o.sz+'"/><w:szCs w:val="'+o.sz+'"/>':'')+'</w:rPr>';
   const R=(t,o)=>'<w:r>'+rpr(o)+'<w:t xml:space="preserve">'+xmlEsc(t)+'</w:t></w:r>';
@@ -37846,6 +37987,13 @@ function aDocx(root){
       return '<w:tr>'+(hd?'<w:trPr><w:tblHeader/></w:trPr>':'')+Array.from({length:n},(_,j)=>{const c=r.children[j];const num=c&&c.className==='num';
         return '<w:tc>'+tcp(cols[j],hd?'1F3A5F':null)+pp(c?runs(c,{b:hd||j===0,sz:18,color:hd?'FFFFFF':null}):'',{after:0,jc:hd?'center':num?'right':null})+'</w:tc>';}).join('')+'</w:tr>';}).join(''),bdr('8A94A6',4,true)));
     B.push(pp('',{after:60}));};
+  /* 그림 — 가운데, 가로 최대 15cm(작은 장면 캡처는 10cm까지 키운다) */
+  const pic=im=>{const x=pics.get(im);if(!x)return;const EMU=360000;let cx=Math.min(15*EMU,Math.max(10*EMU,x.w*9525));if(x.w*9525>15*EMU)cx=15*EMU;
+    let cy=Math.round(cx*x.h/x.w);if(cy>18*EMU){cx=Math.round(cx*18*EMU/cy);cy=18*EMU;}
+    B.push('<w:p><w:pPr><w:keepNext/><w:spacing w:before="60" w:after="20"/><w:jc w:val="center"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="'+cx+'" cy="'+cy+'"/><wp:docPr id="'+x.id+'" name="그림 '+x.id+'"/>'
+      +'<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+      +'<pic:nvPicPr><pic:cNvPr id="'+x.id+'" name="image'+x.id+'.'+x.ext+'"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdImg'+x.id+'"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+      +'<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="'+cx+'" cy="'+cy+'"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>');};
   const walk=el=>{[...el.childNodes].forEach(n=>{
     if(n.nodeType===3){if(n.textContent.trim())B.push(pp(R(n.textContent.trim()),{ind:100}));return;}
     if(n.nodeType!==1)return;const tg=n.tagName,cl=n.className||'';
@@ -37866,19 +38014,23 @@ function aDocx(root){
     if(tg==='UL'||tg==='OL'){list(n,n.dataset.lv?1:0,{base:100});delete n.dataset.lv;return;}
     if(tg==='TABLE'){table(n);return;}
     if(tg==='BLOCKQUOTE'){B.push(pp(runs(n,{sz:18,color:'666666'}),{ind:200}));return;}
-    if(tg==='HR'||tg==='IMG'||tg==='STYLE')return;
+    if(tg==='IMG'||(tg==='P'&&n.querySelector('img')&&!n.textContent.trim())){(tg==='IMG'?[n]:[...n.querySelectorAll('img')]).forEach(pic);return;}
+    if(tg==='HR'||tg==='STYLE')return;
     if(tg==='DIV'&&n.querySelector('h1,h2,h3,ul,ol,table,p,div')){walk(n);return;}
+    if(/^▲/.test(n.textContent.trim())){B.push(pp(runs(n,{sz:16,color:'555555'}),{after:100,jc:'center'}));return;}
     if(n.textContent.trim()){const unit=/^\(단위/.test(n.textContent.trim());B.push(pp(runs(n,unit?{sz:16,color:'666666'}:{}),{ind:100,jc:unit?'right':null}));}});};
   walk(root);
-  const body='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'+B.join('')
+  const body='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:body>'+B.join('')
     +'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="907" w:right="907" w:bottom="907" w:left="1021" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr></w:body></w:document>';
   const styles=DOCX_STYLES.replace('<w:sz w:val="21"/><w:szCs w:val="21"/>','<w:sz w:val="20"/><w:szCs w:val="20"/>');
   return zipMake([
-    {name:'[Content_Types].xml',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>'},
+    {name:'[Content_Types].xml',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>'},
     {name:'_rels/.rels',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'},
-    {name:'word/_rels/document.xml.rels',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'},
+    {name:'word/_rels/document.xml.rels',text:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+      +[...pics.values()].map(x=>'<Relationship Id="rIdImg'+x.id+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image'+x.id+'.'+x.ext+'"/>').join('')+'</Relationships>'},
     {name:'word/styles.xml',text:styles},
-    {name:'word/document.xml',text:body}]);}
+    {name:'word/document.xml',text:body},
+    ...[...pics.values()].map(x=>({name:'word/media/image'+x.id+'.'+x.ext,data:x.data}))]);}
 const saveBlob=(blob,name)=>{const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;
   a.download=String(name||'문서').replace(/[\\/:*?"<>|]+/g,' ').trim().slice(0,80)+'.docx';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},1500);};
 /* 미리보기 종이에도 같은 모양을 — 인쇄 규칙을 .pv-paper 안으로 좁힌다 */
@@ -37890,6 +38042,7 @@ function printHtml(html,title){
   const imgs=[...d.images].filter(i=>!i.complete);
   Promise.all(imgs.map(i=>new Promise(r=>{i.onload=i.onerror=r;setTimeout(r,8000);}))).then(()=>{
     f.contentWindow.focus();f.contentWindow.print();setTimeout(()=>f.remove(),60000);});}
+const pvStrip=h=>{const d=document.createElement('div');d.innerHTML=h||'';d.querySelectorAll('img[data-pms]').forEach(im=>im.removeAttribute('src'));return d.innerHTML;};
 function PrintPreview({e,setE,onClose,toast}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
   const items=React.useMemo(()=>(boardOf(e).items||[]).slice().sort((a,b)=>a.y-b.y||a.x-b.x),[e.board]);
@@ -37898,7 +38051,10 @@ function PrintPreview({e,setE,onClose,toast}){
   const [busy,setBusy]=React.useState('');const [err,setErr]=React.useState('');const [off,setOff]=React.useState(()=>new Set());
   const [urls,setUrls]=React.useState({});const [ver,setVer]=React.useState(0);const ed=React.useRef(null);
   const raw=tpl==='raw';const T=PRINT_TPLS.find(t=>t.id===tpl);const cur=docs[tpl];
-  React.useEffect(()=>{items.filter(i=>i.type==='img'&&i.path&&!urls[i.path]).forEach(i=>Files.url(i.path).then(u=>setUrls(m=>({...m,[i.path]:u}))).catch(()=>{}));},[items]);
+  React.useEffect(()=>{const ps=new Set();items.forEach(i=>{if(i.type==='img'&&i.path)ps.add(i.path);String(i.html||'').replace(/data-pms="([^"]+)"/g,(_,x)=>{ps.add(x);return '';});});
+    [...ps].filter(x=>!urls[x]).forEach(x=>Files.url(x).then(u=>setUrls(m=>({...m,[x]:u}))).catch(()=>{}));},[items]);
+  /* 정리본 속 저장소 그림은 볼 때마다 서명 주소를 붙인다(저장할 때는 뗀다 — 주소가 1시간 뒤 만료되므로) */
+  React.useEffect(()=>{const el=ed.current;if(!el)return;el.querySelectorAll('img[data-pms]:not([src])').forEach(im=>Files.url(im.getAttribute('data-pms')).then(u=>{im.src=u;}).catch(()=>{im.alt='⚠ 그림';}));});
   React.useEffect(()=>{const k=x=>{if(x.key==='Escape'){x.stopPropagation();onClose();}};window.addEventListener('keydown',k,true);return()=>window.removeEventListener('keydown',k,true);},[]);
   const choose=id=>{setTpl(id);setErr('');try{localStorage.setItem('cal.printTpl',id);}catch(_){}};
   const fill=async()=>{if(cur&&!window.confirm('지금 정리본을 새로 만든 것으로 바꿉니다. 직접 고친 내용도 사라집니다. 계속할까요?'))return;
@@ -37908,13 +38064,14 @@ function PrintPreview({e,setE,onClose,toast}){
     catch(x){setErr(x.message);}setBusy('');};
   /* 미리보기에서 고친 내용은 일정에 저장된다(다음에 열어도 그대로) */
   const t=React.useRef();
-  const edited=()=>{clearTimeout(t.current);const h=ed.current&&ed.current.innerHTML;t.current=setTimeout(()=>setE(p=>({...p,printDocs:{...(p.printDocs||{}),[tpl]:{...((p.printDocs||{})[tpl]||{}),html:h}}})),600);};
-  const boxHtml=i=>i.type==='img'?(urls[i.path]?'<img src="'+urls[i.path]+'">':''):(i.html||'');
+  const edited=()=>{clearTimeout(t.current);const h=ed.current&&pvStrip(ed.current.innerHTML);t.current=setTimeout(()=>setE(p=>({...p,printDocs:{...(p.printDocs||{}),[tpl]:{...((p.printDocs||{})[tpl]||{}),html:h}}})),600);};
+  const boxHtml=i=>i.type==='img'?(urls[i.path]?'<img src="'+urls[i.path]+'">':''):String(i.html||'').replace(/<img([^>]*?)data-pms="([^"]+)"([^>]*)>/g,(a,x,pth,y)=>urls[pth]?'<img'+x+'data-pms="'+pth+'" src="'+urls[pth]+'"'+y+'>':a);
   const outHtml=()=>raw?items.filter(i=>!off.has(i.id)).map(i=>'<div class="pv-box">'+boxHtml(i)+'</div>').join('')
     :(ed.current?ed.current.innerHTML:(cur&&cur.html)||'');
   const name=(e.title||'메모')+(raw?'':' '+T.label.replace(/·/g,' '))+' '+(e.date||'');
   const doPrint=()=>{const h=outHtml();if(!h.trim()){toast&&toast('출력할 내용이 없습니다');return;}printHtml(h,name);};
-  const doWord=()=>{if(!raw){if(!ed.current||!ed.current.textContent.trim()){toast&&toast('출력할 내용이 없습니다');return;}saveBlob(aDocx(ed.current),name);return;}
+  const doWord=async()=>{if(!raw){if(!ed.current||!ed.current.textContent.trim()){toast&&toast('출력할 내용이 없습니다');return;}
+      setBusy('워드 만드는 중…');try{saveBlob(await aDocx(ed.current),name);}catch(x){setErr('워드 만들기 실패 — '+x.message);}setBusy('');return;}
     const md=htmlToMd(outHtml());if(!md.trim()){toast&&toast('출력할 내용이 없습니다');return;}downloadDocx(md,name);};
   const chip=(id,label)=><button key={id} type="button" onClick={()=>choose(id)} disabled={!!busy}
     style={{border:'1px solid '+(tpl===id?'var(--text-body)':'var(--border-strong)'),background:tpl===id?'var(--text-body)':'#fff',color:tpl===id?'#fff':'var(--text-body)',
@@ -37953,6 +38110,12 @@ function MinutesBox({e,setE,toast}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
   const [busy,setBusy]=React.useState('');const [err,setErr]=React.useState('');const [pv,setPv]=React.useState(false);
   const has=bdHasMinutes(boardOf(e));const src=(e.tbrec||[]).length;
+  const links=linkUrls(e);const [lpick,setLpick]=React.useState(false);
+  const digest=async url=>{setLpick(false);setErr('');setBusy('링크 정리 준비 중…');
+    try{const md=await digestLink(e,url,setBusy);setE(p=>({...p,board:bdPutDigest(boardOf(p),url,md)}));
+      toast&&toast('🔗 링크 내용을 정리해 아래 메모에 넣었습니다 — 「🖨 출력·워드」로 같은 양식의 문서를 만들 수 있습니다');}
+    catch(x){setErr(x.message);}setBusy('');};
+  const linkName=u=>{try{const x=new URL(u);return (isYt(u)?'▶ 유튜브 ':'📄 ')+(isYt(u)?(x.searchParams.get('v')||x.pathname.split('/').pop()):x.hostname.replace(/^www\./,'')+x.pathname.slice(0,24));}catch(_){return u.slice(0,40);}};
   const make=async full=>{if(has&&!window.confirm('메모에 있는 회의록 상자를 새로 만든 것으로 바꿉니다. 계속할까요?'))return;
     setErr('');setBusy('준비 중…');
     try{await MeetCfg.load();
@@ -37970,7 +38133,13 @@ function MinutesBox({e,setE,toast}){
   return <>
     {src>0&&<Button size="sm" variant="ghost" onClick={()=>make(false)} title="붙은 녹음·통번역 기록과 메모로 회의록을 만들어 아래 메모에 넣습니다(Claude)">{has?'↻ 회의록 다시 만들기':'✨ 회의록 만들기'}</Button>}
     {src>0&&<Button size="sm" variant="ghost" onClick={()=>make(true)} title="붙은 기록의 녹음 파일을 처음부터 다시 받아쓰고(더 정확) 다듬은 뒤 회의록을 만듭니다">🎧 다시 전사</Button>}
+    {links.length>0&&<Button size="sm" variant={lpick?undefined:'ghost'} onClick={()=>links.length===1?digest(links[0]):setLpick(v=>!v)}
+      title="관련 링크의 유튜브 영상·블로그·기사 내용을 회의록처럼 정리하고, 장면 캡처·본문 사진을 넣어 아래 메모에 붙입니다(Claude)">🔗 링크 정리</Button>}
     <Button size="sm" variant="ghost" onClick={()=>setPv(true)} title="보드 내용을 양식에 맞춰 정리해 미리 보고, 인쇄(PDF)·워드로 내보냅니다">🖨 출력·워드</Button>
+    {lpick&&<span style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center',flexBasis:'100%',padding:'6px 8px',background:'var(--surface-calc-cell)',borderRadius:6}}>
+      <span style={{fontSize:'var(--fs-sm2)',color:'var(--text-muted)'}}>정리할 링크</span>
+      {links.map(u=><Button key={u} size="xs" variant="ghost" onClick={()=>digest(u)} title={u}>{linkName(u)}</Button>)}
+      <Button size="xs" variant="ghost" onClick={()=>setLpick(false)}>취소</Button></span>}
     {pv&&<PrintPreview e={e} setE={setE} toast={toast} onClose={()=>setPv(false)}/>}
     {err&&<span style={{fontSize:'var(--fs-sm)',color:'var(--color-danger)',flexBasis:'100%'}}>⚠ {err}</span>}
   </>;
@@ -38659,7 +38828,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.5.7';
+const APP_VERSION='v2.6';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
