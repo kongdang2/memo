@@ -37383,9 +37383,9 @@ async function sttPart(blob,lang,hint,name){
   catch(e){throw new Error('전사 서버가 이 녹음 형식을 받지 않습니다 ('+first.message+') — 다른 형식(mp3·wav)으로 바꿔 올려 주세요');}}
 /* 음성 파일 하나 → 글. 조각마다 앞 조각 끝 문장을 힌트로 넘겨 이름·용어가 이어지게 한다
    브라우저가 열 수 있으면 16kHz WAV 조각으로, 못 열면(작은 파일만) 원본 그대로 보낸다 */
-async function transcribeFile(blob,lang,onStep){
+async function transcribeFile(blob,lang,onStep,keep){
   await MeetCfg.load();let parts,dur=0,raw=false;
-  try{const r=await toWavSegments(blob,onStep);parts=r.segs;dur=r.dur;}
+  try{const r=await toWavSegments(blob,onStep);parts=r.segs;dur=r.dur;if(keep)keep.segs=r.segs;}
   catch(e){if(blob.size<=6*1024*1024){parts=[blob];raw=true;}else throw e;}
   const texts=[];
   for(let i=0;i<parts.length;i++){onStep&&onStep('받아쓰는 중 '+(i+1)+'/'+parts.length);
@@ -37451,14 +37451,30 @@ async function retranscribeRec(id,onStep){
   let md=putSection(rec.md,'녹취 (받아쓰기)',raw);md=putSection(md,'정리·번역',pol);
   await saveTbrec({...rec,md,updated:nowStamp()});return {...rec,md};}
 /* 새 녹음 파일 올리기 → 저장소 → 전사 → 정리 → 기록 만들기 */
+/* 15MB가 넘는 녹음은 원본 대신 15분짜리 MP3 조각(16kHz 모노, 조각당 약 5MB)으로 나눠 저장한다 — 전사에 쓴 조각을 그대로 묶는다 */
+const STORE_MAX=15*1024*1024,STORE_PIECE_SEGS=6;
+async function putAudioPieces(segs,name,onStep){
+  const base=String(name||'녹음').replace(/\.[^.]+$/,'');const n=Math.ceil(segs.length/STORE_PIECE_SEGS);const links=[];
+  for(let k=0;k<n;k++){onStep&&onStep('녹음 나눠 올리는 중 '+(k+1)+'/'+n);
+    const grp=segs.slice(k*STORE_PIECE_SEGS,(k+1)*STORE_PIECE_SEGS);
+    const pcm=new Float32Array(grp.reduce((a,g)=>a+g._pcm.length,0));let o=0;grp.forEach(g=>{pcm.set(g._pcm,o);o+=g._pcm.length;});
+    const nm=base+(n>1?' ('+(k+1)+'/'+n+')':'')+'.mp3';
+    const up=await Files.put(new File([await mp3Blob(pcm,grp[0]._rate)],nm,{type:'audio/mpeg'}));links.push('[🎙 '+nm+'](pms:'+up.path+')');}
+  return links;}
 async function recFromFile(file,lang,title,onStep){
   if(Store.mode!=='supabase')throw new Error('전사는 클라우드(Supabase)에 로그인해야 쓸 수 있습니다');
-  onStep&&onStep('녹음 올리는 중…');const up=await Files.put(file);
-  const raw=await transcribeFile(file,lang,onStep);if(!raw.trim())throw new Error('녹음에서 말소리를 찾지 못했습니다');
+  const name=file.name||'녹음';let audio='';
+  if(file.size<=STORE_MAX){onStep&&onStep('녹음 올리는 중…');
+    try{const up=await Files.put(file);audio='[🎙 '+name+'](pms:'+up.path+')';}
+    catch(e){console.warn('녹음 올리기 실패',e);audio='> 녹음 파일을 저장하지 못했습니다('+e.message+') — 글로 옮긴 결과만 남습니다';}}
+  const keep={};const raw=await transcribeFile(file,lang,onStep,keep);if(!raw.trim())throw new Error('녹음에서 말소리를 찾지 못했습니다');
+  if(file.size>STORE_MAX){
+    try{if(!keep.segs)throw new Error('녹음을 나누지 못했습니다');audio=(await putAudioPieces(keep.segs,name,onStep)).join('\n');}
+    catch(e){console.warn('녹음 나눠 올리기 실패',e);audio='> 원본이 15MB를 넘고 나눠 저장하지도 못했습니다('+e.message+') — 글로 옮긴 결과만 남습니다';}}
   if(lang==='auto'||!langName[lang])lang=guessLang(raw);
   const pol=await polishText(raw,lang,onStep);
-  const name=file.name||'녹음';const rt=title+' · '+name.replace(/\.[^.]+$/,'');
-  const md='# '+rt+'\n\n> 📁 녹음 파일 전사 · '+(lang==='ko'?'한국어':langName[lang]+' → 한국어')+' · 일정 앱에서 올림\n\n[🎙 '+name+'](pms:'+up.path+')\n\n'
+  const rt=title+' · '+name.replace(/\.[^.]+$/,'');
+  const md='# '+rt+'\n\n> 📁 녹음 파일 전사 · '+(lang==='ko'?'한국어':langName[lang]+' → 한국어')+' · '+(file.size/1048576).toFixed(1)+'MB · 일정 앱에서 올림\n\n'+audio+'\n\n'
     +'## 정리·번역\n'+pol+'\n\n## 녹취 (받아쓰기)\n'+raw+'\n';
   const rec={id:uid(),title:rt,scope:'work',tags:[lang==='ko'?'회의':'통역'],lang,updated:nowStamp(),created:new Date(file.lastModified||Date.now()).toISOString(),md};
   await saveTbrec(rec);return rec;}
@@ -38603,7 +38619,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.5.1';
+const APP_VERSION='v2.5.2';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
