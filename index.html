@@ -36494,20 +36494,23 @@ function CalendarView({db,setDb,st,set,toast}){
    · 이미 어느 일정에 붙어 있거나(tbrec) 일부러 끊은(tbrecOff) 기록은 건너뛴다
    · 최근 30일 기록만 — 처음 켤 때 옛 기록이 한꺼번에 일정으로 쏟아지지 않게
    · 시간이 있는 일정 중 녹음 시각이 [시작, 끝+1시간] 안이거나 시작과 3시간 이내로 가장 가까운 것.
-     반복 일정도 그날 열리는 회차로 본다. 없으면 그날 종일 일정이 하나뿐일 때 그 일정, 그것도 아니면 새 일정을 만든다 */
+     반복 일정은 고르지 않는다(제목이 바뀌면 모든 회차가 바뀐다). 없으면 그날 종일 일정이 하나뿐일 때 그 일정, 그것도 아니면 새 일정을 만든다 */
+/* 통번역 기록이 붙은 일정은 가장 이른 기록의 제목과 '통번역' 카테고리를 쓴다 */
+function tbNamed(e){const l=(e.tbrec||[]).slice().sort((a,b)=>String(a.created).localeCompare(String(b.created)));
+  return l.length?{...e,title:l[0].title||e.title,category:'통번역'}:e;}
 function autoLinkTbrec(events,recs){
   const seen=new Set();events.forEach(e=>{(e.tbrec||[]).forEach(x=>seen.add(x.id));(e.tbrecOff||[]).forEach(id=>seen.add(id));});
   const cut=Date.now()-30*864e5;let out=events,n=0;
   const mins=hm=>{const [h,m]=String(hm||'').split(':').map(Number);return h*60+(m||0);};
   recs.forEach(r=>{if(seen.has(r.id))return;const d=new Date(r.created);if(isNaN(d)||d.getTime()<cut)return;
     const day=isoDate(d),t=d.getHours()*60+d.getMinutes();
-    const same=expandEvents(out,day,day);
+    const same=out.filter(e=>e.date===day&&(e.repeat||'none')==='none');
     let best=null,bs=1e9;
     same.filter(e=>e.start).forEach(e=>{const st=mins(e.start),en=e.end?mins(e.end):st+60;
       const sc=(t>=st&&t<=en+60)?0:Math.abs(t-st);if(sc<bs&&sc<=180){bs=sc;best=e;}});
     const allDay=same.filter(e=>!e.start);if(!best&&allDay.length===1)best=allDay[0];
     const link={id:r.id,title:r.title,created:r.created};
-    if(best)out=out.map(e=>e.id===best.id?{...e,tbrec:[...(e.tbrec||[]),link]}:e);
+    if(best)out=out.map(e=>e.id===best.id?tbNamed({...e,tbrec:[...(e.tbrec||[]),link]}):e);
     else out=[...out,{id:uid(),title:r.title,date:day,dateEnd:'',start:pad2(d.getHours())+':'+pad2(d.getMinutes()),end:'',cal:'work',status:'todo',category:'통번역',repeat:'none',notes:'',tbrec:[link]}];
     seen.add(r.id);n++;});
   return {events:out,n};
@@ -36897,7 +36900,14 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
   const [e,setE]=React.useState(ev);const [pv,setPv]=React.useState('edit');const [savedAt,setSavedAt]=React.useState('');
   /* 자동 저장: 입력이 멈추고 1초 뒤 저장. 닫을 때는 기다리지 않고 바로 저장한다.
      제목이 비어 있으면 저장하지 않는다(새 일정을 열었다 그냥 닫은 경우) */
-  const last=React.useRef(null);const timer=React.useRef(null);
+  const last=React.useRef(null);const timer=React.useRef(null);const downAt=React.useRef(false);
+  const mobile=useMobile();const boxRef=React.useRef(null);
+  /* 팝업 크기 — 오른쪽 아래 모서리로 늘리고 줄이며, 고른 크기를 기억한다 */
+  const [size]=React.useState(()=>{try{const v=JSON.parse(localStorage.getItem('cal.panelSize'));if(v&&v.w&&v.h)return v;}catch(_){}
+    return {w:Math.min(860,Math.round(window.innerWidth*.9)),h:Math.round(window.innerHeight*.86)};});
+  React.useEffect(()=>{const el=boxRef.current;if(!el||mobile||!window.ResizeObserver)return;
+    const ro=new ResizeObserver(()=>{try{localStorage.setItem('cal.panelSize',JSON.stringify({w:el.offsetWidth,h:el.offsetHeight}));}catch(_){}});
+    ro.observe(el);return()=>ro.disconnect();},[ev&&ev.id,mobile]);
   React.useEffect(()=>{setE(ev);setPv('edit');setSavedAt('');last.current=ev?JSON.stringify(ev):null;},[ev]);
   const flush=cur=>{clearTimeout(timer.current);const j=JSON.stringify(cur);
     if(!cur||!(cur.title||'').trim()||j===last.current)return;last.current=j;onSave(cur);setSavedAt(new Date().toTimeString().slice(0,5));};
@@ -36910,13 +36920,18 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
     const sum=mdSection(md,'정리·번역')||mdSection(md,'정리');
     const when=localStamp(rec.created);
     const add=sum?'### 🎙 '+rec.title+(when?' · '+when:'')+'\n'+sum:'';
-    setE(p=>({...p,notes:add?(p.notes||'').replace(/\s+$/,'')+((p.notes||'').trim()?'\n\n':'')+add:p.notes,tbrecOff:(p.tbrecOff||[]).filter(x=>x!==rec.id),
+    setE(p=>tbNamed({...p,notes:add?(p.notes||'').replace(/\s+$/,'')+((p.notes||'').trim()?'\n\n':'')+add:p.notes,tbrecOff:(p.tbrecOff||[]).filter(x=>x!==rec.id),
       tbrec:[...(p.tbrec||[]).filter(x=>x.id!==rec.id),{id:rec.id,title:rec.title,created:rec.created||''}]}));};
   /* 끊은 기록은 tbrecOff 에 남겨 자동 연결이 다시 붙이지 않게 한다 */
   const detachTb=id=>setE(p=>({...p,tbrec:(p.tbrec||[]).filter(x=>x.id!==id),tbrecOff:[...new Set([...(p.tbrecOff||[]),id])]}));
   const bare={border:'none',background:'transparent',fontSize:'var(--fs-base)',fontFamily:'var(--font-sans)',color:'var(--text-body)',padding:'4px 6px',borderRadius:4,outline:'none'};
-  return <div style={{position:'fixed',inset:0,zIndex:'var(--z-modal)'}} onClick={close}>
-    <div onClick={x=>x.stopPropagation()} style={{position:'absolute',top:0,right:0,bottom:0,width:480,maxWidth:'95vw',background:'#fff',boxShadow:'var(--shadow-popover)',borderLeft:'1px solid var(--border-default)',display:'flex',flexDirection:'column',fontFamily:'var(--font-sans)'}}>
+  /* 바깥을 눌러 닫기 — 크기 조절하다 바깥에서 손을 떼도 닫히지 않게 누른 곳까지 바깥이어야 한다 */
+  const downOut=x=>{downAt.current=x.target===x.currentTarget;};
+  const clickOut=x=>{if(downAt.current&&x.target===x.currentTarget)close();downAt.current=false;};
+  return <div style={{position:'fixed',inset:0,zIndex:'var(--z-modal)',background:'rgba(0,0,0,.28)',display:'flex',alignItems:'center',justifyContent:'center'}} onMouseDown={downOut} onClick={clickOut}>
+    <div ref={boxRef} onClick={x=>x.stopPropagation()} style={mobile
+      ?{position:'absolute',inset:0,background:'#fff',display:'flex',flexDirection:'column',fontFamily:'var(--font-sans)'}
+      :{width:size.w,height:size.h,minWidth:420,minHeight:360,maxWidth:'96vw',maxHeight:'94vh',resize:'both',overflow:'hidden',background:'#fff',borderRadius:8,boxShadow:'var(--shadow-popover)',border:'1px solid var(--border-default)',display:'flex',flexDirection:'column',fontFamily:'var(--font-sans)'}}>
       <div style={{display:'flex',gap:6,padding:'10px 14px',borderBottom:'1px solid var(--border-default)',alignItems:'center'}}><Button variant="ghost" size="xs" onClick={close}>✕</Button><span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>{isNew?'새 일정':'일정'}</span><span style={{marginLeft:'auto',display:'flex',gap:4}}>{!isNew&&<Button variant="ghost" size="xs" onClick={()=>onDelete(e.id)}>🗑</Button>}</span></div>
       <div style={{padding:'18px 22px',overflowY:'auto',flex:1}}>
         <input autoFocus value={e.title} onChange={x=>f('title')(x.target.value)} placeholder="제목 없음" onKeyDown={x=>x.key==='Enter'&&close()} style={{...bare,fontSize:22,fontWeight:700,width:'100%',padding:'0 0 12px',marginBottom:6}}/>
@@ -36984,7 +36999,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v1.4';
+const APP_VERSION='v1.5';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
