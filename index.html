@@ -37022,6 +37022,7 @@ const BD_CSS=`.bd-wrap{position:relative;border:1px dashed var(--border-strong);
 .bd-it:hover .bd-grip,.bd-it.on .bd-grip{display:flex}.bd-it:hover:not(.on) .bd-grip{background:#a8a29e}
 .bd-rs{position:absolute;display:none;z-index:2}
 .bd-it.on .bd-rs{display:block}
+.bd-grip,.bd-rs,.bd-it.on>.bd-img{touch-action:none}
 .bd-rs.n,.bd-rs.s{left:12px;right:12px;height:8px;cursor:ns-resize}.bd-rs.n{top:-5px}.bd-rs.s{bottom:-5px}
 .bd-rs.e,.bd-rs.w{top:12px;bottom:12px;width:8px;cursor:ew-resize}.bd-rs.e{right:-5px}.bd-rs.w{left:-5px}
 .bd-rs.ne,.bd-rs.nw,.bd-rs.se,.bd-rs.sw{width:9px;height:9px;background:#fff;border:1.5px solid #57534e;border-radius:3px;box-sizing:border-box}
@@ -37030,6 +37031,12 @@ const BD_CSS=`.bd-wrap{position:relative;border:1px dashed var(--border-strong);
 .bd-rs.n:after,.bd-rs.s:after{content:'';position:absolute;left:50%;top:2px;width:18px;height:4px;margin-left:-9px;border-radius:2px;background:#fff;border:1.5px solid #57534e;box-sizing:border-box}
 .bd-rs.e:after,.bd-rs.w:after{content:'';position:absolute;top:50%;left:2px;height:18px;width:4px;margin-top:-9px;border-radius:2px;background:#fff;border:1.5px solid #57534e;box-sizing:border-box}
 .bd-it.fixh>.bd-img{height:100%}.bd-it.fixh>.bd-img img{height:100%;object-fit:cover}
+@media (pointer:coarse){.bd-grip{height:26px;top:-15px;padding:0 12px;font-size:12px}
+  .bd-rs.ne,.bd-rs.nw,.bd-rs.se,.bd-rs.sw{width:16px;height:16px;border-width:2px;border-radius:5px}
+  .bd-rs.nw{left:-9px;top:-9px}.bd-rs.se{right:-9px;bottom:-9px}.bd-rs.ne{right:-9px;top:-9px}.bd-rs.sw{left:-9px;bottom:-9px}
+  .bd-rs.n,.bd-rs.s{height:18px;left:18px;right:18px}.bd-rs.n{top:-10px}.bd-rs.s{bottom:-10px}
+  .bd-rs.e,.bd-rs.w{width:18px;top:18px;bottom:18px}.bd-rs.e{right:-10px}.bd-rs.w{left:-10px}
+  .bd-rs.n:after,.bd-rs.s:after{top:6px;width:26px;margin-left:-13px;height:6px}.bd-rs.e:after,.bd-rs.w:after{left:6px;height:26px;margin-top:-13px;width:6px}}
 .rn-ed.rn-cmp{min-height:26px;padding:4px 8px 6px;font-size:14px;line-height:1.6}
 .rn-ed.rn-cmp>:first-child{margin-top:0}.rn-ed.rn-cmp>:last-child{margin-bottom:0}
 .bd-img img{display:block;width:100%;border-radius:7px;pointer-events:none}
@@ -37232,7 +37239,7 @@ function MemoBoard({docKey,board,onChange}){
       const dim=await new Promise(ok=>{const im=new Image();im.onload=()=>ok([im.naturalWidth,im.naturalHeight]);im.onerror=()=>ok([320,200]);im.src=URL.createObjectURL(f);});
       add('img',{path:r.path,w:Math.min(420,dim[0])});}catch(x){setBusy('⚠ '+x.message);setTimeout(()=>setBusy(''),4000);return;}}setBusy('');};
   /* 끌기 — 손잡이(옮기기), 모서리(너비), 빈 곳(범위 선택) */
-  const live=React.useRef(null);const [,force]=React.useReducer(x=>x+1,0);
+  const live=React.useRef(null);const lastPT=React.useRef('mouse');const [,force]=React.useReducer(x=>x+1,0);
   const commitLive=arr=>{live.current=arr;itemsRef.current=arr;force();};
   const startDrag=(e,kind,id)=>{e.preventDefault();e.stopPropagation();
     if(kind!=='marquee'&&!editing())wrap.current.focus({preventScroll:true});
@@ -37254,14 +37261,14 @@ function MemoBoard({docKey,board,onChange}){
         const r={x:Math.min(x0,x1),y:Math.min(y0,y1),w:Math.abs(dx),h:Math.abs(dy)};setMq(r);
         const hit=[...wrap.current.querySelectorAll('[data-bd]')].filter(el=>{const a=el.offsetLeft,b=el.offsetTop,c=a+el.offsetWidth,d=b+el.offsetHeight;
           return a<r.x+r.w&&c>r.x&&b<r.y+r.h&&d>r.y;}).map(el=>el.getAttribute('data-bd'));setSel(hit);}};
-    const up=()=>{document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);setMq(null);
+    const up=()=>{document.removeEventListener('pointermove',mv);document.removeEventListener('pointerup',up);document.removeEventListener('pointercancel',up);setMq(null);
       if(kind!=='marquee'&&moved)commit(live.current||itemsRef.current);live.current=null;force();};
-    document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);};
+    document.addEventListener('pointermove',mv);document.addEventListener('pointerup',up);document.addEventListener('pointercancel',up);};
   const shown=live.current||items;
   const onWrapDown=e=>{if(e.target!==wrap.current&&!e.target.classList.contains('bd-pad'))return;
     const b=wrap.current.getBoundingClientRect();last.current={x:e.clientX-b.left+wrap.current.scrollLeft,y:e.clientY-b.top+wrap.current.scrollTop};
     if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();setAct(null);
-    if(!e.shiftKey)setSel([]);startDrag(e,'marquee');wrap.current.focus({preventScroll:true});};
+    if(!e.shiftKey)setSel([]);if(!(e.nativeEvent.sourceCapabilities&&e.nativeEvent.sourceCapabilities.firesTouchEvents)&&lastPT.current!=='touch')startDrag(e,'marquee');wrap.current.focus({preventScroll:true});};
   /* 맞춤 */
   const geo=()=>{const m={};wrap.current.querySelectorAll('[data-bd]').forEach(el=>{m[el.getAttribute('data-bd')]={w:el.offsetWidth,h:el.offsetHeight};});return m;};
   const align=k=>{const g=geo();const S=itemsRef.current.filter(i=>sel.includes(i.id)&&g[i.id]);if(S.length<2&&!/^(front|back)$/.test(k))return;if(!S.length)return;
@@ -37327,7 +37334,7 @@ function MemoBoard({docKey,board,onChange}){
       </div>
       <div ref={setTbHost} className="bd-tbh" style={{borderTop:'1px solid var(--border-default)'}}/>
     </div>
-    <div ref={wrap} className="bd-wrap" tabIndex={0} onMouseDown={onWrapDown} onKeyDown={onKey} onPaste={onPaste} onCopy={onCopy} onCut={onCopy}
+    <div ref={wrap} className="bd-wrap" tabIndex={0} onPointerDownCapture={e=>{lastPT.current=e.pointerType;}} onMouseDown={onWrapDown} onKeyDown={onKey} onPaste={onPaste} onCopy={onCopy} onCut={onCopy}
       onDragOver={e=>e.preventDefault()} onDrop={e=>{const fs=e.dataTransfer&&e.dataTransfer.files;if(fs&&fs.length&&!editing()){e.preventDefault();
         const b=wrap.current.getBoundingClientRect();last.current={x:e.clientX-b.left+wrap.current.scrollLeft,y:e.clientY-b.top+wrap.current.scrollTop};addImgs(fs);}}}
       style={{height:H,marginTop:8,outline:'none'}}>
@@ -37337,15 +37344,16 @@ function MemoBoard({docKey,board,onChange}){
       {shown.slice().sort((a,b)=>(a.z||0)-(b.z||0)).map(it=><div key={it.id} data-bd={it.id} className={'bd-it'+(sel.includes(it.id)?' on':'')+(it.h&&it.type==='img'?' fixh':'')}
           style={{left:it.x,top:it.stk?0:it.y,width:it.w,height:it.h&&it.type==='img'?it.h:undefined,minHeight:it.h&&it.type!=='img'?it.h:undefined,zIndex:10+(it.z||0),visibility:it.stk?'hidden':undefined}}
           onFocus={()=>setAct(it.id)}
+          onPointerDown={e=>{if(e.pointerType!=='mouse'&&it.type==='img'&&sel.includes(it.id))startDrag(e,'move',it.id);}}
           onMouseDown={e=>{e.stopPropagation();if(e.shiftKey){e.preventDefault();setSel(s=>s.includes(it.id)?s.filter(x=>x!==it.id):[...s,it.id]);return;}
             if(!sel.includes(it.id)||sel.length>1)setSel([it.id]);
             if(it.type==='img'||(it.type==='chart'&&e.target.closest('svg'))){e.preventDefault();setAct(null);startDrag(e,'move',it.id);}}}>
-        <div className="bd-grip" onMouseDown={e=>startDrag(e,'move',it.id)} title="끌어서 옮기기 · 누르고 Ctrl+C로 상자 복사">⠿ {it.type==='img'?'이미지':it.type==='chart'?'그래프':it.grp==='minutes'?'회의록':it.type==='table'?'표':'글'}</div>
+        <div className="bd-grip" onPointerDown={e=>startDrag(e,'move',it.id)} title="끌어서 옮기기 · 누르고 Ctrl+C로 상자 복사">⠿ {it.type==='img'?'이미지':it.type==='chart'?'그래프':it.grp==='minutes'?'회의록':it.type==='table'?'표':'글'}</div>
         {it.type==='img'?<BdImg it={it}/>
           :it.type==='chart'?<BdChart it={it} items={shown} patch={patch}/>
           :<RichNote docKey={it.id} html={it.html||''} compact tbHost={tbHost} active={!!actIt&&actIt.id===it.id}
               placeholder={it.type==='table'?'표':'글을 입력하세요 · 「/」로 블록 넣기'} onChange={h=>{if(h!==(itemsRef.current.find(x=>x.id===it.id)||{}).html)patch(it.id,{html:h});}}/>}
-        {['n','s','e','w','ne','nw','se','sw'].map(d=><div key={d} className={'bd-rs '+d} onMouseDown={e=>startDrag(e,'size:'+d,it.id)}
+        {['n','s','e','w','ne','nw','se','sw'].map(d=><div key={d} className={'bd-rs '+d} onPointerDown={e=>startDrag(e,'size:'+d,it.id)}
           onDoubleClick={d==='s'&&it.h?(e=>{e.stopPropagation();patch(it.id,{h:undefined});}):undefined}
           title={d.length===2?'끌어서 크기 조절':/[ns]/.test(d)?'끌어서 높이 조절 · 두 번 누르면 원래대로':'끌어서 너비 조절'}/>)}
       </div>)}
@@ -39173,7 +39181,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.10';
+const APP_VERSION='v2.10.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
