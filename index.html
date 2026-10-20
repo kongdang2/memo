@@ -36608,7 +36608,7 @@ function clipGrid(cd){
   return t.replace(/\r/g,'').replace(/\n$/,'').split('\n').map(l=>l.split('\t'));}
 function attachSheet(root,onChange){
   /* 복사·붙여넣기·지우기는 document 에서 받는다 — 여러 칸을 고르는 동안 커서가 사라져도(포커스가 빠져도) 동작하게 */
-  let sel=null,anchor=null,drag=false,rs=null;
+  let sel=null,anchor=null,drag=false,rs=null,typed=null;
   const live=()=>!!(sel&&sel.tbl.isConnected&&root.contains(sel.tbl));
   const paint=()=>{root.querySelectorAll('.rn-cs').forEach(x=>x.classList.remove('rn-cs'));
     if(!live())return;const g=cellsOf(sel.tbl);
@@ -36676,7 +36676,11 @@ function attachSheet(root,onChange){
     const arrow={ArrowUp:[-1,0],ArrowDown:[1,0],ArrowLeft:[0,-1],ArrowRight:[0,1]}[e.key];
     /* Shift+방향키 — 고른 범위 넓히기·줄이기 (빈 칸에서 시작해도 된다) */
     if(arrow&&e.shiftKey&&!e.ctrlKey&&!e.metaKey){const td=m?null:caretCell();
-      if(m||(td&&!cellText(td).trim())){
+      /* 칸에 글자를 치는 중(편집)이면 Shift+←→ 는 글자 고르기 — 커서가 글 끝(→)·처음(←)에 닿았거나 ↑↓ 이면 칸 범위로 */
+      const atEdge=()=>{if(arrow[0])return !td.querySelector('br:not(:last-child)');const s=window.getSelection();if(!s.rangeCount)return true;
+        const r=document.createRange();r.selectNodeContents(td);if(arrow[1]<0){r.setEnd(s.focusNode,s.focusOffset);return !r.toString().length;}
+        r.setStart(s.focusNode,s.focusOffset);return !r.toString().replace(/\n$/,'').length;};
+      if(m||(td&&(!cellText(td).trim()||typed!==td||atEdge()))){
         if(!m){const p=cellPos(td);anchor=p;sel={tbl:p.tbl,r0:p.r,c0:p.c,r1:p.r,c1:p.c};}
         const g=cellsOf(sel.tbl);const nr=Math.max(0,Math.min(g.length-1,sel.r1+arrow[0])),nc=Math.max(0,Math.min((g[nr]||[]).length-1,sel.c1+arrow[1]));
         e.preventDefault();e.stopPropagation();sel.r1=nr;sel.c1=nc;paint();keep();return;}}
@@ -36691,10 +36695,10 @@ function attachSheet(root,onChange){
   let fx=null;
   const leaveFx=()=>{if(!fx)return;const td=fx;fx=null;if(!td.isConnected)return;const t=cellText(td).trim();
     if(/^=/.test(t))td.setAttribute('data-f',t);else td.removeAttribute('data-f');td.classList.remove('rn-fx');const tbl=td.closest('table');if(tbl)sheetCalc(tbl);};
-  const selCh=()=>{const td=caretCell();if(td===fx)return;if(fx)leaveFx();
+  const selCh=()=>{const td=caretCell();if(td!==typed)typed=null;if(td===fx)return;if(fx)leaveFx();
     if(td&&td.hasAttribute('data-f')){fx=td;td.classList.add('rn-fx');td.textContent=td.getAttribute('data-f');}
     else if(td){const t=cellText(td).trim();if(/^=/.test(t)){fx=td;td.classList.add('rn-fx');}}};
-  const inp=e=>{const td=cellAt(e.target===root?null:e.target)||caretCell();if(!td)return;const t=cellText(td).trim();
+  const inp=e=>{const td=cellAt(e.target===root?null:e.target)||caretCell();if(!td)return;typed=td;const t=cellText(td).trim();
     if(/^=/.test(t)&&fx!==td){if(fx)leaveFx();fx=td;td.classList.add('rn-fx');}
     const tbl=td.closest('table');if(tbl)sheetCalc(tbl,fx);};
   root.addEventListener('mousedown',md);document.addEventListener('mousedown',outDown,true);document.addEventListener('mousemove',mm);document.addEventListener('mouseup',mu);
@@ -37121,7 +37125,15 @@ const CH_PALS={
   pastel:['파스텔',['#8fb8e8','#f4a988','#8fd3b6','#f3cf73','#f2a7c3','#a8d68a','#b4a7ec','#f08f8f']],
   mono:['회색조',['#292524','#57534e','#78716c','#a8a29e','#d6d3d1','#44403c','#8f8a85','#c4c0bb']]};
 const CH_COLORS=CH_PALS.base[1];
-const CH_KINDS=[['bar','세로 막대'],['hbar','가로 막대'],['line','꺾은선'],['area','영역'],['pie','원'],['donut','도넛']];
+const CH_KINDS=[['bar','세로 막대'],['hbar','가로 막대'],['line','꺾은선'],['area','영역'],['pie','원'],['donut','도넛'],['wf','워터폴']];
+const WF_COL={'#증가':'#1baf7a','#감소':'#e34948','#합계':'#57534e'};
+/* 워터폴 — 첫 행은 시작값, 가운데는 증감, 마지막 행은 이름이 합계·당월 등이거나 누적값과 같으면 끝값(아니면 「합계」를 붙인다). 「소계」 행은 중간 합계 */
+function wfSteps(cats,v,endName){const st=[];let run=0;const tot=/합계|총계|최종|당월|당기|당분기|금월|금기|end|total/i,sub=/소계|중간\s*합|subtotal/i;
+  v.forEach((x,i)=>{const c=cats[i]||'';if(i===0){st.push({c,a:0,b:x,t:'tot'});run=x;return;}
+    if(sub.test(c)){st.push({c,a:0,b:run,t:'tot'});return;}
+    if(i===v.length-1&&v.length>2&&(tot.test(c)||Math.abs(x-run)<=Math.max(1e-9,Math.abs(run)*1e-9))){st.push({c,a:0,b:x,t:'tot'});run=x;return;}
+    st.push({c,a:run,b:run+x,t:x>=0?'up':'dn',d:x});run+=x;});
+  if(st.length>1&&st[st.length-1].t!=='tot')st.push({c:endName||'합계',a:0,b:run,t:'tot'});return st;}
 const tableGrid=html=>{const d=document.createElement('div');d.innerHTML=html||'';const t=d.querySelector('table');const g=t?[...t.rows].map(r=>[...r.cells].map(c=>cellText(c).trim())):[];
   g.th=!!(t&&t.rows[0]&&t.rows[0].cells[0]&&t.rows[0].cells[0].tagName==='TH');return g;};
 const numOf=s=>{const m=/^\s*(\()?([-+]?(?:\d[\d,]*\.?\d*|\.\d+))\)?\s*[%a-zA-Z가-힣$€¥₩]{0,6}\s*$/.exec(String(s||''));if(!m)return null;const v=parseFloat(m[2].replace(/,/g,''));return isNaN(v)?null:(m[1]?-v:v);};
@@ -37160,7 +37172,8 @@ function chartSvg(d,o){
   /* 범례 — 위(기본)·아래·숨김 */
   const lg=o.legend||'top';const names=round?d.cats:S.map(s=>s.name);const lcol=i=>round?colC(i):colS(i);
   const legendRows=()=>{const rows=[[]];let x=12;names.forEach((nm,i)=>{const w=estW(nm)+16;if(x+w>W-12&&x>12){rows.push([]);x=12;}rows[rows.length-1].push([x,nm,i]);x+=w+10;});return rows;};
-  const showLg=lg!=='none'&&names.length>1&&(round||S.length>1);let bottomLg=0;
+  const wf=o.kind==='wf';const WS=wf?wfSteps(d.cats,S[0].vals,o.wfEnd):null;if(wf)d={...d,cats:WS.map(x=>x.c)};
+  const showLg=!wf&&lg!=='none'&&names.length>1&&(round||S.length>1);let bottomLg=0;
   const drawLg=y0=>legendRows().forEach((r,ri)=>r.forEach(([x,nm,i])=>out.push(`<rect x="${x}" y="${y0+ri*16+3}" width="10" height="10" rx="2" fill="${lcol(i)}"/><text x="${x+14}" y="${y0+ri*16+12}" font-size="11" fill="#52514e">${T(nm)}</text>`)));
   if(showLg){const n=legendRows().length;if(lg==='bottom'){bottomLg=n*16+6;drawLg(H-bottomLg);}else{drawLg(top);top+=n*16+6;}}
   const m=d.cats.length;
@@ -37179,6 +37192,7 @@ function chartSvg(d,o){
   let lo=0,hi=0;for(let i=0;i<m;i++){if(stack){let p=0,q=0;SB.forEach(s=>{const v=s.vals[i];if(v>=0)p+=v;else q+=v;});hi=Math.max(hi,p);lo=Math.min(lo,q);}else SB.forEach(s=>{hi=Math.max(hi,s.vals[i]);lo=Math.min(lo,s.vals[i]);});}
   if(o.ref!=null&&isFinite(o.ref)){hi=Math.max(hi,o.ref);lo=Math.min(lo,o.ref);}
   if((o.kind==='line'||o.kind==='area')&&o.ymin==null&&o.zero===false){lo=Math.min(...SB.map(s=>Math.min(...s.vals)));}
+  if(wf){lo=Math.min(0,...WS.flatMap(x=>[x.a,x.b]));hi=Math.max(0,...WS.flatMap(x=>[x.a,x.b]));if(o.ref!=null&&isFinite(o.ref)){hi=Math.max(hi,o.ref);lo=Math.min(lo,o.ref);}}
   const A=niceTicks(lo,hi,o.ymin,o.ymax);lo=A.lo;hi=A.hi;const ticks=A.t;
   let A2=null;if(combo){A2=niceTicks(Math.min(0,...SL.vals),Math.max(0,...SL.vals),o.y2min,o.y2max);}
   const hb=o.kind==='hbar';const grid=o.grid!==false;const lab=t=>fmtN(t)+unit;
@@ -37211,7 +37225,13 @@ function chartSvg(d,o){
     out.push(`<polyline points="${ps}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/>`);
     pts.forEach((p,i)=>{out.push(`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${area?3:4}" fill="${col}" stroke="#fff" stroke-width="1.5"><title>${T(d.cats[i])} · ${T(s.name)}: ${fmtN(s.vals[i])}${s===SL?(o.unit2||''):unit}</title></circle>`);
       if(o.labels)out.push(`<text x="${p[0].toFixed(1)}" y="${(p[1]-8).toFixed(1)}" text-anchor="middle" font-size="10" fill="#52514e" stroke="#fff" stroke-width="3" paint-order="stroke">${fmtN(s.vals[i])}${s===SL?(o.unit2||''):unit}</text>`);});};
-  if(o.kind==='line'||o.kind==='area')SB.forEach((s,k)=>lineOf(s,k,Y,colS(k),o.kind==='area'));
+  if(wf){const bw=Math.min(56,gw*0.62);const wc=t=>cc['#'+({up:'증가',dn:'감소',tot:'합계'})[t]]||WF_COL['#'+({up:'증가',dn:'감소',tot:'합계'})[t]];
+    WS.forEach((s,i)=>{const x=L+gw*(i+0.5)-bw/2;const y1=Y(Math.max(s.a,s.b)),y2=Y(Math.min(s.a,s.b));const h=Math.max(1,y2-y1);
+      out.push(`<rect x="${x.toFixed(1)}" y="${y1.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${wc(s.t)}"><title>${T(s.c)}: ${s.t==='tot'?fv(s.b):(s.d>=0?'+':'')+fv(s.d)}</title></rect>`);
+      if(i<WS.length-1){const ny=Y(s.b).toFixed(1);out.push(`<line x1="${(x+bw).toFixed(1)}" x2="${(x+gw).toFixed(1)}" y1="${ny}" y2="${ny}" stroke="#a8a29e" stroke-dasharray="3 3"/>`);}
+      if(o.labels!==false){const txt=s.t==='tot'?fv(s.b):(s.d>0?'+':s.d<0?'−':'')+fmtN(Math.abs(s.d))+unit;const up=s.t==='dn'?false:s.b>=0;
+        out.push(`<text x="${(x+bw/2).toFixed(1)}" y="${(up?y1-4:y2+12).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="${s.t==='tot'?600:400}" fill="${s.t==='tot'?'#1c1917':wc(s.t)}" stroke="#fff" stroke-width="3" paint-order="stroke">${txt}</text>`);}});}
+  else if(o.kind==='line'||o.kind==='area')SB.forEach((s,k)=>lineOf(s,k,Y,colS(k),o.kind==='area'));
   else{const bw=stack?Math.min(60,gw*0.6):Math.min(40,gw*0.72/n);
     d.cats.forEach((c,i)=>{let pos=0,neg=0;SB.forEach((s,k)=>{const v=s.vals[i];let a,b;if(stack){const base=v>=0?pos:neg;a=Y(base);b=Y(base+v);if(v>=0)pos+=v;else neg+=v;}else{a=Y(Math.max(lo,0));b=Y(v);}
         const x=stack?L+gw*(i+0.5)-bw/2:L+gw*(i+0.5)-bw*n/2+bw*k;const y=Math.min(a,b),h=Math.max(1,Math.abs(b-a)-(stack?1:0));
@@ -37233,7 +37253,7 @@ function BdChart({it,items,patch}){
   const dopt={tr:!!it.tr,cat:it.cat|0};
   const data=React.useMemo(()=>(src?chartData(tableGrid(html),dopt):null)||it.data||null,[html,!!src,it.data,dopt.tr,dopt.cat]);
   const [more,setMore]=React.useState(false);const [msg,setMsg]=React.useState('');
-  const o={kind:it.kind||'bar',title:it.title||'',labels:!!it.labels,stack:!!it.stack,w:it.w-6,h:it.h?Math.max(140,it.h-(more?240:44)):undefined,
+  const o={kind:it.kind||'bar',title:it.title||'',labels:it.labels!=null?!!it.labels:it.kind==='wf',stack:!!it.stack,w:it.w-6,h:it.h?Math.max(140,it.h-(more?240:44)):undefined,
     pal:it.pal||'base',colors:it.colors||{},legend:it.legend||'top',grid:it.grid!==false,unit:it.unit,ymin:it.ymin,ymax:it.ymax,xt:it.xt||'',yt:it.yt||'',
     hide:it.hide||[],ref:it.ref,refAuto:!!it.refAuto,refLabel:it.refLabel||'',combo:!!it.combo,unit2:it.unit2||'',zero:it.zero};
   const svg=data?chartSvg(data,o):'';const sig=JSON.stringify([o,data]);
@@ -37245,19 +37265,20 @@ function BdChart({it,items,patch}){
     catch(e){const a=document.createElement('a');a.href=URL.createObjectURL(await svgToPng(svg,2));a.download=(o.title||'그래프')+'.png';a.click();setMsg('복사가 막혀 그림 파일로 내려받았습니다');}
     setTimeout(()=>setMsg(''),2500);};
   const pal=(CH_PALS[o.pal]||CH_PALS.base)[1];
-  const swatchKeys=data?(round?data.cats.map(c=>['#'+c,c]):data.series.map(s=>[s.name,s.name])):[];
-  const colorOf=(k,i)=>o.colors[k]||(round?pal[i%pal.length]:pal[data.series.findIndex(s=>s.name===k)%pal.length]);
+  const swatchKeys=data?(o.kind==='wf'?[['#증가','증가'],['#감소','감소'],['#합계','합계']]:round?data.cats.map(c=>['#'+c,c]):data.series.map(s=>[s.name,s.name])):[];
+  const colorOf=(k,i)=>o.colors[k]||WF_COL[k]&&o.kind==='wf'&&WF_COL[k]||(round?pal[i%pal.length]:pal[data.series.findIndex(s=>s.name===k)%pal.length]);
   return <div className="bd-ch">
     {svg?<div dangerouslySetInnerHTML={{__html:svg}}/>:<div className="bd-ch-empty">표에 숫자 열이 없습니다<br/>항목 이름 열과 숫자 열을 넣으세요 (첫 행은 계열 이름) · ⚙ 설정에서 항목 열·행/열 바꾸기</div>}
     <div className="bd-ch-tb" onMouseDown={e=>e.stopPropagation()} onPointerDown={e=>e.stopPropagation()}>
       {CH_KINDS.map(([k,l])=><button key={k} type="button" className={o.kind===k?'on':''} onClick={()=>set({kind:k})}>{l}</button>)}
       <input type="text" value={it.title||''} placeholder="제목" onChange={e=>set({title:e.target.value})}/>
       <label><input type="checkbox" checked={o.labels} onChange={e=>set({labels:e.target.checked})}/>값 표시</label>
-      {data&&data.series.length>1&&!round&&o.kind!=='line'&&o.kind!=='area'&&<label><input type="checkbox" checked={o.stack} onChange={e=>set({stack:e.target.checked})}/>누적</label>}
+      {data&&data.series.length>1&&!round&&o.kind!=='line'&&o.kind!=='area'&&o.kind!=='wf'&&<label><input type="checkbox" checked={o.stack} onChange={e=>set({stack:e.target.checked})}/>누적</label>}
       <button type="button" className={more?'on':''} onClick={()=>setMore(!more)}>⚙ 설정</button>
       {svg&&<button type="button" onClick={copyPng} title="워드·PPT·카톡에 붙여넣을 수 있게 그림으로 복사">그림 복사</button>}
       {msg&&<span style={{color:'#57534e'}}>{msg}</span>}
-      {round&&data&&data.series.length>1&&<span style={{color:'#898781'}}>(원·도넛은 첫 숫자 열만)</span>}
+      {(round||o.kind==='wf')&&data&&data.series.length>1&&<span style={{color:'#898781'}}>(첫 숫자 열만)</span>}
+      {o.kind==='wf'&&<span style={{color:'#898781'}} title="첫 행 = 시작값, 가운데 = 증감(+/−), 마지막 행 = 끝값(합계·당월 등). 「소계」 행은 중간 합계">첫 행 시작값 · 가운데 증감 · 끝 합계 ⓘ</span>}
       {!src&&it.src&&<span style={{color:'#898781'}}>원본 표가 없어 마지막 값으로 그립니다</span>}
     </div>
     {more&&<div className="bd-ch-set" onMouseDown={e=>e.stopPropagation()} onPointerDown={e=>e.stopPropagation()}>
@@ -39277,7 +39298,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.11';
+const APP_VERSION='v2.12';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
