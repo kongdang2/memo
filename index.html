@@ -37878,16 +37878,17 @@ function recLang(md){const h=String(md||'').slice(0,400);
   return /[一-鿿]{4}/.test(mdSection(md,'실시간 원문'))?'zh':/[가-힣]{4}/.test(mdSection(md,'실시간 원문'))?'ko':'zh';}
 const audioPaths=md=>{const out=[];const re=/\[([^\]]*)\]\(pms:([^)\s]+)\)/g;let m;while((m=re.exec(md||'')))if(/🎙|\.(webm|m4a|mp3|wav|ogg|mp4|aac|flac)$/i.test(m[1]+' '+m[2]))out.push(m[2]);return out;};
 /* 이미 저장된 기록의 녹음으로 다시 전사 → 정리 → 기록에 「정리·번역」「녹취 (받아쓰기)」 절을 넣는다 */
-async function retranscribeRec(id,onStep){
+async function retranscribeRec(id,onStep,pick){
   const rec=await Store.getTbrec(id);if(!rec)throw new Error('기록을 찾지 못했습니다');
   const paths=audioPaths(rec.md);if(!paths.length)throw new Error('이 기록에는 녹음 파일이 없습니다');
-  const lang=rec.lang||recLang(rec.md);const texts=[];
+  let lang=pick||rec.lang||recLang(rec.md);const texts=[];
   for(let i=0;i<paths.length;i++){onStep&&onStep('녹음 내려받는 중 '+(i+1)+'/'+paths.length);
     const b=await Files.blob(paths[i]);texts.push(await transcribeFile(b,lang,s=>onStep&&onStep((paths.length>1?'['+(i+1)+'/'+paths.length+'] ':'')+s)));}
   const raw=texts.filter(Boolean).join('\n\n');if(!raw.trim())throw new Error('녹음에서 말소리를 찾지 못했습니다');
-  const pol=await polishText(raw,langName[lang]?lang:guessLang(raw),onStep);
+  if(!langName[lang])lang=guessLang(raw);
+  const pol=await polishText(raw,lang,onStep);
   let md=putSection(rec.md,'녹취 (받아쓰기)',raw);md=putSection(md,'정리·번역',pol);
-  await saveTbrec({...rec,md,updated:nowStamp()});return {...rec,md};}
+  await saveTbrec({...rec,md,lang,updated:nowStamp()});return {...rec,md,lang};}
 /* 새 녹음 파일 올리기 → 저장소 → 전사 → 정리 → 기록 만들기 */
 /* 15MB가 넘는 녹음은 원본 대신 15분짜리 MP3 조각(16kHz 모노, 조각당 약 5MB)으로 나눠 저장한다 — 전사에 쓴 조각을 그대로 묶는다 */
 const STORE_MAX=15*1024*1024,STORE_PIECE_SEGS=6;
@@ -38549,14 +38550,14 @@ function PrintPreview({e,setE,onClose,toast}){
 }
 function MinutesBox({e,setE,toast}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
-  const [busy,setBusy]=React.useState('');const [err,setErr]=React.useState('');const [pv,setPv]=React.useState(false);
+  const [busy,setBusy]=React.useState('');const [err,setErr]=React.useState('');const [pv,setPv]=React.useState(false);const [pick,setPick]=React.useState(false);
   const has=bdHasMinutes(boardOf(e));const src=(e.tbrec||[]).length;
-  const make=async full=>{if(has&&!window.confirm('메모에 있는 회의록 상자를 새로 만든 것으로 바꿉니다. 계속할까요?'))return;
+  const make=async (full,lang)=>{setPick(false);if(has&&!window.confirm('메모에 있는 회의록 상자를 새로 만든 것으로 바꿉니다. 계속할까요?'))return;
     setErr('');setBusy('준비 중…');
     try{await MeetCfg.load();
       /* 녹음으로 다시 받아쓰기 — 실시간 자막보다 정확하다. 녹음이 없는 기록은 건너뛴다 */
       if(full){let n=0;const list=e.tbrec||[];
-        for(let i=0;i<list.length;i++){try{await retranscribeRec(list[i].id,t=>setBusy((list.length>1?'기록 '+(i+1)+'/'+list.length+' · ':'')+t));n++;}
+        for(let i=0;i<list.length;i++){try{await retranscribeRec(list[i].id,t=>setBusy((list.length>1?'기록 '+(i+1)+'/'+list.length+' · ':'')+t),lang);n++;}
           catch(x){if(!/녹음 파일이 없습니다/.test(x.message))throw x;}}
         if(!n)throw new Error('붙은 기록에 녹음 파일이 없습니다 — 「📁 녹음 파일로 회의록」으로 파일을 올려 주세요');}
       const md=await makeMinutes(e,setBusy);setE(p=>({...p,minutes:md,minutesAt:nowStamp(),board:bdPutMinutes(boardOf(p),md)}));
@@ -38567,7 +38568,11 @@ function MinutesBox({e,setE,toast}){
   if(busy)return <span style={{fontSize:'var(--fs-sm2)',color:'var(--text-muted)'}}>⏳ {busy}</span>;
   return <>
     {src>0&&<Button size="sm" variant="ghost" onClick={()=>make(false)} title="붙은 녹음·통번역 기록과 메모로 회의록을 만들어 아래 메모에 넣습니다(Claude)">{has?'↻ 회의록 다시 만들기':'✨ 회의록 만들기'}</Button>}
-    {src>0&&<Button size="sm" variant="ghost" onClick={()=>make(true)} title="붙은 기록의 녹음 파일을 처음부터 다시 받아쓰고(더 정확) 다듬은 뒤 회의록을 만듭니다">🎧 다시 전사</Button>}
+    {src>0&&<Button size="sm" variant={pick?'primary':'ghost'} onClick={()=>setPick(v=>!v)} title="붙은 기록의 녹음 파일을 처음부터 다시 받아쓰고(더 정확) 다듬은 뒤 회의록을 만듭니다 — 녹음의 언어를 고릅니다">🎧 다시 전사</Button>}
+    {pick&&<span style={{flexBasis:'100%',display:'flex',flexWrap:'wrap',gap:4,alignItems:'center',fontSize:'var(--fs-sm2)',color:'var(--text-muted)'}}>
+      녹음에서 말한 언어:{FILE_LANGS.slice().sort((a,b)=>(b.id==='auto')-(a.id==='auto')).map(l=><Button key={l.id} size="xs" variant={l.id==='auto'?'primary':'ghost'} onClick={()=>make(true,l.id)}>{l.label}</Button>)}
+      <Button size="xs" variant="ghost" onClick={()=>setPick(false)}>취소</Button>
+      <span style={{flexBasis:'100%'}}>녹음 언어와 다르게 고르면(예: 중국어 회의를 한국어로) 엉뚱한 글이 나옵니다. 모르면 자동 감지</span></span>}
     <Button size="sm" variant="ghost" onClick={()=>setPv(true)} title="보드 내용을 양식에 맞춰 정리해 미리 보고, 인쇄(PDF)·워드로 내보냅니다">🖨 출력·워드</Button>
     {pv&&<PrintPreview e={e} setE={setE} toast={toast} onClose={()=>setPv(false)}/>}
     {err&&<span style={{fontSize:'var(--fs-sm)',color:'var(--color-danger)',flexBasis:'100%'}}>⚠ {err}</span>}
@@ -39306,7 +39311,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.12.1';
+const APP_VERSION='v2.12.2';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
