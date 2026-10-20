@@ -39205,8 +39205,16 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
   const flush=cur=>{clearTimeout(timer.current);const j=JSON.stringify(cur);
     if(!cur||!(cur.title||'').trim()||j===last.current)return;last.current=j;onSave(cur);setSavedAt(new Date().toTimeString().slice(0,5));};
   React.useEffect(()=>{if(!e||!ev||e.id!==ev.id)return;clearTimeout(timer.current);timer.current=setTimeout(()=>flush(e),1000);return()=>clearTimeout(timer.current);},[e]);
+  /* 브라우저 뒤로 가기(마우스 뒤로 버튼·밀어서 뒤로 포함) — 앱을 나가지 않고 이 창만 닫는다.
+     창을 열 때 기록을 하나 쌓고, 단추로 닫으면 그 기록을 되돌린다 */
+  const closeRef=React.useRef(null);const hist=React.useRef(false);const skip=React.useRef(0);
+  React.useEffect(()=>{const open=!!ev;
+    if(open&&!hist.current){try{history.pushState({...(history.state||{}),pmsPanel:1},'');hist.current=true;}catch(_){}}
+    if(!open&&hist.current){hist.current=false;if(history.state&&history.state.pmsPanel){skip.current++;history.back();}}},[!!ev]);
+  React.useEffect(()=>{const pop=()=>{if(skip.current>0){skip.current--;return;}if(hist.current){hist.current=false;closeRef.current&&closeRef.current();}};
+    window.addEventListener('popstate',pop);return()=>window.removeEventListener('popstate',pop);},[]);
   if(!e)return null;
-  const close=()=>{flush(e);onClose();};
+  const close=()=>{flush(e);onClose();};closeRef.current=close;
   const f=k=>v=>setE({...e,[k]:v});const isNew=!(ev&&ev.title)&&!savedAt;
   const linkList=(e.links||'').split('\n').map(x=>x.trim()).filter(Boolean);
   const attachTb=async rec=>{const full=await Store.getTbrec(rec.id);const md=(full&&full.md)||'';
@@ -39298,7 +39306,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.12';
+const APP_VERSION='v2.12.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
