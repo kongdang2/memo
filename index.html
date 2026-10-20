@@ -37827,15 +37827,19 @@ async function transcribeFile(blob,lang,onStep,keep){
   catch(e){if(blob.size<=6*1024*1024){parts=[blob];raw=true;}else throw e;}
   const texts=[];
   for(let i=0;i<parts.length;i++){onStep&&onStep('받아쓰는 중 '+(i+1)+'/'+parts.length);
-    const hint=texts.length?texts[texts.length-1].slice(-400):(MeetCfg.v.sttHint||'');
+    /* 통번역 앱과 같게 — Qwen 에는 앞 조각 글을 힌트로 넘기지 않는다(Qwen 은 힌트를 받아쓰기에 베껴 넣거나 그 언어로 끌려가서
+       한 조각이 틀리면 다음 조각도 틀린다). 설정의 용어 힌트만 준다. 조각은 MP3 로 보낸다 */
+    const qwen=/^qwen|^paraformer|^fun-asr/.test(MeetCfg.v.tbSttModel||'qwen3-asr-flash');
+    const hint=!qwen&&texts.length?texts[texts.length-1].slice(-400):(MeetCfg.v.sttHint||'');
     let t,part=parts[i],pname=raw?blob.name:'part.wav';
-    let mp3First=false;try{mp3First=localStorage.getItem(MP3_KEY)==='1';}catch(_){}
+    let mp3First=qwen;try{mp3First=mp3First||localStorage.getItem(MP3_KEY)==='1';}catch(_){}
     if(mp3First&&part._pcm){try{part=await mp3Blob(part._pcm,part._rate);pname='part.mp3';}catch(_){}}
     try{t=await sttPart(part,lang,hint,pname);}
     catch(e){/* WAV 조각이 막히면, 원본이 작을 때는 원본 그대로 한 번 더 */
       if(raw||parts.length>1||blob.size>6*1024*1024)throw e;
       onStep&&onStep('원본 형식 그대로 다시 보내는 중…');t=await sttPart(blob,lang,hint,blob.name);}
-    texts.push(String(t||'').trim());}
+    t=String(t||'').trim();const loop=loopRatio(t);t=deLoop(t);if(loop>0.6&&t.length<40)t='';   /* 조용한 구간의 같은 말 되풀이(환각) 걷어 내기 */
+    texts.push(t);}
   if(Store.mode==='supabase')Store.sb.from('tb_usage').insert({user_id:Store.user.id,email:Store.user.email,kind:'전사',seconds:Math.round(dur),calls:parts.length,model:MeetCfg.v.tbSttModel||'qwen3-asr-flash'}).then(()=>{},()=>{});
   return texts.filter(Boolean).join('\n\n');}
 /* 받아쓴 글 다듬기 — 외국어는 한국어 번역까지(통번역 앱의 정리·번역과 같은 방식), 한국어는 군더더기·오인식만 바로잡는다 */
@@ -37846,25 +37850,88 @@ function splitChunks(text,size){const out=[];let buf='';const push=()=>{if(buf.t
     if(cur.trim())out.push(cur.trim());});
   push();return out.filter(Boolean);}
 const grabSec=(t,head)=>{const m=new RegExp('===\\s*'+head+'\\s*===\\s*([\\s\\S]*?)(?====|$)').exec(t||'');return m?m[1].trim():'';};
+function deLoop(t){
+  let s=String(t||'');
+  /* 같은 글자 연타(对对对对…, 为为为) — 숫자는 건드리지 않는다 */
+  s=s.replace(/([^\d\s.·…\-—])\1{3,}/g,'$1$1');
+  s=s.replace(/([^\d\s，,。.、！!？?·…\-—]{2,4})\1{3,}/g,'$1');   /* 2~4글자 토막이 구두점 없이 연달아(这个这个这个…) */
+  for(let n=0;n<3;n++){const before=s;
+  s=s.replace(/((?:[^\s，,。.、！!？?]{1,8}[，,。.、！!？?]\s*){1,3})(?:\1\s*){2,}/g,'$1');   /* 토막+구두점 (1~3토막 묶음이 3번 이상) */
+  s=s.replace(/((?:[^\s，,。.、！!？?]{1,8}\s+){1,3})(?:\1){2,}/g,'$1');                      /* 토막+공백 */
+  if(s===before)break;}
+  return dedupeCycles(s).trim();
+}
+/* 문장 묶음이 통째로 되풀이되는 것(한 조각 안에서 같은 2~3문장이 수십 번) — 문장 단위로 잘라 1~12문장 주기를 찾아 한 번만 남긴다.
+   긴 문장(8자 넘음)은 두 번 연속이면, 짧은 문장은 세 번 넘게 연속일 때만 지운다(「对，对。」 같은 맞장구는 살린다) */
+function dedupeCycles(s){
+  const U=String(s||'').match(/(?:[^。！？!?.\n]|\.(?!\s|$))+(?:[。！？!?\n]|\.(?=\s|$))*\s*|[。！？!?.\n]+\s*/g)||[];   /* 한국어·영어의 「. 」도 문장 끝으로 본다(1.5 같은 숫자는 제외) */
+  const key=u=>u.replace(/[\s，,、。．.！!？?…~'"“”]/g,'');
+  const K=U.map(key);const out=[];let i=0;
+  while(i<U.length){
+    let best=0,bestP=0;
+    for(let p=1;p<=12&&i+2*p<=U.length;p++){
+      let k=1;while(i+(k+1)*p<=U.length){let same=true;for(let j=0;j<p;j++)if(K[i+j]!==K[i+k*p+j]||!K[i+j]){same=false;break;}if(!same)break;k++;}
+      const len=K.slice(i,i+p).join('').length;
+      if(k>=(len>8?2:4)&&k*p>best){best=k*p;bestP=p;}
+    }
+    if(bestP){for(let j=0;j<bestP;j++)out.push(U[i+j]);i+=best;}
+    else out.push(U[i++]);
+  }
+  return out.join('');
+}
+/* 되풀이 비율: 원래 길이 대비 걷어 낸 뒤 길이 */
+const loopRatio=t=>{const a=String(t||'').length;return a?1-deLoop(t).length/a:0;};
+function grabJSON(t){
+  const fence=/```(?:json)?\s*([\s\S]*?)```/.exec(t||'');
+  const body=(()=>{const a=(t||'').indexOf('{'),b=(t||'').lastIndexOf('}');return a>=0&&b>a?t.slice(a,b+1):null;})();
+  for(const c of [fence&&fence[1],body]){if(!c)continue;try{return JSON.parse(c);}catch(_){}
+    try{return JSON.parse(c.replace(/"(?:[^"\\]|\\.)*"/g,m=>m.replace(/\n/g,'\\n')));}catch(_){}}
+  return null;}
+/* 통번역 앱과 같은 정리 — 먼저 분야와 「음이 비슷해 잘못 받아쓴 낱말」 교정표를 만들고, 그걸 반영해 조각마다 다듬기(한국어)·정리+번역(외국어) */
+async function transcriptFixes(raw,hint){
+  const sample=raw.slice(0,3500)+(raw.length>9000?('\n…\n'+raw.slice(-2500)):'');
+  const r=await askClaude('아래는 회의·발표 녹음을 기계가 받아쓴 글이다. 두 가지만 판단하라.\n'
+    +'1) 이 발표의 분야와 주제 (한 줄)\n'
+    +'2) 그 분야 지식으로 볼 때 **음이 비슷해 잘못 받아쓴 것이 분명한 낱말**의 교정표.'
+    +' 특히 전문용어가 엉뚱한 낱말로 반복해 나오는 경우를 찾아라(예: 화학 발표인데 갑자기 다른 산업 용어가 반복되면 오인식이다).'
+    +' 확실한 것만 넣고, 애매하면 넣지 마라. 최대 15개.'
+    +(hint?('\n\n사용자가 알려준 고유명사: '+hint):'')
+    +'\n\n설명 없이 JSON만 출력한다:\n{"topic":"분야·주제 한 줄","fixes":[{"wrong":"잘못 적힌 낱말","right":"올바른 낱말","why":"근거 한 줄"}]}'
+    +'\n\n--- 받아쓴 글(일부) ---\n'+sample,{max_tokens:1200,tag:'일정 정리'});
+  const j=grabJSON(r)||{};
+  return {topic:j.topic||'',fixes:Array.isArray(j.fixes)?j.fixes.filter(f=>f&&f.wrong&&f.right).slice(0,15):[]};}
 async function polishText(raw,lang,onStep){
-  const hint=MeetCfg.v.sttHint?'\n자주 나오는 고유명사·용어: '+MeetCfg.v.sttHint:'';
-  const parts=splitChunks(raw,1800);const ko=[],src=[];
-  for(let i=0;i<parts.length;i++){onStep&&onStep('다듬는 중 '+(i+1)+'/'+parts.length);
-    if(lang==='ko'){
-      const r=await askClaude('아래는 한국어 회의 녹음을 기계가 받아쓴 글의 일부다('+(i+1)+'/'+parts.length+').'+hint
-        +'\n분야 지식과 앞뒤 문맥으로 잘못 받아쓴 전문용어·고유명사를 바로잡고, 군더더기(음, 어, 그러니까)와 같은 말 반복을 지운다.'
-        +' 말한 순서·사실·숫자는 바꾸지 않고, 없는 내용을 지어내지 않는다. 주제가 바뀌는 곳에서 문단을 나눈다. 확실하지 않은 곳은 (?)로 표시.'
-        +' 요약하지 말고 다듬은 글만 출력한다.\n\n--- 받아쓴 글 ---\n'+parts[i],{max_tokens:3800,cont:1,tag:'일정 정리'});
+  const hint=MeetCfg.v.sttHint?'\n자주 나오는 고유명사: '+MeetCfg.v.sttHint:'';
+  let fx={topic:'',fixes:[]};onStep&&onStep('분야와 오인식 낱말 파악 중…');try{fx=await transcriptFixes(raw,MeetCfg.v.sttHint);}catch(_){}
+  const ctx=(fx.topic?('\n이 녹취의 분야·주제: '+fx.topic):'')+(fx.fixes.length?('\n기계가 잘못 받아쓴 낱말(반드시 바로잡을 것): '+fx.fixes.map(f=>f.wrong+' → '+f.right).join(' · ')):'');
+  const parts=splitChunks(raw,1800);const ko=[],src=[];let prev='';
+  for(let i=0;i<parts.length;i++){onStep&&onStep((lang==='ko'?'다듬는 중 ':'정리·번역 중 ')+(i+1)+'/'+parts.length);
+    if(lang==='ko'){const pv=prev?('\n앞 조각 끝부분(맥락 참고용 — 다시 쓰지 말 것): '+prev):'';
+      const r=await askClaude('아래는 한국어 회의 녹음을 기계가 받아쓴 글의 한 조각('+(i+1)+'/'+parts.length+')이다.'+hint+ctx+pv
+        +'\n\n회의록에 바로 옮겨 쓸 수 있게 다듬는다. 교정표와 분야 지식에 따라 **잘못 받아쓴 전문용어·고유명사를 적극적으로 바로잡고**,'
+        +' 군더더기(음, 어, 그래서 이제)와 같은 말 반복을 지우고, 끊긴 말은 자연스러운 문장으로 잇는다.'
+        +' 말한 순서와 사실관계·수치는 바꾸지 않고, 없는 내용을 지어내지 않는다. 주제가 바뀌는 곳에서 문단을 나눈다.'
+        +' 정해진 것·할 일은 문단 끝에 「→ 」로 적는다. 확실하지 않은 부분은 (?)로 표시한다. 앞뒤가 잘린 조각이므로 요약하거나 결론을 덧붙이지 않는다.'
+        +'\n\n다른 말 없이 다듬은 글만 출력한다.\n\n--- 받아쓴 글 ---\n'+parts[i],{max_tokens:3800,cont:1,tag:'일정 정리'});
       ko.push(String(r||'').trim()||parts[i]);}
-    else{
-      const r=await askClaude('아래는 '+langName[lang]+' 회의 녹음을 기계가 받아쓴 글의 일부다('+(i+1)+'/'+parts.length+').'+hint
-        +'\n\n[원문] 절: 잘못 받아쓴 전문용어·고유명사를 바로잡고 군더더기를 지운다. 순서·사실·수치는 바꾸지 않는다.'
-        +'\n[번역] 절: 위 [원문]을 업무 문서에 쓸 수 있는 자연스러운 한국어로 옮긴다. 인명·지명·회사명은 원어(한글음)로 함께 적는다.'
-        +'\n확실하지 않은 부분은 (?)로 표시한다. 요약하거나 결론을 덧붙이지 않는다.'
+    else{const pv=prev?('\n앞 조각 번역의 끝부분(맥락 참고용 — 다시 옮기지 말 것): '+prev):'';
+      const r=await askClaude('아래는 '+(langName[lang]||'외국어')+' 회의 녹음을 기계가 받아쓴 글의 한 조각('+(i+1)+'/'+parts.length+')이다.'+hint+ctx+pv
+        +'\n\n[원문] 절: 위 교정표와 분야 지식에 따라 **잘못 받아쓴 전문용어·고유명사를 적극적으로 바로잡고**, 군더더기와 같은 말 반복을 지운다.'
+        +' 말한 순서와 사실관계·수치는 바꾸지 않고, 없는 내용을 지어내지 않는다. 주제가 바뀌는 곳에서 문단을 나눈다.'
+        +'\n[번역] 절: 위 [원문]을 업무 문서에 쓸 수 있는 자연스러운 한국어로 옮긴다. 교정표를 반영한 낱말로 옮긴다.'
+        +' 인명·지명·회사명은 원어(한글음)로 함께 적는다. 이미 한국어인 문장(통역사의 말 등)은 다듬기만 한다. 정해진 것·할 일은 문단 끝에 「→ 」로 적는다.'
+        +'\n확실하지 않은 부분은 (?)로 표시한다. 앞뒤가 잘린 조각이므로 요약하거나 결론을 덧붙이지 않는다.'
         +'\n\n다른 말 없이 아래 형식으로만 출력한다.\n===원문===\n(정리된 원문)\n===번역===\n(한국어 번역)\n\n--- 받아쓴 글 ---\n'+parts[i],{max_tokens:3800,tag:'일정 정리'});
-      src.push(grabSec(r,'원문')||parts[i]);ko.push(grabSec(r,'번역')||String(r||'').trim());}}
+      const a=grabSec(r,'원문')||(/===\s*원문/.test(r||'')?'':String(r||'').trim());let b=/===\s*번역\s*===/.test(r||'')?grabSec(r,'번역'):'';
+      if(!b){onStep&&onStep('번역 다시 받는 중…');
+        try{b=String(await askClaude('아래 회의 녹취 조각을 업무 문서에 쓸 수 있는 자연스러운 한국어로 옮겨라.'+hint+ctx+pv
+          +' 교정표를 반영한 낱말로 옮기고, 인명·지명·회사명은 원어(한글음)로 함께 적는다. 이미 한국어인 문장은 다듬기만 한다.'
+          +' 확실하지 않은 부분은 (?)로 표시한다. 요약하지 말고, 번역문만 출력한다.\n\n--- 조각 ---\n'+(a||parts[i]),{max_tokens:3800,cont:1,tag:'일정 정리'})||'').trim();}catch(_){b='';}}
+      src.push(a||parts[i]);ko.push(b||'(이 부분 번역 실패 — 아래 원문 참고)');}
+    prev=ko[ko.length-1].slice(-300);}
+  const head=[fx.topic&&'> 분야: '+fx.topic,fx.fixes.length&&'> 바로잡은 낱말: '+fx.fixes.map(f=>f.wrong+'→'+f.right).join(', ')].filter(Boolean).join('\n');
   const korean=ko.join('\n\n');
-  return lang==='ko'?'### 정리된 녹취\n'+korean:'### 한국어\n'+korean+'\n\n### 정리된 원문\n'+src.join('\n\n');}
+  return (head?head+'\n\n':'')+(lang==='ko'?'### 정리된 녹취\n'+korean:'### 한국어\n'+korean+'\n\n### 정리된 원문\n'+src.join('\n\n'));}
 /* 마크다운의 ## 절 갈아끼우기(없으면 첫 ## 앞에 넣는다) */
 function putSection(md,head,body){
   const esc=head.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -37910,10 +37977,10 @@ async function recFromFile(file,lang,title,onStep){
   if(file.size>STORE_MAX){
     try{if(!keep.segs)throw new Error('녹음을 나누지 못했습니다');audio=(await putAudioPieces(keep.segs,name,onStep)).join('\n');}
     catch(e){console.warn('녹음 나눠 올리기 실패',e);audio='> 원본이 15MB를 넘고 나눠 저장하지도 못했습니다('+e.message+') — 글로 옮긴 결과만 남습니다';}}
-  if(lang==='auto'||!langName[lang])lang=guessLang(raw);
+  const picked=lang;if(lang==='auto'||!langName[lang])lang=guessLang(raw);
   const pol=await polishText(raw,lang,onStep);
   const rt=title+' · '+name.replace(/\.[^.]+$/,'');
-  const md='# '+rt+'\n\n> 📁 녹음 파일 전사 · '+(lang==='ko'?'한국어':langName[lang]+' → 한국어')+' · '+(file.size/1048576).toFixed(1)+'MB · 일정 앱에서 올림\n\n'+audio+'\n\n'
+  const md='# '+rt+'\n\n> 📁 녹음 파일 전사 · '+(lang==='ko'?'한국어':langName[lang]+' → 한국어')+(picked==='auto'||!langName[picked]?' (자동 감지)':'')+' · 받아쓰기 '+(MeetCfg.v.tbSttModel||'qwen3-asr-flash')+' · '+(file.size/1048576).toFixed(1)+'MB · 일정 앱에서 올림\n\n'+audio+'\n\n'
     +'## 정리·번역\n'+pol+'\n\n## 녹취 (받아쓰기)\n'+raw+'\n';
   const rec={id:uid(),title:rt,scope:'work',tags:[lang==='ko'?'회의':'통역'],lang,updated:nowStamp(),created:new Date(file.lastModified||Date.now()).toISOString(),md};
   await saveTbrec(rec);return rec;}
@@ -39311,7 +39378,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.12.2';
+const APP_VERSION='v2.13';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
