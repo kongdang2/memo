@@ -37112,14 +37112,12 @@ const bdApplyMinutes=(board,md,mode)=>{const b=board||{items:[]};
   if(mode==='append')return bdAppend(b,minutesToItems(md));
   if(mode==='all')return bdAppend({...b,items:[]},minutesToItems(md));
   return bdAppend({...b,items:(b.items||[]).filter(i=>i.grp!=='minutes'&&i.grp!=='tbrec')},minutesToItems(md));};
-/* 메모가 비어 있으면 묻지 않고 넣는다(minutes). 내용이 있으면 바꾸기·비우기·덧붙이기 중에서 고른다 — 취소하면 null */
+/* 메모가 비어 있으면 묻지 않고 넣는다. 내용이 있으면 「새로(메모를 비우고 새 회의록만)」·「덧붙이기」 중에서 고른다 — 취소하면 null */
 async function askMinutesMode(e,lead){
   const b=boardOf(e);
-  if(!(b.items||[]).length&&!(e&&(e.minutes||'').trim()))return 'minutes';
-  const hasMin=bdHasMinutes(b)||!!(e&&(e.minutes||'').trim());
+  if(!(b.items||[]).length&&!(e&&(e.minutes||'').trim()))return 'append';
   return pickDialog((lead?lead+'\n':'')+'메모에 이미 내용이 있습니다. 새 회의록을 어떻게 넣을까요?',[
-    {id:'minutes',label:hasMin?'회의록 바꾸기':'회의록 넣기',sub:hasMin?'예전 회의록·녹음 정리 상자를 지우고 새 회의록으로 바꿉니다. 직접 쓴 글·표·그림은 남깁니다':'직접 쓴 글·표·그림은 그대로 두고 맨 아래에 넣습니다'},
-    {id:'all',label:'메모 비우고 새로',sub:'메모의 모든 상자(글·표·그림 포함)를 지우고 새 회의록만 남깁니다',danger:true},
+    {id:'all',label:'새로 쓰기',sub:'메모에 있던 것(예전 회의록·글·표·그림)을 모두 지우고 새 회의록만 남깁니다'},
     {id:'append',label:'아래에 덧붙이기',sub:'아무것도 지우지 않고 맨 아래에 새 회의록을 붙입니다'}]);}
 /* 고르기 창 — 단추를 누르면 그 id, 취소·바깥·Esc 는 null */
 function pickDialog(msg,opts){return new Promise(ok=>{
@@ -39442,7 +39440,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.14';
+const APP_VERSION='v2.14.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
