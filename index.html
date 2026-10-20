@@ -36588,7 +36588,7 @@ const rnTable=(r,c)=>'<table><tbody>'+Array.from({length:r},(_,i)=>'<tr>'+Array.
    · Enter 아래 칸, Shift+Enter 칸 안에서 줄바꿈, ↑↓ 위·아래 칸, Tab 다음 칸
    · 열 경계를 끌어 너비 조절 · 도구줄에서 열 기준 정렬
    편집기 상자(root)에 붙여 쓴다 — 메모 편집기와 보드의 표 상자가 함께 쓴다 */
-const SHEET_CSS=`.rn-ed td.rn-cs,.rn-ed th.rn-cs,.bd-it td.rn-cs,.bd-it th.rn-cs{background:#dbeafe!important;box-shadow:inset 0 0 0 1px #3b82f6}
+const SHEET_CSS=`.rn-ed td.rn-cs,.rn-ed th.rn-cs,.bd-it td.rn-cs,.bd-it th.rn-cs{background:#eeece8!important;box-shadow:inset 0 0 0 1.5px #57534e}
 .rn-ed table,.bd-it table{table-layout:auto}.rn-colrs{cursor:col-resize!important}`;
 const cellsOf=tbl=>[...tbl.rows].map(r=>[...r.cells]);
 const cellPos=td=>{const tr=td.parentNode;const tbl=tr.closest('table');return {tbl,r:[...tbl.rows].indexOf(tr),c:[...tr.cells].indexOf(td)};};
@@ -37004,33 +37004,43 @@ function RichNote({docKey,html,onChange,placeholder,tbHost,active,compact}){
 /* ── 메모 (보드) ─────────────────────────────────────────────────
    일정의 메모는 하나의 보드다. 글상자·표·이미지를 그림판처럼 아무 데나 놓고 끌어 옮긴다.
    · 글상자는 문서 편집기 그대로(제목·목록·할 일·표·이미지·「/」 블록 메뉴) — 누르면 위쪽에 서식 도구가 뜬다
-   · 위쪽 ⠿ 손잡이를 끌어 옮기기, 오른쪽 아래 모서리로 너비 조절
+   · ⠿ 손잡이를 끌어 옮기기, 상하좌우·네 모서리를 끌어 크기 조절(이미지 모서리는 비율 유지, 아래 변 두 번 누르면 높이 원래대로)
    · 빈 곳을 끌면 범위 선택, Shift+누르기로 여러 개 고르기 → 맞춤·간격 같게·앞뒤 순서
    · 빈 곳을 누른 뒤 Ctrl+V: 엑셀·구글시트 범위 → 표, 이미지 → 이미지, 글 → 글상자
    · 고른 상자 Ctrl+C → 엑셀(표)·다른 메모 보드에 붙여넣기, Ctrl+X 잘라내기, Delete 지우기
    · 방향키로 1px(Shift 10px) 옮기기, 격자(10px) 맞춤
-   저장: 일정의 board = {items:[{id,type:'text'|'table'|'img',x,y,w,z,html|path,grp?}],merged} + boardText(검색용)
+   저장: 일정의 board = {items:[{id,type:'text'|'table'|'img',x,y,w,h?,z,html|path,grp?}],merged} + boardText(검색용)
    옛 문서 메모(notesHtml)·회의록(minutes)은 처음 열 때 보드의 글상자로 옮겨 보인다(boardOf) */
 const BD_CSS=`.bd-wrap{position:relative;border:1px dashed var(--border-strong);border-radius:6px;background:#fff;
   background-image:radial-gradient(#e7e5e4 1px,transparent 1px);background-size:20px 20px;overflow-x:auto;overflow-y:hidden}
-.bd-it{position:absolute;box-sizing:border-box;border:1px solid transparent;border-radius:4px;background:rgba(255,255,255,.92)}
-.bd-it:hover{border-color:#cbd5e1}.bd-it.on{border-color:#3b82f6;box-shadow:0 0 0 1px #3b82f6}
-.bd-grip{position:absolute;left:-1px;right:-1px;top:-16px;height:15px;display:none;align-items:center;justify-content:center;
-  background:#3b82f6;color:#fff;font-size:10px;border-radius:4px 4px 0 0;cursor:move;user-select:none}
-.bd-it:hover .bd-grip,.bd-it.on .bd-grip{display:flex}.bd-it:hover:not(.on) .bd-grip{background:#94a3b8}
-.bd-rs{position:absolute;right:-5px;bottom:-5px;width:10px;height:10px;background:#fff;border:1.5px solid #3b82f6;border-radius:2px;cursor:nwse-resize;display:none}
+.bd-it{position:absolute;box-sizing:border-box;border:1px solid #ecebe8;border-radius:10px;background:#fff;padding:2px;
+  box-shadow:0 1px 2px rgba(28,25,23,.05);transition:box-shadow .15s,border-color .15s}
+.bd-it:hover{border-color:#e2e0dc;box-shadow:0 4px 14px rgba(28,25,23,.08)}
+.bd-it.on{border-color:#57534e;box-shadow:0 8px 22px rgba(28,25,23,.12)}
+.bd-grip{position:absolute;right:10px;top:-12px;height:20px;padding:0 9px;display:none;align-items:center;gap:3px;z-index:3;
+  background:#292524;color:#fff;font-size:11px;border-radius:6px;box-shadow:0 2px 6px rgba(0,0,0,.15);cursor:move;user-select:none;white-space:nowrap}
+.bd-it:hover .bd-grip,.bd-it.on .bd-grip{display:flex}.bd-it:hover:not(.on) .bd-grip{background:#a8a29e}
+.bd-rs{position:absolute;display:none;z-index:2}
 .bd-it.on .bd-rs{display:block}
+.bd-rs.n,.bd-rs.s{left:12px;right:12px;height:8px;cursor:ns-resize}.bd-rs.n{top:-5px}.bd-rs.s{bottom:-5px}
+.bd-rs.e,.bd-rs.w{top:12px;bottom:12px;width:8px;cursor:ew-resize}.bd-rs.e{right:-5px}.bd-rs.w{left:-5px}
+.bd-rs.ne,.bd-rs.nw,.bd-rs.se,.bd-rs.sw{width:9px;height:9px;background:#fff;border:1.5px solid #57534e;border-radius:3px;box-sizing:border-box}
+.bd-rs.nw{left:-5px;top:-5px;cursor:nwse-resize}.bd-rs.se{right:-5px;bottom:-5px;cursor:nwse-resize}
+.bd-rs.ne{right:-5px;top:-5px;cursor:nesw-resize}.bd-rs.sw{left:-5px;bottom:-5px;cursor:nesw-resize}
+.bd-rs.n:after,.bd-rs.s:after{content:'';position:absolute;left:50%;top:2px;width:18px;height:4px;margin-left:-9px;border-radius:2px;background:#fff;border:1.5px solid #57534e;box-sizing:border-box}
+.bd-rs.e:after,.bd-rs.w:after{content:'';position:absolute;top:50%;left:2px;height:18px;width:4px;margin-top:-9px;border-radius:2px;background:#fff;border:1.5px solid #57534e;box-sizing:border-box}
+.bd-it.fixh>.bd-img{height:100%}.bd-it.fixh>.bd-img img{height:100%;object-fit:cover}
 .rn-ed.rn-cmp{min-height:26px;padding:4px 8px 6px;font-size:14px;line-height:1.6}
 .rn-ed.rn-cmp>:first-child{margin-top:0}.rn-ed.rn-cmp>:last-child{margin-bottom:0}
-.bd-img img{display:block;width:100%;border-radius:3px;pointer-events:none}
+.bd-img img{display:block;width:100%;border-radius:7px;pointer-events:none}
 .bd-ch svg{display:block;width:100%;height:auto;cursor:move}.bd-ch-empty{padding:18px 12px;font-size:12px;color:#898781;text-align:center;line-height:1.6}
 .bd-ch-tb{display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:4px 6px;border-top:1px solid #eee;font-size:11px;color:#52514e}
 .bd-it:not(.on):not(:hover) .bd-ch-tb{display:none}
-.bd-ch-tb button{font-size:11px;padding:1px 6px;border:1px solid #d6d3d1;border-radius:4px;background:#fff;cursor:pointer;color:#52514e}.bd-ch-tb button.on{background:#dbeafe;border-color:#3b82f6;color:#1e3a8a}
+.bd-ch-tb button{font-size:11px;padding:1px 6px;border:1px solid #d6d3d1;border-radius:4px;background:#fff;cursor:pointer;color:#52514e}.bd-ch-tb button.on{background:#292524;border-color:#292524;color:#fff}
 .bd-ch-tb input[type=text]{font-size:11px;padding:1px 4px;border:1px solid #d6d3d1;border-radius:4px;width:110px}.bd-ch-tb label{display:inline-flex;align-items:center;gap:2px;cursor:pointer}
 .bd-tbh{margin-top:4px}.bd-tbh:empty:before{content:'글상자를 누르면 여기에 글자 서식 도구(제목·굵게·색·목록·표…)가 나옵니다';display:block;font-size:12px;color:var(--text-label);padding:9px 4px}
 .bd-tbh{height:38px;overflow:hidden}.bd-tbh .rn-tb{position:static;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;border:none;background:transparent;padding:3px 0;scrollbar-width:thin}.bd-tbh .rn-tb>*{flex:none}
-.bd-mq{position:absolute;border:1px solid #3b82f6;background:rgba(59,130,246,.08);pointer-events:none}`;
+.bd-mq{position:absolute;border:1px solid #78716c;border-radius:4px;background:rgba(120,113,108,.08);pointer-events:none}`;
 const BD_GRID=10;
 let BD_CLIP=null;   /* 마지막으로 복사한 상자들 — 브라우저가 붙여넣기 HTML의 표시를 지워도 알아보게 */
 const bdText=items=>(items||[]).filter(i=>i.type!=='img'&&i.type!=='chart').slice().sort((a,b)=>a.y-b.y||a.x-b.x).map(i=>htmlToText(i.html||'')).filter(Boolean).join('\n');
@@ -37229,9 +37239,17 @@ function MemoBoard({docKey,board,onChange}){
     const box=wrap.current.getBoundingClientRect();const sx=e.clientX,sy=e.clientY;
     let ids=sel;if(kind==='move'&&!sel.includes(id)){ids=e.shiftKey?[...sel,id]:[id];setSel(ids);}
     const base=itemsRef.current.map(i=>({...i}));let moved=false;
+    let rz=null;if(kind.startsWith('size')){const el=wrap.current.querySelector('[data-bd="'+id+'"]');const it0=base.find(i=>i.id===id);
+      const inner=[...el.children].filter(c=>!c.classList.contains('bd-grip')&&!c.classList.contains('bd-rs')).reduce((a,c)=>a+c.offsetHeight,0)+6;
+      rz={d:kind.slice(5)||'se',x:it0.x,y:it0.y,w:it0.w,h:el.offsetHeight,img:it0.type==='img',minH:it0.type==='img'?30:Math.max(30,inner)};}
     const mv=ev=>{const dx=ev.clientX-sx,dy=ev.clientY-sy;if(Math.abs(dx)+Math.abs(dy)>2)moved=true;
       if(kind==='move')commitLive(base.map(i=>ids.includes(i.id)?{...i,x:Math.max(0,sn(i.x+dx)),y:Math.max(0,sn(i.y+dy))}:i));
-      else if(kind==='size')commitLive(base.map(i=>i.id===id?{...i,w:Math.max(60,sn(i.w+dx))}:i));
+      else if(rz)commitLive(base.map(i=>{if(i.id!==id)return i;const d=rz.d;
+        let w=rz.w,h=rz.h;if(d.includes('e'))w=rz.w+dx;if(d.includes('w'))w=rz.w-dx;if(d.includes('s'))h=rz.h+dy;if(d.includes('n'))h=rz.h-dy;
+        w=Math.max(60,sn(w));h=Math.max(rz.minH,sn(h));
+        if(rz.img&&d.length===2)h=Math.max(30,Math.round(w*rz.h/rz.w));
+        const o={...i,w};if(rz.img?d.length===2||/[ns]/.test(d):/[ns]/.test(d))o.h=h;
+        if(d.includes('w'))o.x=Math.max(0,rz.x+rz.w-w);if(d.includes('n'))o.y=Math.max(0,rz.y+rz.h-h);return o;}));
       else{const x0=sx-box.left+wrap.current.scrollLeft,y0=sy-box.top+wrap.current.scrollTop;const x1=x0+dx,y1=y0+dy;
         const r={x:Math.min(x0,x1),y:Math.min(y0,y1),w:Math.abs(dx),h:Math.abs(dy)};setMq(r);
         const hit=[...wrap.current.querySelectorAll('[data-bd]')].filter(el=>{const a=el.offsetLeft,b=el.offsetTop,c=a+el.offsetWidth,d=b+el.offsetHeight;
@@ -37316,8 +37334,8 @@ function MemoBoard({docKey,board,onChange}){
       <div className="bd-pad" style={{position:'relative',width:W||'100%',height:H-2}}/>
       {!shown.length&&<div style={{position:'absolute',left:0,right:0,top:120,textAlign:'center',color:'var(--text-label)',fontSize:13,pointerEvents:'none',lineHeight:1.8}}>
         위 단추로 글상자·표·이미지를 넣고, ⠿ 손잡이를 끌어 원하는 곳에 놓으세요<br/>빈 곳을 누른 뒤 Ctrl+V — 엑셀 범위는 표로, 이미지는 이미지로, 글은 글상자로 들어갑니다</div>}
-      {shown.slice().sort((a,b)=>(a.z||0)-(b.z||0)).map(it=><div key={it.id} data-bd={it.id} className={'bd-it'+(sel.includes(it.id)?' on':'')}
-          style={{left:it.x,top:it.stk?0:it.y,width:it.w,zIndex:10+(it.z||0),visibility:it.stk?'hidden':undefined}}
+      {shown.slice().sort((a,b)=>(a.z||0)-(b.z||0)).map(it=><div key={it.id} data-bd={it.id} className={'bd-it'+(sel.includes(it.id)?' on':'')+(it.h&&it.type==='img'?' fixh':'')}
+          style={{left:it.x,top:it.stk?0:it.y,width:it.w,height:it.h&&it.type==='img'?it.h:undefined,minHeight:it.h&&it.type!=='img'?it.h:undefined,zIndex:10+(it.z||0),visibility:it.stk?'hidden':undefined}}
           onFocus={()=>setAct(it.id)}
           onMouseDown={e=>{e.stopPropagation();if(e.shiftKey){e.preventDefault();setSel(s=>s.includes(it.id)?s.filter(x=>x!==it.id):[...s,it.id]);return;}
             if(!sel.includes(it.id)||sel.length>1)setSel([it.id]);
@@ -37327,7 +37345,9 @@ function MemoBoard({docKey,board,onChange}){
           :it.type==='chart'?<BdChart it={it} items={shown} patch={patch}/>
           :<RichNote docKey={it.id} html={it.html||''} compact tbHost={tbHost} active={!!actIt&&actIt.id===it.id}
               placeholder={it.type==='table'?'표':'글을 입력하세요 · 「/」로 블록 넣기'} onChange={h=>{if(h!==(itemsRef.current.find(x=>x.id===it.id)||{}).html)patch(it.id,{html:h});}}/>}
-        <div className="bd-rs" onMouseDown={e=>startDrag(e,'size',it.id)} title="끌어서 너비 조절"/>
+        {['n','s','e','w','ne','nw','se','sw'].map(d=><div key={d} className={'bd-rs '+d} onMouseDown={e=>startDrag(e,'size:'+d,it.id)}
+          onDoubleClick={d==='s'&&it.h?(e=>{e.stopPropagation();patch(it.id,{h:undefined});}):undefined}
+          title={d.length===2?'끌어서 크기 조절':/[ns]/.test(d)?'끌어서 높이 조절 · 두 번 누르면 원래대로':'끌어서 너비 조절'}/>)}
       </div>)}
       {mq&&<div className="bd-mq" style={{left:mq.x,top:mq.y,width:mq.w,height:mq.h}}/>}
     </div>
@@ -39153,7 +39173,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.9.1';
+const APP_VERSION='v2.10';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
