@@ -37047,6 +37047,13 @@ const BD_CSS=`.bd-wrap{position:relative;border:1px dashed var(--border-strong);
 .bd-it:not(.on):not(:hover) .bd-ch-tb{display:none}
 .bd-ch-tb button{font-size:11px;padding:1px 6px;border:1px solid #d6d3d1;border-radius:4px;background:#fff;cursor:pointer;color:#52514e}.bd-ch-tb button.on{background:#292524;border-color:#292524;color:#fff}
 .bd-ch-tb input[type=text]{font-size:11px;padding:1px 4px;border:1px solid #d6d3d1;border-radius:4px;width:110px}.bd-ch-tb label{display:inline-flex;align-items:center;gap:2px;cursor:pointer}
+.bd-ch-set{border-top:1px solid #eee;padding:6px 8px 8px;font-size:11px;color:#52514e;display:grid;gap:6px;background:#fafaf9;border-radius:0 0 8px 8px}
+.bd-ch-set>div{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}.bd-ch-set b{font-weight:600;color:#292524;min-width:34px}
+.bd-ch-set label{display:inline-flex;align-items:center;gap:3px;cursor:pointer}
+.bd-ch-set input[type=text],.bd-ch-set input[type=number],.bd-ch-set select{font-size:11px;padding:1px 4px;border:1px solid #d6d3d1;border-radius:4px;width:84px;background:#fff}
+.bd-ch-set input.s{width:50px}.bd-ch-set select{width:auto}
+.bd-ch-set button{font-size:11px;padding:1px 6px;border:1px solid #d6d3d1;border-radius:4px;background:#fff;cursor:pointer;color:#52514e}.bd-ch-set button.on{background:#292524;border-color:#292524;color:#fff}
+.bd-ch-set .sw input[type=color]{width:18px;height:18px;padding:0;border:1px solid #d6d3d1;border-radius:4px;background:none;cursor:pointer}
 .bd-tbh{margin-top:4px}.bd-tbh:empty:before{content:'글상자를 누르면 여기에 글자 서식 도구(제목·굵게·색·목록·표…)가 나옵니다';display:block;font-size:12px;color:var(--text-label);padding:9px 4px}
 .bd-tbh{height:38px;overflow:hidden}.bd-tbh .rn-tb{position:static;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;border:none;background:transparent;padding:3px 0;scrollbar-width:thin}.bd-tbh .rn-tb>*{flex:none}
 .bd-mq{position:absolute;border:1px solid #78716c;border-radius:4px;background:rgba(120,113,108,.08);pointer-events:none}`;
@@ -37107,90 +37114,177 @@ function boardOf(e){
 
 /* ── 그래프 상자 — 표를 읽어 SVG 로 그린다. 첫 열은 항목 이름, 숫자 열마다 한 계열. 첫 행에 글자가 있으면 머리(계열 이름)
    워드·출력용으로는 PNG 로 바꿔 저장해 둔다(pic) — 표를 고치면 1.5초 뒤 다시 만든다 ── */
-const CH_COLORS=['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#6250d6','#e34948'];
-const CH_KINDS=[['bar','세로 막대'],['hbar','가로 막대'],['line','꺾은선'],['pie','원']];
+const CH_PALS={
+  base:['기본',['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#6250d6','#e34948']],
+  navy:['남색',['#1e3a5f','#5b7fa8','#a3bcd6','#c9a227','#7d8c9c','#3e6b8a','#d4dde8','#8a6d1d']],
+  calm:['차분',['#4c6a92','#c07a4f','#6a9a7b','#b89a4c','#8c7aa8','#5f8f9f','#a86b6b','#7a7a72']],
+  pastel:['파스텔',['#8fb8e8','#f4a988','#8fd3b6','#f3cf73','#f2a7c3','#a8d68a','#b4a7ec','#f08f8f']],
+  mono:['회색조',['#292524','#57534e','#78716c','#a8a29e','#d6d3d1','#44403c','#8f8a85','#c4c0bb']]};
+const CH_COLORS=CH_PALS.base[1];
+const CH_KINDS=[['bar','세로 막대'],['hbar','가로 막대'],['line','꺾은선'],['area','영역'],['pie','원'],['donut','도넛']];
 const tableGrid=html=>{const d=document.createElement('div');d.innerHTML=html||'';const t=d.querySelector('table');const g=t?[...t.rows].map(r=>[...r.cells].map(c=>cellText(c).trim())):[];
   g.th=!!(t&&t.rows[0]&&t.rows[0].cells[0]&&t.rows[0].cells[0].tagName==='TH');return g;};
 const numOf=s=>{const m=/^\s*(\()?([-+]?(?:\d[\d,]*\.?\d*|\.\d+))\)?\s*[%a-zA-Z가-힣$€¥₩]{0,6}\s*$/.exec(String(s||''));if(!m)return null;const v=parseFloat(m[2].replace(/,/g,''));return isNaN(v)?null:(m[1]?-v:v);};
 const fmtN=v=>Math.abs(v)>=100?Math.round(v).toLocaleString():(+v.toFixed(2)).toLocaleString();
 const estW=t=>[...String(t)].reduce((a,ch)=>a+(ch.charCodeAt(0)>255?11:6.3),0);
-function chartData(grid){
-  if(!grid.length)return null;const W=Math.max(...grid.map(r=>r.length));if(W<2)return null;
-  const g=grid.map(r=>{const x=r.slice();while(x.length<W)x.push('');return x;});
-  const head=g.length>1&&(grid.th||g[0].some((v,j)=>j>0&&v&&numOf(v)===null))?g[0]:null;const body=head?g.slice(1):g;
+/* 표 → {cats, series:[{name,vals,col}], unit, cols:[머리 이름]}
+   o.tr 행·열 바꾸기, o.cat 항목(가로축) 열 번호. 숫자가 절반 이상인 열만 계열 */
+function chartData(grid,o){
+  o=o||{};if(!grid.length)return null;let W=Math.max(...grid.map(r=>r.length));if(W<2&&!o.tr)return null;
+  let g=grid.map(r=>{const x=r.slice();while(x.length<W)x.push('');return x;});
+  if(o.tr){g=g[0].map((_,j)=>g.map(r=>r[j]));W=g[0].length;if(W<2)return null;}
+  const th=o.tr?false:grid.th;const ci=Math.min(Math.max(0,o.cat|0),W-1);
+  const head=g.length>1&&(th||g[0].some((v,j)=>j!==ci&&v&&numOf(v)===null))?g[0]:null;const body=head?g.slice(1):g;
   const rows=body.filter(r=>r.some(v=>v));if(!rows.length)return null;
-  const series=[];for(let j=1;j<W;j++){const vals=rows.map(r=>numOf(r[j]));const n=vals.filter(v=>v!==null).length;if(!n||n<rows.length/2)continue;
-    series.push({name:head?head[j]:'열 '+j,vals:vals.map(v=>v===null?0:v)});}
-  if(!series.length)return null;return {cats:rows.map(r=>r[0]||''),series};}
+  const series=[];let pct=0,cnt=0;
+  for(let j=0;j<W;j++){if(j===ci)continue;const vals=rows.map(r=>numOf(r[j]));const n=vals.filter(v=>v!==null).length;if(!n||n<rows.length/2)continue;
+    rows.forEach(r=>{if(numOf(r[j])!==null){cnt++;if(/%\s*$/.test(r[j]))pct++;}});
+    series.push({name:head?(head[j]||'열 '+(j+1)):'열 '+(j+1),col:j,vals:vals.map(v=>v===null?0:v)});}
+  if(!series.length)return null;
+  return {cats:rows.map(r=>r[ci]||''),series,unit:pct>cnt/2?'%':'',cols:(head||g[0]).map((v,j)=>head?(v||'열 '+(j+1)):'열 '+(j+1))};}
+/* 보기 좋은 눈금 — 고정 최소·최대가 있으면 그 사이를 나눈다 */
+function niceTicks(lo,hi,fixLo,fixHi){
+  if(fixLo!=null&&isFinite(fixLo))lo=fixLo;if(fixHi!=null&&isFinite(fixHi))hi=fixHi;if(hi<=lo)hi=lo+1;
+  const raw=(hi-lo)/5,mag=Math.pow(10,Math.floor(Math.log10(raw)));const step=[1,2,2.5,5,10].map(x=>x*mag).find(x=>x>=raw);
+  if(fixLo==null||!isFinite(fixLo))lo=Math.floor(lo/step+1e-9)*step;if(fixHi==null||!isFinite(fixHi))hi=Math.ceil(hi/step-1e-9)*step;
+  const t=[];for(let v=Math.ceil(lo/step-1e-9)*step;v<=hi+step*1e-6;v+=step)t.push(+v.toFixed(10));return {lo,hi,t};}
 function chartSvg(d,o){
-  const W=Math.max(240,Math.round(o.w||480)),H=Math.round(W*(o.kind==='pie'?0.6:0.56));const col=i=>CH_COLORS[i%CH_COLORS.length];
-  const T=t=>escH(t);const out=[];let top=8;
+  const W=Math.max(240,Math.round(o.w||480));const round=o.kind==='pie'||o.kind==='donut';
+  const H=Math.max(140,Math.round(o.h||W*(round?0.6:0.56)));
+  const pal=(CH_PALS[o.pal]||CH_PALS.base)[1];const cc=o.colors||{};const T=t=>escH(t);const out=[];let top=8;
+  const unit=o.unit!=null?o.unit:(d.unit||'');const fv=v=>fmtN(v)+unit;
+  const S=d.series.filter(s=>!(o.hide||[]).includes(s.name));if(!S.length)return '';
+  const colS=k=>cc[S[k].name]||pal[(d.series.indexOf(S[k]))%pal.length];const colC=i=>cc['#'+d.cats[i]]||pal[i%pal.length];
+  const svgOf=()=>`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="system-ui,-apple-system,'Malgun Gothic','Apple SD Gothic Neo',sans-serif"><rect width="${W}" height="${H}" fill="#fff"/>${out.join('')}</svg>`;
   if(o.title){out.push(`<text x="${W/2}" y="${top+14}" text-anchor="middle" font-size="14" font-weight="600" fill="#0b0b0b">${T(o.title)}</text>`);top+=26;}
-  const names=o.kind==='pie'?d.cats:d.series.map(s=>s.name);
-  if(names.length>1&&(o.kind==='pie'||d.series.length>1)){let x=12;names.forEach((nm,i)=>{const w=estW(nm)+16;if(x+w>W-12&&x>12){x=12;top+=16;}
-    out.push(`<rect x="${x}" y="${top+3}" width="10" height="10" rx="2" fill="${col(i)}"/><text x="${x+14}" y="${top+12}" font-size="11" fill="#52514e">${T(nm)}</text>`);x+=w+10;});top+=22;}
-  const S=d.series,m=d.cats.length,n=S.length;
-  if(o.kind==='pie'){const vals=S[0].vals.map(v=>Math.max(0,v));const tot=vals.reduce((a,b)=>a+b,0)||1;const cx=W/2,cy=top+(H-top)/2,r=Math.min(W/2-20,(H-top)/2-10);let a=-Math.PI/2;
-    vals.forEach((v,i)=>{const b=a+v/tot*2*Math.PI;const big=b-a>Math.PI?1:0;const p=[cx+r*Math.cos(a),cy+r*Math.sin(a),cx+r*Math.cos(b),cy+r*Math.sin(b)];
-      if(v>0)out.push(`<path d="M${cx},${cy} L${p[0].toFixed(1)},${p[1].toFixed(1)} A${r},${r} 0 ${big} 1 ${p[2].toFixed(1)},${p[3].toFixed(1)} Z" fill="${col(i)}" stroke="#fff" stroke-width="2"><title>${T(d.cats[i])}: ${fmtN(v)} (${(v/tot*100).toFixed(1)}%)</title></path>`);
-      const mid=(a+b)/2;if(v/tot>=0.05)out.push(`<text x="${(cx+r*0.62*Math.cos(mid)).toFixed(1)}" y="${(cy+r*0.62*Math.sin(mid)+4).toFixed(1)}" text-anchor="middle" font-size="11" fill="#fff">${o.labels?fmtN(v):(v/tot*100).toFixed(0)+'%'}</text>`);a=b;});
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="system-ui,-apple-system,'Malgun Gothic','Apple SD Gothic Neo',sans-serif"><rect width="${W}" height="${H}" fill="#fff"/>${out.join('')}</svg>`;}
-  /* 값 범위 — 누적이면 합계, 0 을 늘 포함 */
-  const stack=o.stack&&n>1&&o.kind!=='line';
-  let lo=0,hi=0;for(let i=0;i<m;i++){if(stack){let p=0,q=0;S.forEach(s=>{const v=s.vals[i];if(v>=0)p+=v;else q+=v;});hi=Math.max(hi,p);lo=Math.min(lo,q);}else S.forEach(s=>{hi=Math.max(hi,s.vals[i]);lo=Math.min(lo,s.vals[i]);});}
-  if(hi===lo)hi=lo+1;const span=hi-lo;const raw=span/5,mag=Math.pow(10,Math.floor(Math.log10(raw)));const step=[1,2,2.5,5,10].map(x=>x*mag).find(x=>x>=raw);
-  lo=Math.floor(lo/step)*step;hi=Math.ceil(hi/step)*step;const ticks=[];for(let v=lo;v<=hi+step/2;v+=step)ticks.push(+v.toFixed(10));
-  const hb=o.kind==='hbar';
-  const L=hb?Math.min(W*0.35,12+Math.max(...d.cats.map(estW))):12+Math.max(...ticks.map(t=>estW(fmtN(t))));const R=12,B=hb?22:(d.cats.some(c=>estW(c)>(W-L-R)/m-6)?48:24);
-  const pw=W-L-R,ph=H-top-B-6;
-  if(hb){const X=v=>L+(v-lo)/(hi-lo)*pw;
-    ticks.forEach(t=>{out.push(`<line x1="${X(t).toFixed(1)}" x2="${X(t).toFixed(1)}" y1="${top}" y2="${top+ph}" stroke="${t===0?'#c3c2b7':'#e1e0d9'}"/><text x="${X(t).toFixed(1)}" y="${top+ph+14}" text-anchor="middle" font-size="10" fill="#898781">${fmtN(t)}</text>`);});
+  /* 범례 — 위(기본)·아래·숨김 */
+  const lg=o.legend||'top';const names=round?d.cats:S.map(s=>s.name);const lcol=i=>round?colC(i):colS(i);
+  const legendRows=()=>{const rows=[[]];let x=12;names.forEach((nm,i)=>{const w=estW(nm)+16;if(x+w>W-12&&x>12){rows.push([]);x=12;}rows[rows.length-1].push([x,nm,i]);x+=w+10;});return rows;};
+  const showLg=lg!=='none'&&names.length>1&&(round||S.length>1);let bottomLg=0;
+  const drawLg=y0=>legendRows().forEach((r,ri)=>r.forEach(([x,nm,i])=>out.push(`<rect x="${x}" y="${y0+ri*16+3}" width="10" height="10" rx="2" fill="${lcol(i)}"/><text x="${x+14}" y="${y0+ri*16+12}" font-size="11" fill="#52514e">${T(nm)}</text>`)));
+  if(showLg){const n=legendRows().length;if(lg==='bottom'){bottomLg=n*16+6;drawLg(H-bottomLg);}else{drawLg(top);top+=n*16+6;}}
+  const m=d.cats.length;
+  if(round){const vals=S[0].vals.map(v=>Math.max(0,v));const tot=vals.reduce((a,b)=>a+b,0)||1;const cx=W/2,cy=top+(H-top-bottomLg)/2,r=Math.max(20,Math.min(W/2-20,(H-top-bottomLg)/2-10));
+    const ir=o.kind==='donut'?r*0.58:0;let a=-Math.PI/2;
+    vals.forEach((v,i)=>{let b=a+v/tot*2*Math.PI;if(b-a>=2*Math.PI-1e-6)b=a+2*Math.PI-1e-4;const big=b-a>Math.PI?1:0;const P=(rr,t)=>(cx+rr*Math.cos(t)).toFixed(1)+','+(cy+rr*Math.sin(t)).toFixed(1);
+      const path=ir?`M${P(r,a)} A${r},${r} 0 ${big} 1 ${P(r,b)} L${P(ir,b)} A${ir},${ir} 0 ${big} 0 ${P(ir,a)} Z`:`M${cx},${cy} L${P(r,a)} A${r},${r} 0 ${big} 1 ${P(r,b)} Z`;
+      if(v>0)out.push(`<path d="${path}" fill="${colC(i)}" stroke="#fff" stroke-width="2"><title>${T(d.cats[i])}: ${fv(v)} (${(v/tot*100).toFixed(1)}%)</title></path>`);
+      const mid=(a+b)/2,lr=ir?(r+ir)/2:r*0.62;if(v/tot>=0.05)out.push(`<text x="${(cx+lr*Math.cos(mid)).toFixed(1)}" y="${(cy+lr*Math.sin(mid)+4).toFixed(1)}" text-anchor="middle" font-size="11" fill="#fff">${o.labels?fv(v):(v/tot*100).toFixed(0)+'%'}</text>`);a=b;});
+    if(ir){out.push(`<text x="${cx}" y="${cy-2}" text-anchor="middle" font-size="16" font-weight="600" fill="#1c1917">${fv(vals.reduce((a,b)=>a+b,0))}</text><text x="${cx}" y="${cy+14}" text-anchor="middle" font-size="10" fill="#898781">합계</text>`);}
+    return svgOf();}
+  /* 막대+꺾은선: 마지막 계열을 꺾은선·오른쪽 축으로 */
+  const combo=o.combo&&S.length>1&&(o.kind==='bar');const SB=combo?S.slice(0,-1):S,SL=combo?S[S.length-1]:null;const n=SB.length;
+  const stack=o.stack&&n>1&&o.kind!=='line'&&o.kind!=='area';
+  if(o.refAuto){const v=SB.flatMap(s=>s.vals);o={...o,ref:v.length?v.reduce((a,b)=>a+b,0)/v.length:undefined,refLabel:o.refLabel||'평균'};}
+  let lo=0,hi=0;for(let i=0;i<m;i++){if(stack){let p=0,q=0;SB.forEach(s=>{const v=s.vals[i];if(v>=0)p+=v;else q+=v;});hi=Math.max(hi,p);lo=Math.min(lo,q);}else SB.forEach(s=>{hi=Math.max(hi,s.vals[i]);lo=Math.min(lo,s.vals[i]);});}
+  if(o.ref!=null&&isFinite(o.ref)){hi=Math.max(hi,o.ref);lo=Math.min(lo,o.ref);}
+  if((o.kind==='line'||o.kind==='area')&&o.ymin==null&&o.zero===false){lo=Math.min(...SB.map(s=>Math.min(...s.vals)));}
+  const A=niceTicks(lo,hi,o.ymin,o.ymax);lo=A.lo;hi=A.hi;const ticks=A.t;
+  let A2=null;if(combo){A2=niceTicks(Math.min(0,...SL.vals),Math.max(0,...SL.vals),o.y2min,o.y2max);}
+  const hb=o.kind==='hbar';const grid=o.grid!==false;const lab=t=>fmtN(t)+unit;
+  const yT=o.yt?18:0,xT=o.xt?18:0;
+  const L=yT+(hb?Math.min(W*0.35,12+Math.max(...d.cats.map(estW))):12+Math.max(...ticks.map(t=>estW(lab(t)))));
+  const R=combo?14+Math.max(...A2.t.map(t=>estW(fmtN(t)+(o.unit2||'')))):12;
+  const B=xT+bottomLg+(hb?22:(d.cats.some(c=>estW(c)>(W-L-R)/m-6)?48:24));
+  const pw=W-L-R,ph=H-top-B-6;const cl=(v,a,b)=>Math.max(a,Math.min(b,v));
+  if(o.yt)out.push(`<text transform="translate(12,${(top+ph/2).toFixed(1)}) rotate(-90)" text-anchor="middle" font-size="11" fill="#52514e">${T(o.yt)}</text>`);
+  if(o.xt)out.push(`<text x="${(L+pw/2).toFixed(1)}" y="${H-bottomLg-4}" text-anchor="middle" font-size="11" fill="#52514e">${T(o.xt)}</text>`);
+  const tickLine=(t,x1,y1,x2,y2)=>(grid||t===0||t===lo)?`<line x1="${x1}" x2="${x2}" y1="${y1}" y2="${y2}" stroke="${t===0?'#c3c2b7':'#e1e0d9'}"/>`:'';
+  if(hb){const X=v=>cl(L+(v-lo)/(hi-lo)*pw,L,L+pw);
+    ticks.forEach(t=>{out.push(tickLine(t,X(t).toFixed(1),top,X(t).toFixed(1),top+ph)+`<text x="${X(t).toFixed(1)}" y="${top+ph+14}" text-anchor="middle" font-size="10" fill="#898781">${lab(t)}</text>`);});
     const gh=ph/m;const bh=stack?gh*0.64:Math.min(22,gh*0.72/n);
     d.cats.forEach((c,i)=>{const y0=top+gh*i;out.push(`<text x="${L-6}" y="${(y0+gh/2+4).toFixed(1)}" text-anchor="end" font-size="11" fill="#52514e">${T(c)}</text>`);
-      let pos=0,neg=0;S.forEach((s,k)=>{const v=s.vals[i];let a,b;if(stack){const base=v>=0?pos:neg;a=X(base);b=X(base+v);if(v>=0)pos+=v;else neg+=v;}else{a=X(0);b=X(v);}
+      let pos=0,neg=0;SB.forEach((s,k)=>{const v=s.vals[i];let a,b;if(stack){const base=v>=0?pos:neg;a=X(base);b=X(base+v);if(v>=0)pos+=v;else neg+=v;}else{a=X(Math.max(lo,0));b=X(v);}
         const y=stack?y0+(gh-bh)/2:y0+(gh-bh*n)/2+bh*k;const x=Math.min(a,b),w=Math.max(1,Math.abs(b-a)-(stack?1:0));
-        out.push(`<rect x="${x.toFixed(1)}" y="${(y+1).toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(1,bh-2).toFixed(1)}" rx="2" fill="${col(k)}"><title>${T(c)} · ${T(s.name)}: ${fmtN(v)}</title></rect>`);
-        if(o.labels&&!stack)out.push(`<text x="${(b+(v>=0?4:-4)).toFixed(1)}" y="${(y+bh/2+3).toFixed(1)}" text-anchor="${v>=0?'start':'end'}" font-size="10" fill="#52514e">${fmtN(v)}</text>`);});
-      if(o.labels&&stack)out.push(`<text x="${(X(pos)+4).toFixed(1)}" y="${(y0+gh/2+3).toFixed(1)}" font-size="10" fill="#52514e">${fmtN(pos)}</text>`);});}
-  else{const Y=v=>top+ph-(v-lo)/(hi-lo)*ph;
-    ticks.forEach(t=>{out.push(`<line x1="${L}" x2="${L+pw}" y1="${Y(t).toFixed(1)}" y2="${Y(t).toFixed(1)}" stroke="${t===0?'#c3c2b7':'#e1e0d9'}"/><text x="${L-6}" y="${(Y(t)+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#898781">${fmtN(t)}</text>`);});
-    const gw=pw/m;const rot=B>30;
-    d.cats.forEach((c,i)=>{const cx=L+gw*(i+0.5);out.push(rot?`<text transform="translate(${cx.toFixed(1)},${top+ph+8}) rotate(-35)" text-anchor="end" font-size="10" fill="#52514e">${T(c)}</text>`
-      :`<text x="${cx.toFixed(1)}" y="${top+ph+15}" text-anchor="middle" font-size="11" fill="#52514e">${T(c)}</text>`);});
-    if(o.kind==='line'){S.forEach((s,k)=>{const pts=s.vals.map((v,i)=>[L+gw*(i+0.5),Y(v)]);
-        out.push(`<polyline points="${pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')}" fill="none" stroke="${col(k)}" stroke-width="2" stroke-linejoin="round"/>`);
-        pts.forEach((p,i)=>{out.push(`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4" fill="${col(k)}" stroke="#fff" stroke-width="1.5"><title>${T(d.cats[i])} · ${T(s.name)}: ${fmtN(s.vals[i])}</title></circle>`);
-          if(o.labels)out.push(`<text x="${p[0].toFixed(1)}" y="${(p[1]-8).toFixed(1)}" text-anchor="middle" font-size="10" fill="#52514e">${fmtN(s.vals[i])}</text>`);});});}
-    else{const bw=stack?Math.min(60,gw*0.6):Math.min(40,gw*0.72/n);
-      d.cats.forEach((c,i)=>{let pos=0,neg=0;S.forEach((s,k)=>{const v=s.vals[i];let a,b;if(stack){const base=v>=0?pos:neg;a=Y(base);b=Y(base+v);if(v>=0)pos+=v;else neg+=v;}else{a=Y(0);b=Y(v);}
-          const x=stack?L+gw*(i+0.5)-bw/2:L+gw*(i+0.5)-bw*n/2+bw*k;const y=Math.min(a,b),h=Math.max(1,Math.abs(b-a)-(stack?1:0));
-          out.push(`<rect x="${(x+1).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1,bw-2).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${col(k)}"><title>${T(c)} · ${T(s.name)}: ${fmtN(v)}</title></rect>`);
-          if(o.labels&&!stack)out.push(`<text x="${(x+bw/2).toFixed(1)}" y="${(v>=0?b-4:b+11).toFixed(1)}" text-anchor="middle" font-size="10" fill="#52514e">${fmtN(v)}</text>`);});
-        if(o.labels&&stack)out.push(`<text x="${(L+gw*(i+0.5)).toFixed(1)}" y="${(Y(pos)-4).toFixed(1)}" text-anchor="middle" font-size="10" fill="#52514e">${fmtN(pos)}</text>`);});}}
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="system-ui,-apple-system,'Malgun Gothic','Apple SD Gothic Neo',sans-serif"><rect width="${W}" height="${H}" fill="#fff"/>${out.join('')}</svg>`;}
+        out.push(`<rect x="${x.toFixed(1)}" y="${(y+1).toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(1,bh-2).toFixed(1)}" rx="2" fill="${colS(k)}"><title>${T(c)} · ${T(s.name)}: ${fv(v)}</title></rect>`);
+        if(o.labels&&!stack)out.push(`<text x="${(b+(v>=0?4:-4)).toFixed(1)}" y="${(y+bh/2+3).toFixed(1)}" text-anchor="${v>=0?'start':'end'}" font-size="10" fill="#52514e" stroke="#fff" stroke-width="3" paint-order="stroke">${fv(v)}</text>`);});
+      if(o.labels&&stack)out.push(`<text x="${(X(pos)+4).toFixed(1)}" y="${(y0+gh/2+3).toFixed(1)}" font-size="10" fill="#52514e" stroke="#fff" stroke-width="3" paint-order="stroke">${fv(pos)}</text>`);});
+    if(o.ref!=null&&isFinite(o.ref)){const x=X(o.ref).toFixed(1);out.push(`<line x1="${x}" x2="${x}" y1="${top}" y2="${top+ph}" stroke="#e34948" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${(+x+4)}" y="${top+10}" font-size="10" fill="#e34948">${T(o.refLabel||'기준')} ${fv(o.ref)}</text>`);}
+    return svgOf();}
+  const Y=v=>cl(top+ph-(v-lo)/(hi-lo)*ph,top,top+ph);
+  ticks.forEach(t=>{out.push(tickLine(t,L,Y(t).toFixed(1),L+pw,Y(t).toFixed(1))+`<text x="${L-6}" y="${(Y(t)+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#898781">${lab(t)}</text>`);});
+  const gw=pw/m;const rot=B-xT-bottomLg>30;
+  d.cats.forEach((c,i)=>{const cx=L+gw*(i+0.5);out.push(rot?`<text transform="translate(${cx.toFixed(1)},${top+ph+8}) rotate(-35)" text-anchor="end" font-size="10" fill="#52514e" stroke="#fff" stroke-width="3" paint-order="stroke">${T(c)}</text>`
+    :`<text x="${cx.toFixed(1)}" y="${top+ph+15}" text-anchor="middle" font-size="11" fill="#52514e">${T(c)}</text>`);});
+  const lineOf=(s,k,Yf,col,area)=>{const pts=s.vals.map((v,i)=>[L+gw*(i+0.5),Yf(v)]);const ps=pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+    if(area)out.push(`<polygon points="${pts[0][0].toFixed(1)},${Yf(Math.max(lo,0)).toFixed(1)} ${ps} ${pts[pts.length-1][0].toFixed(1)},${Yf(Math.max(lo,0)).toFixed(1)}" fill="${col}" fill-opacity="0.18"/>`);
+    out.push(`<polyline points="${ps}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/>`);
+    pts.forEach((p,i)=>{out.push(`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${area?3:4}" fill="${col}" stroke="#fff" stroke-width="1.5"><title>${T(d.cats[i])} · ${T(s.name)}: ${fmtN(s.vals[i])}${s===SL?(o.unit2||''):unit}</title></circle>`);
+      if(o.labels)out.push(`<text x="${p[0].toFixed(1)}" y="${(p[1]-8).toFixed(1)}" text-anchor="middle" font-size="10" fill="#52514e" stroke="#fff" stroke-width="3" paint-order="stroke">${fmtN(s.vals[i])}${s===SL?(o.unit2||''):unit}</text>`);});};
+  if(o.kind==='line'||o.kind==='area')SB.forEach((s,k)=>lineOf(s,k,Y,colS(k),o.kind==='area'));
+  else{const bw=stack?Math.min(60,gw*0.6):Math.min(40,gw*0.72/n);
+    d.cats.forEach((c,i)=>{let pos=0,neg=0;SB.forEach((s,k)=>{const v=s.vals[i];let a,b;if(stack){const base=v>=0?pos:neg;a=Y(base);b=Y(base+v);if(v>=0)pos+=v;else neg+=v;}else{a=Y(Math.max(lo,0));b=Y(v);}
+        const x=stack?L+gw*(i+0.5)-bw/2:L+gw*(i+0.5)-bw*n/2+bw*k;const y=Math.min(a,b),h=Math.max(1,Math.abs(b-a)-(stack?1:0));
+        out.push(`<rect x="${(x+1).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1,bw-2).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${colS(k)}"><title>${T(c)} · ${T(s.name)}: ${fv(v)}</title></rect>`);
+        if(o.labels&&!stack)out.push(`<text x="${(x+bw/2).toFixed(1)}" y="${(v>=0?b-4:b+11).toFixed(1)}" text-anchor="middle" font-size="10" fill="#52514e" stroke="#fff" stroke-width="3" paint-order="stroke">${fv(v)}</text>`);});
+      if(o.labels&&stack)out.push(`<text x="${(L+gw*(i+0.5)).toFixed(1)}" y="${(Y(pos)-4).toFixed(1)}" text-anchor="middle" font-size="10" fill="#52514e" stroke="#fff" stroke-width="3" paint-order="stroke">${fv(pos)}</text>`);});}
+  if(combo){const Y2=v=>cl(top+ph-(v-A2.lo)/(A2.hi-A2.lo)*ph,top,top+ph);
+    A2.t.forEach(t=>out.push(`<text x="${L+pw+6}" y="${(Y2(t)+3.5).toFixed(1)}" font-size="10" fill="#898781">${fmtN(t)}${T(o.unit2||'')}</text>`));
+    lineOf(SL,S.length-1,Y2,colS(S.length-1),false);}
+  if(o.ref!=null&&isFinite(o.ref)){const y=Y(o.ref).toFixed(1);out.push(`<line x1="${L}" x2="${L+pw}" y1="${y}" y2="${y}" stroke="#e34948" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${L+pw-2}" y="${(+y-4)}" text-anchor="end" font-size="10" fill="#e34948">${T(o.refLabel||'기준')} ${fv(o.ref)}</text>`);}
+  return svgOf();}
 async function svgToPng(svg,scale){const img=new Image();const url=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml;charset=utf-8'}));
   try{await new Promise((ok,err)=>{img.onload=ok;img.onerror=()=>err(new Error('그래프를 그림으로 바꾸지 못했습니다'));img.src=url;});
     const c=document.createElement('canvas');c.width=Math.round(img.width*scale);c.height=Math.round(img.height*scale);const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(img,0,0,c.width,c.height);
     return await new Promise(r=>c.toBlob(r,'image/png'));}finally{URL.revokeObjectURL(url);}}
+const numIn=v=>v===''||v==null?undefined:(isFinite(+v)?+v:undefined);
 function BdChart({it,items,patch}){
   const src=items.find(x=>x.id===it.src&&x.type==='table');const html=src?src.html:'';
-  const data=React.useMemo(()=>(src?chartData(tableGrid(html)):null)||it.data||null,[html,!!src,it.data]);
-  const o={kind:it.kind||'bar',title:it.title||'',labels:!!it.labels,stack:!!it.stack,w:it.w-2};
+  const dopt={tr:!!it.tr,cat:it.cat|0};
+  const data=React.useMemo(()=>(src?chartData(tableGrid(html),dopt):null)||it.data||null,[html,!!src,it.data,dopt.tr,dopt.cat]);
+  const [more,setMore]=React.useState(false);const [msg,setMsg]=React.useState('');
+  const o={kind:it.kind||'bar',title:it.title||'',labels:!!it.labels,stack:!!it.stack,w:it.w-6,h:it.h?Math.max(140,it.h-(more?240:44)):undefined,
+    pal:it.pal||'base',colors:it.colors||{},legend:it.legend||'top',grid:it.grid!==false,unit:it.unit,ymin:it.ymin,ymax:it.ymax,xt:it.xt||'',yt:it.yt||'',
+    hide:it.hide||[],ref:it.ref,refAuto:!!it.refAuto,refLabel:it.refLabel||'',combo:!!it.combo,unit2:it.unit2||'',zero:it.zero};
   const svg=data?chartSvg(data,o):'';const sig=JSON.stringify([o,data]);
   React.useEffect(()=>{if(!svg||it.sig===sig)return;
     const t=setTimeout(async()=>{try{const b=await svgToPng(svg,2);const r=await Files.put(new File([b],'chart-'+it.id+'.png',{type:'image/png'}));patch(it.id,{pic:r.path,sig,data});}
       catch(e){console.warn('[그래프] 그림 저장',e.message);}},1500);return()=>clearTimeout(t);},[sig]);
-  const set=p=>patch(it.id,p);
+  const set=p=>patch(it.id,p);const round=o.kind==='pie'||o.kind==='donut';
+  const copyPng=async()=>{try{const b=await svgToPng(svg,2);await navigator.clipboard.write([new ClipboardItem({'image/png':b})]);setMsg('그림을 복사했습니다');}
+    catch(e){const a=document.createElement('a');a.href=URL.createObjectURL(await svgToPng(svg,2));a.download=(o.title||'그래프')+'.png';a.click();setMsg('복사가 막혀 그림 파일로 내려받았습니다');}
+    setTimeout(()=>setMsg(''),2500);};
+  const pal=(CH_PALS[o.pal]||CH_PALS.base)[1];
+  const swatchKeys=data?(round?data.cats.map(c=>['#'+c,c]):data.series.map(s=>[s.name,s.name])):[];
+  const colorOf=(k,i)=>o.colors[k]||(round?pal[i%pal.length]:pal[data.series.findIndex(s=>s.name===k)%pal.length]);
   return <div className="bd-ch">
-    {svg?<div dangerouslySetInnerHTML={{__html:svg}}/>:<div className="bd-ch-empty">표에 숫자 열이 없습니다<br/>첫 열에 항목 이름, 다음 열부터 숫자를 넣으세요 (첫 행은 계열 이름)</div>}
-    <div className="bd-ch-tb" onMouseDown={e=>e.stopPropagation()}>
+    {svg?<div dangerouslySetInnerHTML={{__html:svg}}/>:<div className="bd-ch-empty">표에 숫자 열이 없습니다<br/>항목 이름 열과 숫자 열을 넣으세요 (첫 행은 계열 이름) · ⚙ 설정에서 항목 열·행/열 바꾸기</div>}
+    <div className="bd-ch-tb" onMouseDown={e=>e.stopPropagation()} onPointerDown={e=>e.stopPropagation()}>
       {CH_KINDS.map(([k,l])=><button key={k} type="button" className={o.kind===k?'on':''} onClick={()=>set({kind:k})}>{l}</button>)}
       <input type="text" value={it.title||''} placeholder="제목" onChange={e=>set({title:e.target.value})}/>
       <label><input type="checkbox" checked={o.labels} onChange={e=>set({labels:e.target.checked})}/>값 표시</label>
-      {data&&data.series.length>1&&o.kind!=='pie'&&o.kind!=='line'&&<label><input type="checkbox" checked={o.stack} onChange={e=>set({stack:e.target.checked})}/>누적</label>}
-      {o.kind==='pie'&&data&&data.series.length>1&&<span style={{color:'#898781'}}>(원은 첫 숫자 열만)</span>}
+      {data&&data.series.length>1&&!round&&o.kind!=='line'&&o.kind!=='area'&&<label><input type="checkbox" checked={o.stack} onChange={e=>set({stack:e.target.checked})}/>누적</label>}
+      <button type="button" className={more?'on':''} onClick={()=>setMore(!more)}>⚙ 설정</button>
+      {svg&&<button type="button" onClick={copyPng} title="워드·PPT·카톡에 붙여넣을 수 있게 그림으로 복사">그림 복사</button>}
+      {msg&&<span style={{color:'#57534e'}}>{msg}</span>}
+      {round&&data&&data.series.length>1&&<span style={{color:'#898781'}}>(원·도넛은 첫 숫자 열만)</span>}
       {!src&&it.src&&<span style={{color:'#898781'}}>원본 표가 없어 마지막 값으로 그립니다</span>}
-    </div></div>;}
+    </div>
+    {more&&<div className="bd-ch-set" onMouseDown={e=>e.stopPropagation()} onPointerDown={e=>e.stopPropagation()}>
+      <div><b>데이터</b>
+        {data&&data.cols&&<label>항목 열 <select value={dopt.cat} onChange={e=>set({cat:+e.target.value})}>{data.cols.map((c,j)=><option key={j} value={j}>{c}</option>)}</select></label>}
+        <label><input type="checkbox" checked={dopt.tr} onChange={e=>set({tr:e.target.checked,cat:0})}/>행·열 바꾸기</label>
+        {data&&!round&&data.series.map(s=><label key={s.name}><input type="checkbox" checked={!o.hide.includes(s.name)} onChange={e=>set({hide:e.target.checked?o.hide.filter(x=>x!==s.name):[...o.hide,s.name]})}/>{s.name}</label>)}</div>
+      <div><b>색상</b>
+        <select value={o.pal} onChange={e=>set({pal:e.target.value,colors:{}})}>{Object.entries(CH_PALS).map(([k,[l]])=><option key={k} value={k}>{l}</option>)}</select>
+        {data&&swatchKeys.map(([k,l],i)=><label key={k} className="sw" title={l+' 색 바꾸기'}><input type="color" value={colorOf(k,i)} onChange={e=>set({colors:{...o.colors,[k]:e.target.value}})}/>{l}</label>)}
+        {Object.keys(o.colors).length>0&&<button type="button" onClick={()=>set({colors:{}})}>색 되돌리기</button>}</div>
+      {!round&&<div><b>축</b>
+        <label>최소 <input type="number" value={o.ymin??''} placeholder="자동" onChange={e=>set({ymin:numIn(e.target.value)})}/></label>
+        <label>최대 <input type="number" value={o.ymax??''} placeholder="자동" onChange={e=>set({ymax:numIn(e.target.value)})}/></label>
+        <label>단위 <input type="text" className="s" value={o.unit??(data&&data.unit)??''} placeholder="%, 억원" onChange={e=>set({unit:e.target.value})}/></label>
+        <label>세로축 이름 <input type="text" value={o.yt} onChange={e=>set({yt:e.target.value})}/></label>
+        <label>가로축 이름 <input type="text" value={o.xt} onChange={e=>set({xt:e.target.value})}/></label>
+        <label><input type="checkbox" checked={o.grid} onChange={e=>set({grid:e.target.checked})}/>눈금선</label>
+        {(o.kind==='line'||o.kind==='area')&&<label><input type="checkbox" checked={o.zero===false} onChange={e=>set({zero:e.target.checked?false:undefined})}/>0부터 시작 안 함</label>}</div>}
+      <div><b>보조</b>
+        <label>범례 <select value={o.legend} onChange={e=>set({legend:e.target.value})}><option value="top">위</option><option value="bottom">아래</option><option value="none">숨김</option></select></label>
+        {!round&&<><label>기준선 <input type="number" value={o.ref??''} placeholder={o.refAuto?'평균(자동)':'목표값'} onChange={e=>set({ref:numIn(e.target.value),refAuto:false})}/></label>
+          <label>이름 <input type="text" className="s" value={o.refLabel} placeholder="목표" onChange={e=>set({refLabel:e.target.value})}/></label>
+          {data&&<button type="button" className={o.refAuto?'on':''} title="보이는 막대·선 값의 평균 — 표를 고치면 따라 바뀝니다" onClick={()=>set(o.refAuto?{refAuto:false}:{refAuto:true,ref:undefined,refLabel:'평균'})}>평균선</button>}</>}
+        {o.kind==='bar'&&data&&data.series.length>1&&<label title="마지막 계열을 꺾은선으로, 오른쪽 축에 그립니다"><input type="checkbox" checked={o.combo} onChange={e=>set({combo:e.target.checked})}/>마지막 계열은 꺾은선(오른쪽 축)</label>}
+        {o.combo&&o.kind==='bar'&&<label>오른쪽 단위 <input type="text" className="s" value={o.unit2} onChange={e=>set({unit2:e.target.value})}/></label>}</div>
+    </div>}</div>;}
 function BdImg({it}){
   const ref=React.useRef(null);
   React.useEffect(()=>{const im=ref.current;if(im&&it.path)Files.url(it.path).then(u=>{im.src=u;}).catch(()=>{im.alt='⚠ 이미지를 불러오지 못했습니다';});},[it.path]);
@@ -39183,7 +39277,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.10.1';
+const APP_VERSION='v2.11';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
