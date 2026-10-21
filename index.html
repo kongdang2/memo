@@ -37142,8 +37142,13 @@ if(!document.getElementById('pick-dlg-css')){const st=document.createElement('st
 .pick-opt.danger b{color:#b03a48}
 .pick-x{margin:12px 0 0 auto;display:block;border:none;background:transparent;color:#78716c;font:inherit;font-size:14px;cursor:pointer;padding:6px 10px}`;document.head.appendChild(st);}
 /* 일정의 보드 — 옛 문서 메모·회의록이 있으면 글상자로 넣어서 보여 준다(고치면 그대로 저장된다) */
+/* 통번역 앱이 「일정으로 내보내기」로 넣은 상자는 마크다운(md, 접을 부분 fold)으로 온다 — 처음 열 때 글상자 HTML 로 바꾼다 */
+const bdFromMd=i=>{if(i.type!=='text'||i.html||!(i.md||i.fold))return i;const {md,fold,foldTitle,...rest}=i;
+  return {...rest,html:mdToHtml(md||'')+(fold?'<details><summary>'+escH(foldTitle||'원문 보기')+'</summary>'+mdToHtml(fold)+'</details>':'')};};
 function boardOf(e){
-  const b=e&&e.board&&Array.isArray(e.board.items)?e.board:{items:[]};if(!e||b.merged)return b;
+  let b=e&&e.board&&Array.isArray(e.board.items)?e.board:{items:[]};
+  if(b.items.some(i=>i.type==='text'&&!i.html&&(i.md||i.fold)))b={...b,items:b.items.map(bdFromMd)};
+  if(!e||b.merged)return b;
   const h=noteHtmlOf(e);const news=[];
   if(htmlToText(h).trim()||/<(img|table)/i.test(h))news.push({id:'doc-'+e.id,type:'text',html:h});
   if((e.minutes||'').trim()&&!bdHasMinutes(b))news.push(...minutesToItems(e.minutes));
@@ -38599,7 +38604,7 @@ function PrintPreview({e,setE,onClose,toast}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
   const items=React.useMemo(()=>(boardOf(e).items||[]).slice().sort((a,b)=>a.y-b.y||a.x-b.x),[e.board]);
   const docs=e.printDocs||{};
-  const [tpl,setTpl]=React.useState(()=>localStorage.getItem('cal.printTpl')||(bdHasMinutes(e.board)||(e.tbrec||[]).length?'meeting':'free'));
+  const [tpl,setTpl]=React.useState(()=>localStorage.getItem('cal.printTpl')||'meeting');
   const [busy,setBusy]=React.useState('');const [err,setErr]=React.useState('');const [off,setOff]=React.useState(()=>new Set());
   const [urls,setUrls]=React.useState({});const [ver,setVer]=React.useState(0);const ed=React.useRef(null);
   const raw=tpl==='raw';const T=PRINT_TPLS.find(t=>t.id===tpl);const cur=docs[tpl];
@@ -38809,13 +38814,7 @@ function CalendarView({db,setDb,st,set,toast,slots}){
     const mm=x=>{const {eventId,md,mode}=x.detail||{};if(eventId)setDb('events',arr=>arr.map(e=>e.id===eventId?{...e,minutes:md,minutesAt:nowStamp(),board:bdApplyMinutes(boardOf(e),md,mode)}:e));};
     window.addEventListener('meet-linked',on);window.addEventListener('meet-split',split);window.addEventListener('meet-minutes',mm);
     return()=>{window.removeEventListener('meet-linked',on);window.removeEventListener('meet-split',split);window.removeEventListener('meet-minutes',mm);};},[]);
-  /* 통번역 기록 자동 연결 — 앱을 열 때와 다시 볼 때 */
-  React.useEffect(()=>{let busy=false,lastRun=0;
-    const run=async()=>{if(busy||Date.now()-lastRun<60000)return;busy=true;lastRun=Date.now();
-      try{const recs=await Store.listTbrec();if(recs&&recs.length)setDb('events',arr=>{const r=autoLinkTbrec(arr,recs);if(r.n)toast('🎙 통번역 기록 '+r.n+'건을 일정에 연결했습니다');return r.n?r.events:arr;});}
-      catch(x){console.warn('tbrec auto-link',x);}busy=false;};
-    run();const vis=()=>{if(document.visibilityState==='visible')run();};
-    document.addEventListener('visibilitychange',vis);return()=>document.removeEventListener('visibilitychange',vis);},[]);
+  /* 통번역 기록 자동 연결은 v2.17부터 없앴다 — 통번역 앱의 「📅 일정으로 내보내기」가 내용을 본문에 직접 넣는다 */
   /* 폰 달력 배율 — 고른 값을 기억한다 */
   const [zoom,setZoom]=React.useState(()=>{const v=parseFloat(localStorage.getItem('cal.calzoom'));return isFinite(v)?v:2;});
   React.useEffect(()=>{try{localStorage.setItem('cal.calzoom',String(zoom));}catch(_){}},[zoom]);
@@ -39268,7 +39267,7 @@ function ListView({events,categories,st,set,onOpen,onNotes}){
 /* 속성 패널: 제목 · 기간 · 시간 · 캘린더 · 카테고리(색) · 상태 · 반복 · 비고 */
 function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
-  const [e,setE]=React.useState(ev);const [rev,setRev]=React.useState(0);const [savedAt,setSavedAt]=React.useState('');
+  const [e,setE]=React.useState(ev);const e0=React.useRef(ev);e0.current=e;const [rev,setRev]=React.useState(0);const [pv,setPv]=React.useState(false);const [savedAt,setSavedAt]=React.useState('');
   /* 자동 저장: 입력이 멈추고 1초 뒤 저장. 닫을 때는 기다리지 않고 바로 저장한다.
      제목이 비어 있으면 저장하지 않는다(새 일정을 열었다 그냥 닫은 경우) */
   const last=React.useRef(null);const timer=React.useRef(null);const downAt=React.useRef(false);
@@ -39302,6 +39301,12 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
   const HANDLES=[['n',{top:0,left:10,right:10,height:6}],['s',{bottom:0,left:10,right:10,height:6}],['w',{left:0,top:10,bottom:10,width:6}],['e',{right:0,top:10,bottom:10,width:6}],
     ['nw',{top:0,left:0,width:12,height:12}],['ne',{top:0,right:0,width:12,height:12}],['sw',{bottom:0,left:0,width:12,height:12}],['se',{bottom:0,right:0,width:12,height:12}]];
   React.useEffect(()=>{setE(ev);setSavedAt('');last.current=ev?JSON.stringify(ev):null;},[ev]);
+  /* 창이 열린 동안 다른 곳(통번역 앱의 「일정으로 내보내기」 등)에서 이 일정에 상자가 더해지면 창에도 붙인다 */
+  React.useEffect(()=>{const on=x=>{const d=(x.detail||[]).find(v=>v&&e0.current&&v.id===e0.current.id);if(!d||!d.board)return;
+      const mine=(e0.current.board&&e0.current.board.items)||[];const have=new Set(mine.map(i=>i.id));
+      const add=(d.board.items||[]).filter(i=>i&&!have.has(i.id));if(!add.length)return;
+      setE(p=>p&&p.id===d.id?{...p,board:{...(p.board||{}),items:[...((p.board&&p.board.items)||[]),...add.filter(i=>!((p.board&&p.board.items)||[]).some(j=>j.id===i.id))]}}:p);setRev(r=>r+1);};
+    window.addEventListener('pms-remote-events',on);return()=>window.removeEventListener('pms-remote-events',on);},[]);
   /* 이 창에서 녹음한 기록이 저장되면 열려 있는 일정에도 바로 붙인다 */
   React.useEffect(()=>{const on=x=>{const {eventId,link}=x.detail||{};
       setE(p=>p&&p.id===eventId?{...p,tbrec:[...(p.tbrec||[]).filter(r=>r.id!==link.id),link]}:p);};
@@ -39386,7 +39391,6 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
         </PRow>
         <PRow icon="◐" label="상태">{STATUS_KEYS.map(s=><Chip key={s} on={e.status===s} color={s==='done'?'#0a6b3b':s==='doing'?'#4E82AE':undefined} onClick={()=>f('status')(s)}>{STATUS_LABEL[s]}</Chip>)}</PRow>
         <PRow icon="↻" label="반복">{[['none','없음'],['daily','매일'],['weekly','매주'],['monthly','매월']].map(([k,l])=><Chip key={k} on={e.repeat===k} onClick={()=>f('repeat')(k)}>{l}</Chip>)}</PRow>
-        <PRow icon="🎙" label="기록" top><TbrecBox date={e.date} list={e.tbrec||[]} onAttach={attachTb} onDetach={detachTb}/></PRow>
         <PRow icon="🔗" label="관련 링크" top>
           <div style={{width:'100%'}}>
             <textarea value={e.links||''} onChange={x=>f('links')(x.target.value)} rows={Math.max(2,linkList.length+1)} placeholder="자료 위치를 한 줄에 하나씩 (URL 또는 드라이브 경로)"
@@ -39395,7 +39399,9 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
           </div>
         </PRow>
         </>}
-        <PRow icon="🔴" label="녹음·통역" top><MeetRecorder ev={e} toast={toast} extra={<MinutesBox e={e} setE={setE} toast={toast}/>}/></PRow>
+        <PRow icon="📝" label="회의록"><Button size="sm" onClick={()=>setPv(true)} title="메모(본문)에 모인 내용을 양식에 맞춰 회의록으로 정리하고, 인쇄(PDF)·워드로 내보냅니다">📝 회의록 생성</Button>
+          <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>녹음·통역·전사는 통번역 앱에서 하고, 기록의 「📅 일정으로」 단추로 이 메모에 넣습니다</span>
+          {pv&&<PrintPreview e={e} setE={setE} toast={toast} onClose={()=>setPv(false)}/>}</PRow>
         {(()=>{const refs=(window.pmsEvents?window.pmsEvents():[]).filter(x=>x.id!==e.id&&x.board&&(x.board.items||[]).some(i=>(i.html||'').includes('data-ev="'+e.id+'"')));
           return refs.length>0&&<PRow icon="↩" label="언급한 곳" top><div style={{display:'flex',flexWrap:'wrap',gap:6}}>
             {refs.map(x=><button key={x.id} type="button" onClick={()=>window.dispatchEvent(new CustomEvent('pms-open',{detail:{id:x.id}}))} title="이 일정을 @멘션한 일정 열기"
@@ -39412,7 +39418,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.16.1';
+const APP_VERSION='v2.17';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
@@ -39594,19 +39600,21 @@ function Shell({user,onLogout}){
       rows.forEach(r=>{(byKind[r.kind]=byKind[r.kind]||[]).push(r);if(!P.at||r.updated_at>P.at)P.at=r.updated_at;});
       Object.entries(byKind).forEach(([kind,list])=>{
         const base=(dbRef.current&&dbRef.current[kind])||[];
-        const m=new Map(base.map(x=>[x.id,x]));let hit=0;
+        const m=new Map(base.map(x=>[x.id,x]));let hit=0;const got=[];
         list.forEach(r=>{
           if(r.deleted_at){if(m.delete(r.item_id))hit++;return;}
           const cur=m.get(r.item_id);
           if(cur&&sameJson(cur,r.data))return;   /* 내가 방금 올린 것 — 셈에서 뺀다(서버가 키 순서를 바꿔 돌려주므로 순서는 무시) */
           const mine=(Store.snap[kind]||new Map()).get(r.item_id);
           if(mine&&sameJson(JSON.parse(mine),r.data))return;   /* 내가 마지막으로 올린 그대로 — 그 뒤 화면에서 고친 내용을 옛것으로 덮지 않는다 */
-          m.set(r.item_id,r.data);hit++;
+          m.set(r.item_id,r.data);hit++;got.push(r.data);
         });
         if(!hit)return;
         n+=hit;const arr=[...m.values()];
         dbRef.current={...(dbRef.current||{}),[kind]:arr};
         setDbRaw(d=>({...d,[kind]:arr}));
+        /* 열려 있는 일정 창에도 알린다 — 다른 기기·통번역 앱이 넣은 상자를 창의 옛 내용으로 덮어쓰지 않게 */
+        if(kind==='events'&&got.length)window.dispatchEvent(new CustomEvent('pms-remote-events',{detail:got}));
       });
       return n;
     }catch(_){return 0;}
