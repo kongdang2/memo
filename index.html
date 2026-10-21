@@ -37972,24 +37972,6 @@ function putSection(md,head,body){
   const cleaned=String(md||'').replace(new RegExp('\\n*##\\s*'+esc+'[^\\n]*\\n[\\s\\S]*?(?=\\n##\\s|$)','g'),'').replace(/\s+$/,'');
   const sec='## '+head+'\n'+String(body).trim()+'\n';const m=/(^|\n)##\s/.exec(cleaned);
   return m?cleaned.slice(0,m.index).replace(/\s+$/,'')+'\n\n'+sec+'\n'+cleaned.slice(m.index).replace(/^\n+/,''):cleaned+'\n\n'+sec;}
-/* 기록의 언어 — 머리말에서 읽는다(통번역 앱 기록은 대개 중국어) */
-function recLang(md){const h=String(md||'').slice(0,400);
-  if(/회의 받아쓰기 · 한국어|전사 · 한국어 ·|원어:\s*한국어/.test(h))return 'ko';
-  for(const [k,n] of Object.entries(langName))if(k!=='ko'&&new RegExp(n+'\\s*→').test(h))return k;
-  return /[一-鿿]{4}/.test(mdSection(md,'실시간 원문'))?'zh':/[가-힣]{4}/.test(mdSection(md,'실시간 원문'))?'ko':'zh';}
-const audioPaths=md=>{const out=[];const re=/\[([^\]]*)\]\(pms:([^)\s]+)\)/g;let m;while((m=re.exec(md||'')))if(/🎙|\.(webm|m4a|mp3|wav|ogg|mp4|aac|flac)$/i.test(m[1]+' '+m[2]))out.push(m[2]);return out;};
-/* 이미 저장된 기록의 녹음으로 다시 전사 → 정리 → 기록에 「정리·번역」「녹취 (받아쓰기)」 절을 넣는다 */
-async function retranscribeRec(id,onStep,pick){
-  const rec=await Store.getTbrec(id);if(!rec)throw new Error('기록을 찾지 못했습니다');
-  const paths=audioPaths(rec.md);if(!paths.length)throw new Error('이 기록에는 녹음 파일이 없습니다');
-  let lang=pick||rec.lang||recLang(rec.md);const texts=[];
-  for(let i=0;i<paths.length;i++){onStep&&onStep('녹음 내려받는 중 '+(i+1)+'/'+paths.length);
-    const b=await Files.blob(paths[i]);texts.push(await transcribeFile(b,lang,s=>onStep&&onStep((paths.length>1?'['+(i+1)+'/'+paths.length+'] ':'')+s)));}
-  const raw=texts.filter(Boolean).join('\n\n');if(!raw.trim())throw new Error('녹음에서 말소리를 찾지 못했습니다');
-  if(!langName[lang])lang=guessLang(raw);
-  const pol=await polishText(raw,lang,onStep);
-  let md=putSection(rec.md,'녹취 (받아쓰기)',raw);md=putSection(md,'정리·번역',pol);
-  await saveTbrec({...rec,md,lang,updated:nowStamp()});return {...rec,md,lang};}
 /* 방금 녹음한 조각(메모리)을 처음부터 다시 받아써서 기록의 「녹취」·「정리·번역」을 채운다 */
 async function retranscribeBlobs(rec,blobs,lang,onStep){
   const texts=[];
@@ -38678,16 +38660,11 @@ function PrintPreview({e,setE,onClose,toast}){
 }
 function MinutesBox({e,setE,toast}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
-  const [busy,setBusy]=React.useState('');const [err,setErr]=React.useState('');const [pv,setPv]=React.useState(false);const [pick,setPick]=React.useState(false);
+  const [busy,setBusy]=React.useState('');const [err,setErr]=React.useState('');const [pv,setPv]=React.useState(false);
   const has=bdHasMinutes(boardOf(e));const src=(e.tbrec||[]).length;
-  const make=async (full,lang)=>{setPick(false);const mode=await askMinutesMode(e);if(!mode)return;
+  const make=async ()=>{const mode=await askMinutesMode(e);if(!mode)return;
     setErr('');setBusy('준비 중…');
     try{await MeetCfg.load();
-      /* 녹음으로 다시 받아쓰기 — 실시간 자막보다 정확하다. 녹음이 없는 기록은 건너뛴다 */
-      if(full){let n=0;const list=e.tbrec||[];
-        for(let i=0;i<list.length;i++){try{await retranscribeRec(list[i].id,t=>setBusy((list.length>1?'기록 '+(i+1)+'/'+list.length+' · ':'')+t),lang);n++;}
-          catch(x){if(!/녹음 파일이 없습니다/.test(x.message))throw x;}}
-        if(!n)throw new Error('붙은 기록에 녹음 파일이 없습니다 — 「📁 녹음 파일로 회의록」으로 파일을 올려 주세요');}
       const md=await makeMinutes(e,setBusy,{noMemo:mode==='all'});setE(p=>({...p,minutes:md,minutesAt:nowStamp(),board:bdApplyMinutes(boardOf(p),md,mode)}));
       toast&&toast('📝 회의록을 아래 메모에 넣었습니다 — 바로 고칠 수 있습니다');}
     catch(x){setErr(x.message);}setBusy('');};
@@ -38695,12 +38672,7 @@ function MinutesBox({e,setE,toast}){
      여기서는 통번역 앱 기록을 붙였을 때만 「회의록 만들기」를 보여 준다 */
   if(busy)return <span style={{fontSize:'var(--fs-sm2)',color:'var(--text-muted)'}}>⏳ {busy}</span>;
   return <>
-    {src>0&&<Button size="sm" variant="ghost" onClick={()=>make(false)} title="붙은 녹음·통번역 기록과 메모로 회의록을 만들어 아래 메모에 넣습니다(Claude)">{has?'↻ 회의록 다시 만들기':'✨ 회의록 만들기'}</Button>}
-    {src>0&&<Button size="sm" variant={pick?'primary':'ghost'} onClick={()=>setPick(v=>!v)} title="붙은 기록의 녹음 파일을 처음부터 다시 받아쓰고(더 정확) 다듬은 뒤 회의록을 만듭니다 — 녹음의 언어를 고릅니다">🎧 다시 전사</Button>}
-    {pick&&<span style={{flexBasis:'100%',display:'flex',flexWrap:'wrap',gap:4,alignItems:'center',fontSize:'var(--fs-sm2)',color:'var(--text-muted)'}}>
-      녹음에서 말한 언어:{FILE_LANGS.slice().sort((a,b)=>(b.id==='auto')-(a.id==='auto')).map(l=><Button key={l.id} size="xs" variant={l.id==='auto'?'primary':'ghost'} onClick={()=>make(true,l.id)}>{l.label}</Button>)}
-      <Button size="xs" variant="ghost" onClick={()=>setPick(false)}>취소</Button>
-      <span style={{flexBasis:'100%'}}>녹음 언어와 다르게 고르면(예: 중국어 회의를 한국어로) 엉뚱한 글이 나옵니다. 모르면 자동 감지</span></span>}
+    {src>0&&<Button size="sm" variant="ghost" onClick={make} title="붙은 녹음·통번역 기록과 메모로 회의록을 만들어 아래 메모에 넣습니다(Claude)">{has?'↻ 회의록 다시 만들기':'✨ 회의록 만들기'}</Button>}
     <Button size="sm" variant="ghost" onClick={()=>setPv(true)} title="보드 내용을 양식에 맞춰 정리해 미리 보고, 인쇄(PDF)·워드로 내보냅니다">🖨 출력·워드</Button>
     {pv&&<PrintPreview e={e} setE={setE} toast={toast} onClose={()=>setPv(false)}/>}
     {err&&<span style={{fontSize:'var(--fs-sm)',color:'var(--color-danger)',flexBasis:'100%'}}>⚠ {err}</span>}
@@ -38755,7 +38727,7 @@ async function fileToMinutes(file,lang,ev){
     set('');return true;}
   catch(x){set('⚠ '+x.message);setTimeout(()=>{if(/^⚠/.test(MEET.saving))set('');},12000);return false;}
 }
-Object.assign(window,{fileToMinutes,saveRecToPc,retranscribeRec,recFromFile,transcribeFile,MeetRecorder,MeetPill,MinutesBox,LinkRows,PrintPreview,fillTemplate,PRINT_TPLS,aDocHtml,aDocx,MEET,LiveSession,askClaude,makeMinutes,mdToDocx,downloadDocx,tbrecText});
+Object.assign(window,{fileToMinutes,saveRecToPc,recFromFile,transcribeFile,MeetRecorder,MeetPill,MinutesBox,LinkRows,PrintPreview,fillTemplate,PRINT_TPLS,aDocHtml,aDocx,MEET,LiveSession,askClaude,makeMinutes,mdToDocx,downloadDocx,tbrecText});
 </script>
 
 <script type="text/babel">/* 일정 관리: 월간(주간 서브) · 목록 — 카테고리(색) · 기간 일정 · 공휴일 · 드래그 이동 */
@@ -39440,7 +39412,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.16';
+const APP_VERSION='v2.16.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
