@@ -37990,6 +37990,15 @@ async function retranscribeRec(id,onStep,pick){
   const pol=await polishText(raw,lang,onStep);
   let md=putSection(rec.md,'녹취 (받아쓰기)',raw);md=putSection(md,'정리·번역',pol);
   await saveTbrec({...rec,md,lang,updated:nowStamp()});return {...rec,md,lang};}
+/* 방금 녹음한 조각(메모리)을 처음부터 다시 받아써서 기록의 「녹취」·「정리·번역」을 채운다 */
+async function retranscribeBlobs(rec,blobs,lang,onStep){
+  const texts=[];
+  for(let i=0;i<blobs.length;i++)texts.push(await transcribeFile(blobs[i],lang,s=>onStep&&onStep((blobs.length>1?'['+(i+1)+'/'+blobs.length+'] ':'')+s)));
+  const raw=texts.filter(Boolean).join('\n\n');if(!raw.trim())throw new Error('녹음에서 말소리를 찾지 못했습니다');
+  if(!langName[lang])lang=guessLang(raw);
+  const pol=await polishText(raw,lang,onStep);
+  let md=putSection(rec.md,'녹취 (받아쓰기)',raw);md=putSection(md,'정리·번역',pol);
+  const out={...rec,md,lang,updated:nowStamp()};await saveTbrec(out);return out;}
 /* 녹음 파일 → 전사 → 정리 → 기록 만들기 (파일은 저장소에 올리지 않는다) */
 async function recFromFile(file,lang,title,onStep){
   if(Store.mode!=='supabase')throw new Error('전사는 클라우드(Supabase)에 로그인해야 쓸 수 있습니다');
@@ -38073,11 +38082,17 @@ function MeetRecorder({ev,onLinked,toast,extra}){
       MEET.sess=null;}
     catch(e){set('⚠ 기록 저장 실패 — '+e.message);return;}
     /* 녹음과 회의록은 한 번에 — 정지하면 이어서 회의록을 만들어 메모에 넣는다 */
-    if(!hasText){MEET.eventId=null;set('');return;}
+    const blobs=(MEET.last&&MEET.last.blobs)||[];
+    if(!hasText&&!blobs.length){MEET.eventId=null;set('');return;}
     const evId=MEET.eventId;
     try{const cur={...ev,tbrec:[...(ev.tbrec||[]).filter(r=>r.id!==rec.id),{id:rec.id,title:rec.title,created:rec.created}]};
       const mode=await askMinutesMode(ev,'녹음을 저장했습니다.');
       if(mode){
+        /* 실시간 자막보다 정확하게 — 아직 메모리에 있는 녹음을 처음부터 다시 받아쓰고 다듬은 뒤 회의록을 만든다(서버에 올리지 않는다) */
+        if(blobs.length&&Store.mode==='supabase'){
+          try{await MeetCfg.load();await retranscribeBlobs(rec,blobs,ss.opt.from,t=>set('녹음 다시 받아쓰는 중 · '+t));}
+          catch(e){ss.log('다시 받아쓰기 실패: '+e.message);if(!hasText)throw e;
+            toast&&toast('⚠ 녹음을 다시 받아쓰지 못해 실시간 자막으로 회의록을 만듭니다 — '+e.message);}}
         set('회의록 만드는 중…');const md=await makeMinutes(cur,t=>set('회의록 · '+t),{only:[rec.id],noMemo:mode==='all'});
         window.dispatchEvent(new CustomEvent('meet-minutes',{detail:{eventId:evId,md,mode}}));
         toast&&toast('📝 회의록을 아래 메모에 넣었습니다 — 바로 고칠 수 있습니다');}
@@ -39425,7 +39440,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.15';
+const APP_VERSION='v2.16';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
