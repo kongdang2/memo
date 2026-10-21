@@ -38324,15 +38324,42 @@ async function fillTemplate(ev,tpl,onStep){
   onStep&&onStep(tpl.insight?'회의록을 검토해 인사이트를 쓰는 중…':'양식에 맞춰 정리하는 중…');
   const multi=many?(tpl.insight?'\n메모에 통번역 기록(회의·인터뷰)이 여럿 있다. Ⅰ장은 기록마다 ### 소제목(제목·시각)으로 나눠 검토하고, Ⅱ장 이하는 기록을 가로질러 공통된 문제와 개선 방향을 찾되 어느 기록에서 나온 것인지 「(근거: 기록 제목)」로 밝힌다.'
       :'\n메모에 「🎙 통번역 기록」 상자가 여럿 있다. 서로 다른 회의·인터뷰이므로 하나로 섞지 말고, 「주요 내용」을 기록마다 ### 소제목(기록 제목·시각)으로 나눈 뒤 그 아래에 #### 주제로 정리한다. 기록마다 빠짐없이 다루고, 「결정 사항」「향후 조치」도 어느 기록의 것인지 알 수 있게 쓴다. 「회의 개요」의 일시·참석은 기록마다 한 줄씩.'):'';
-  const out=await askClaude((tpl.insight?'아래 회의록·메모를 검토하고 양식대로 「AI 인사이트」 보고서를 써라. 괄호 안 설명은 지시문이므로 지우고 내용으로 채운다.'
-      :'아래 양식대로 문서를 써라. 괄호 안 설명은 지시문이므로 지우고 내용으로 채운다. 「주요 내용」의 ### 주제는 필요한 만큼 늘린다.')+multi+'\n\n--- 양식 ---\n'
-    +tpl.md.replace(/\{제목\}/g,ev.title||'').replace(/\{일시\}/g,when).replace(/\{날짜\}/g,ev.date||'')
-    +'\n\n--- 일정 정보 ---\n제목: '+(ev.title||'')+'\n일시: '+when+(ev.category?'\n분류: '+ev.category:'')
-    +(links?'\n관련 링크:\n'+links:'')
-    +(memo?'\n\n--- 보드 메모 (위에서 아래 순서) ---\n'+memo.slice(0,100000):'')
-    +(rs.length?'\n\n--- 붙은 녹취 ---\n'+rs.join('\n\n').slice(0,60000):''),
-    {system:tpl.insight?INSIGHT_SYS:PRINT_SYS,max_tokens:many?12000:8000,cont:many?4:2,tag:tpl.insight?'일정 AI 인사이트':'일정 출력 정리'});
-  return String(out||'').replace(/^```(?:markdown|md)?\s*/,'').replace(/```\s*$/,'').trim();
+  /* 끝 표시 — 서버가 답을 몰래 잘라도(4096 한도 등) 끝 표시가 없으면 끊긴 것으로 보고 이어 쓰게 한다 */
+  const END='〔끝〕',endNote='\n\n--- 마무리 ---\n맡은 부분을 끝까지 다 쓴 다음 맨 마지막 줄에 '+END+' 만 적는다.';
+  const ask=(p,o)=>askClaude(p+endNote,{...o,done:/〔끝〕/,system:tpl.insight?INSIGHT_SYS:PRINT_SYS,tag:tpl.insight?'일정 AI 인사이트':'일정 출력 정리'});
+  const clean=t=>String(t||'').replace(/^```(?:markdown|md)?\s*/,'').replace(/```\s*$/,'').replace(/〔끝〕/g,'').trim();
+  const head=(tpl.insight?'아래 회의록·메모를 검토하고 양식대로 「AI 인사이트」 보고서를 써라. 괄호 안 설명은 지시문이므로 지우고 내용으로 채운다.'
+      :'아래 양식대로 문서를 써라. 괄호 안 설명은 지시문이므로 지우고 내용으로 채운다. 「주요 내용」의 ### 주제는 필요한 만큼 늘린다.');
+  const form=tpl.md.replace(/\{제목\}/g,ev.title||'').replace(/\{일시\}/g,when).replace(/\{날짜\}/g,ev.date||'');
+  const info='\n\n--- 일정 정보 ---\n제목: '+(ev.title||'')+'\n일시: '+when+(ev.category?'\n분류: '+ev.category:'')+(links?'\n관련 링크:\n'+links:'');
+  const body=(memo?'\n\n--- 보드 메모 (위에서 아래 순서) ---\n'+memo.slice(0,100000):'')+(rs.length?'\n\n--- 붙은 녹취 ---\n'+rs.join('\n\n').slice(0,60000):'');
+  /* 기록이 여럿이면 「주요 내용」을 기록마다 따로 쓴다 — 한 번에 쓰면 답이 길어 뒤쪽 기록이 잘려 나갔다(v2.18.2) */
+  const mainH=(form.match(/^## .*주요[^\n]*내용.*$/m)||[])[0];
+  if(many&&!tpl.insight&&mainH){
+    const tbItems=items.filter(i=>isTb(i)&&i.type==='text');
+    const srcs=tbItems.map(i=>boardToMd([i]).trim()).concat(rs).filter(Boolean);
+    const others=boardToMd(items.filter(i=>!(isTb(i)&&i.type==='text'))).trim();
+    const nm=t=>(String(t).match(/🎙\s*통번역 기록\s*·\s*([^\n*]+)/)||[])[1]||'';
+    let done=0;onStep&&onStep('기록 '+srcs.length+'개를 하나씩 정리하는 중… (0/'+srcs.length+')');
+    const parts=await Promise.all(srcs.map((t,n)=>ask('아래는 한 일정에 모인 여러 회의·인터뷰 기록 가운데 「기록 '+(n+1)+'」이다. 회의록 「'+mainH.replace(/^##\s*/,'')+'」 장에서 이 기록이 차지할 부분만 쓴다.\n'
+        +'- 첫 줄은 「### 【기록 '+(n+1)+'】 '+(nm(t).trim()||'(기록 제목·시각)')+'」\n'
+        +'- 그 아래에 기록의 주제마다 「#### 주제」를 달고, 주제별 내용을 빠짐없이 옮긴다. 요약해 줄이지 않는다. 수치·이름·근거·결정·할 일·(?) 표시를 그대로 살린다\n'
+        +'- 장 제목(## …)·핵심 요약·결정 사항 같은 다른 장은 쓰지 않는다'
+        +'\n\n--- 기록 '+(n+1)+' ---\n'+t.slice(0,60000),{max_tokens:8000,cont:4})
+      .then(r=>{done++;onStep&&onStep('기록 '+srcs.length+'개를 하나씩 정리하는 중… ('+done+'/'+srcs.length+')');return clean(r);})));
+    onStep&&onStep('요약·결정 사항·향후 조치를 쓰는 중…');
+    const MARK='{{주요내용}}';
+    const frame=clean(await ask(head+'\n메모에 서로 다른 회의·인터뷰 기록이 '+srcs.length+'개 있다. 「'+mainH.replace(/^##\s*/,'')+'」 장은 따로 쓰므로 그 장의 제목 줄 바로 아래에 '+MARK+' 한 줄만 적고 본문은 쓰지 않는다. '
+        +'나머지 장은 모든 기록을 빠짐없이 다룬다. 핵심 요약은 기록마다 2~3줄, 「회의 개요」의 일시·참석·목적은 기록마다 한 줄씩, 「결정 사항」「향후 조치」는 어느 기록의 것인지 「기록 n」으로 밝힌다.'
+        +'\n\n--- 양식 ---\n'+form+info+body,{max_tokens:8000,cont:3}));
+    const mainMd=parts.join('\n\n');
+    if(frame.includes(MARK))return frame.replace(MARK,mainMd);
+    const lines=frame.split('\n');const at=lines.findIndex(l=>/^##\s.*주요.*내용/.test(l));
+    if(at<0)return frame+'\n\n'+mainH+'\n'+mainMd;
+    let e2=at+1;while(e2<lines.length&&!/^##\s/.test(lines[e2]))e2++;
+    return [...lines.slice(0,at+1),mainMd,...lines.slice(e2)].join('\n');}
+  const out=await ask(head+multi+'\n\n--- 양식 ---\n'+form+info+body,{max_tokens:many?12000:8000,cont:many?4:2});
+  return clean(out);
 }
 /* ── 🔗 링크 정리 — 유튜브·블로그·기사를 회의록처럼 정리하고 장면·사진을 넣는다 ──
    읽기는 Edge Function 'webdigest'(yt·page·img)가 대신 한다(브라우저는 다른 사이트를 직접 못 읽는다)
@@ -39448,7 +39475,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.18.1';
+const APP_VERSION='v2.18.2';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
