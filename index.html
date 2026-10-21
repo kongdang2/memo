@@ -37162,6 +37162,7 @@ const CH_PALS={
   navy:['남색',['#1e3a5f','#5b7fa8','#a3bcd6','#c9a227','#7d8c9c','#3e6b8a','#d4dde8','#8a6d1d']],
   calm:['차분',['#4c6a92','#c07a4f','#6a9a7b','#b89a4c','#8c7aa8','#5f8f9f','#a86b6b','#7a7a72']],
   pastel:['파스텔',['#8fb8e8','#f4a988','#8fd3b6','#f3cf73','#f2a7c3','#a8d68a','#b4a7ec','#f08f8f']],
+  kpic:['대한유화',['#002671','#005BB1','#0078D3','#A8B4C2','#D7263D','#6B7787','#8FC3F5','#E36372']],
   mono:['회색조',['#292524','#57534e','#78716c','#a8a29e','#d6d3d1','#44403c','#8f8a85','#c4c0bb']]};
 const CH_COLORS=CH_PALS.base[1];
 const CH_KINDS=[['bar','세로 막대'],['hbar','가로 막대'],['line','꺾은선'],['area','영역'],['pie','원'],['donut','도넛'],['wf','워터폴']];
@@ -38744,52 +38745,79 @@ function TermFixDialog({text,count,apply,onClose,toast}){
         <Button size="sm" disabled={!rows||!!busy} onClick={run}>{total?'바꾸기 ('+total+'곳)':'표 저장'}</Button>
       </div>
     </div></div>,document.body);}
-/* ── 📊 보고서(v2.22) — 메모를 A4 가로 「전략회의 보고」형 슬라이드로. 각 장 = 장 번호 꼬리표 + 결론형 제목 + 거버닝 메시지 +
-   카드 묶음(□ 소제목 · ○ 요점 · - 세부)·핵심 수치 카드·단계 상자·시각자료 + 시사점 띠. 카드는 남는 높이를 채워 빈 곳이 생기지 않게 한다.
-   PPT 는 화면 슬라이드의 상자(.bx)·글(.t)·표·그래프·이미지 위치를 그대로 옮겨 만든다 */
-const SL_NAVY='#1F3A5F',SL_ACC='#C8102E';
-const SL_CSS='.sl{width:297mm;height:210mm;box-sizing:border-box;padding:8mm 11mm 9mm;background:#fff;position:relative;overflow:hidden;font-family:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif;color:#1c1c1c;display:flex;flex-direction:column;gap:2.6mm}'
-  +'.sl .t{margin:0}'
-  +'.sl-hd{display:flex;align-items:stretch;gap:3mm}.sl-sec{background:'+SL_NAVY+';color:#fff;font-size:10.5pt;font-weight:700;padding:1.6mm 3.2mm;display:flex;align-items:center;white-space:nowrap}'
-  +'.sl-ttl{font-size:19pt;font-weight:800;color:'+SL_NAVY+';line-height:1.25;display:flex;align-items:center;flex:1}'
-  +'.sl-rule{height:0.9mm;background:'+SL_NAVY+'}'
-  +'.sl-msg{display:flex;border:0.35mm solid '+SL_NAVY+';background:#F3F6FA}.sl-msg .acc{width:2.2mm;background:'+SL_ACC+';flex:none}.sl-msg .t{padding:2.4mm 4mm;font-size:12.5pt;font-weight:700;color:#14263f;line-height:1.45;flex:1}'
-  +'.sl-kpis{display:flex;gap:3mm}.sl-kpi{flex:1;border:0.3mm solid #B9C6D6;background:#fff;padding:2.2mm 3mm;display:flex;flex-direction:column;gap:0.6mm}'
-  +'.sl-kpi .k-l{font-size:9pt;color:#4a5a6e;font-weight:600}.sl-kpi .k-v{font-size:17pt;font-weight:800;color:'+SL_NAVY+';line-height:1.15}.sl-kpi .k-n{font-size:8.5pt;color:#6b7785}'
-  +'.sl-main{flex:1;display:flex;gap:3.5mm;min-height:0}.sl-col{flex:1;display:flex;flex-direction:column;gap:3mm;min-width:0}.sl-grid{flex:1;display:grid;gap:3mm;min-height:0}'
-  +'.sl-card{border:0.3mm solid #B9C6D6;background:#fff;display:flex;flex-direction:column;min-height:0;flex:1}'
-  +'.sl-card .c-h{background:#E4EBF4;color:'+SL_NAVY+';font-size:11pt;font-weight:800;padding:1.6mm 3mm;border-bottom:0.3mm solid #B9C6D6}'
-  +'.sl-card .c-b{padding:2.2mm 3mm;display:flex;flex-direction:column;gap:calc(1.1mm*var(--k,1));flex:1}'
-  +'.sl-card .i1{font-size:calc(10.5pt*var(--k,1));line-height:1.45;padding-left:4.2mm;text-indent:-4.2mm}.sl-card .i2{font-size:calc(9.5pt*var(--k,1));line-height:1.4;color:#3d4652;padding-left:8mm;text-indent:-3.6mm}'
-  +'.sl-vis{flex:1.05;border:0.3mm solid #B9C6D6;display:flex;flex-direction:column;min-width:0;min-height:0}.sl-vis .c-h{background:#E4EBF4;color:'+SL_NAVY+';font-size:11pt;font-weight:800;padding:1.6mm 3mm;border-bottom:0.3mm solid #B9C6D6}'
-  +'.sl-vis .v-b{flex:1;display:flex;flex-direction:column;justify-content:center;padding:2mm 3mm;min-height:0}'
-  +'.sl-vis svg,.sl-vis img{max-width:100%;max-height:100mm;object-fit:contain;display:block;margin:0 auto}.sl-cap{font-size:8.5pt;color:#666;margin-top:1.5mm;text-align:right}'
-  +'.sl-vis table{border-collapse:collapse;width:100%;font-size:9.5pt}.sl-vis th{background:'+SL_NAVY+';color:#fff;padding:1.2mm 2mm;border:0.2mm solid '+SL_NAVY+';font-weight:700}.sl-vis td{padding:1.2mm 2mm;border:0.2mm solid #B9C6D6;text-align:center}'
-  +'.sl-steps{display:flex;gap:2mm;align-items:stretch}.sl-step{flex:1;background:'+SL_NAVY+';color:#fff;padding:2.2mm 3mm;display:flex;flex-direction:column;gap:0.8mm;clip-path:polygon(0 0,calc(100% - 4mm) 0,100% 50%,calc(100% - 4mm) 100%,0 100%,4mm 50%)}'
-  +'.sl-step:first-child{clip-path:polygon(0 0,calc(100% - 4mm) 0,100% 50%,calc(100% - 4mm) 100%,0 100%)}.sl-step .s-t{font-size:10.5pt;font-weight:800;padding-left:3mm}.sl-step .s-d{font-size:9pt;color:#d9e3ef;padding-left:3mm;line-height:1.35}'
-  +'.sl-imp{display:flex;border:0.3mm solid '+SL_NAVY+'}.sl-imp .lab{flex:none;background:'+SL_NAVY+';color:#fff;font-size:10pt;font-weight:800;padding:2mm 3.5mm;display:flex;align-items:center;white-space:nowrap}.sl-imp .t{padding:2mm 3.5mm;font-size:10.5pt;font-weight:600;color:#14263f;line-height:1.4;flex:1}'
-  +'.sl-imp .t.lab{flex:none}.sl-note{font-size:8pt;color:#777}'
-  +'.sl-f{position:absolute;left:11mm;right:11mm;bottom:3mm;display:flex;justify-content:space-between;font-size:7.5pt;color:#8a8f96;border-top:0.2mm solid #d5dae0;padding-top:1mm}'
-  +'.sl.cover{padding:0;gap:0}.sl.cover .cv-top{background:'+SL_NAVY+';height:118mm;display:flex;flex-direction:column;justify-content:flex-end;padding:0 18mm 14mm}'
-  +'.sl.cover .cv-acc{height:2.2mm;background:'+SL_ACC+'}.sl.cover .cv-k{font-size:11pt;color:#c9d6e8;letter-spacing:.3em;font-weight:700}.sl.cover .cv-t{font-size:28pt;font-weight:800;color:#fff;margin-top:4mm;line-height:1.28}'
-  +'.sl.cover .cv-s{font-size:14pt;color:#e3eaf3;margin-top:3mm}.sl.cover .cv-d{padding:12mm 18mm 0;font-size:12.5pt;color:#333;line-height:1.7}';
-const SL_PV='.pv-slides{width:297mm;max-width:100%;margin:0 auto}.pv-slides .sl{margin:0 auto 10mm;box-shadow:0 2px 10px rgba(0,0,0,.14)}.pv-slides[contenteditable]:focus{outline:none}'
+/* ── 📊 보고서(v2.23) — 대한유화 보고서 표준양식(2027 전략회의 Template)에 맞춘 A4 슬라이드(27.51×19.05cm)
+   글꼴 Pretendard · 색은 Grey/Blue/Red 3톤 · 머리(소제목 12pt 파랑, 헤드라인 20pt 남색, 보조 메시지 14pt) · 가로줄 · 본문 · 주석 9pt · 쪽번호.
+   상자는 .bx(도형), 글은 .t(글상자)로 표시해 PPT 로 그대로 옮긴다 */
+const SL_C={navy:'#002671',blue:'#005BB1',sky:'#0078D3',ice:'#EBF7FE',ink:'#3E4756',grey:'#6B7787',steel:'#A8B4C2',mist:'#E9ECF0',red:'#D7263D',rose:'#FCEEF0',line:'#D4DAE1'};
+const SL_FONT='"Pretendard","Pretendard Variable","Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif';
+const SL_FONT_URL='https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css';
+const SL_LOGO_KPIC='data:image/png;base64,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';
+const SL_LOGO_CO='data:image/png;base64,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';
+const SL_STEP_COL=[[SL_C.navy,'#fff'],[SL_C.blue,'#fff'],[SL_C.sky,'#fff'],['#5AA6E6','#fff'],[SL_C.ice,SL_C.ink],[SL_C.mist,SL_C.ink]];
+const SL_CSS='.sl{width:275.1mm;height:190.5mm;box-sizing:border-box;background:#fff;position:relative;overflow:hidden;font-family:'+SL_FONT+';color:'+SL_C.ink+'}'
+  +'.sl .t{margin:0}.sl-k2{}'
+  +'.sl-lg{position:absolute;right:11mm;top:7.2mm;width:30mm;height:6mm;object-fit:contain}'
+  +'.sl-hd{position:absolute;left:11mm;right:11mm;top:7.4mm;height:31.6mm;display:flex;flex-direction:column}'
+  +'.sl-sec{font-size:12pt;font-weight:600;color:'+SL_C.blue+';line-height:1.3;padding-right:36mm}'
+  +'.sl-ttl{font-size:20pt;font-weight:600;color:'+SL_C.navy+';line-height:1.3;margin-top:1.4mm;padding-right:36mm}'
+  +'.sl-msg{margin-top:auto;font-size:13pt;color:'+SL_C.ink+';line-height:1.38;padding-bottom:1.4mm}'
+  +'.sl-rule{position:absolute;left:11mm;right:11mm;top:39.9mm;height:0.3mm;background:'+SL_C.steel+'}'
+  +'.sl-body{position:absolute;left:11mm;right:11mm;top:44.5mm;bottom:19mm;display:flex;flex-direction:column;gap:4.2mm}'
+  +'.sl-note{position:absolute;left:11mm;right:30mm;bottom:9mm;font-size:9pt;color:'+SL_C.grey+';line-height:1.35}'
+  +'.sl-pg{position:absolute;right:8.5mm;bottom:5mm;font-size:8pt;color:'+SL_C.grey+'}'
+  +'.sl-kpis{display:flex;gap:3.6mm;flex:none}.sl-kpi{flex:1;background:'+SL_C.mist+';padding:2.8mm 3.6mm;display:flex;flex-direction:column;gap:0.8mm;min-width:0}'
+  +'.sl-kpi .k-v{font-size:20pt;font-weight:600;color:'+SL_C.navy+';line-height:1.15}.sl-kpi .k-l{font-size:10.5pt;color:'+SL_C.grey+';line-height:1.3}.sl-kpi .k-n{font-size:9pt;color:'+SL_C.grey+';line-height:1.3}'
+  +'.sl-steps{display:flex;gap:0.6mm;flex:none}.sl-step{flex:1;display:flex;flex-direction:column;gap:1.8mm;min-width:0}'
+  +'.sl-step .s-h{height:9mm;display:flex;align-items:center;justify-content:center;text-align:center;font-size:11pt;font-weight:600;padding:0 5.5mm;clip-path:polygon(0 0,calc(100% - 3.5mm) 0,100% 50%,calc(100% - 3.5mm) 100%,0 100%,3.5mm 50%)}'
+  +'.sl-step:first-child .s-h{clip-path:polygon(0 0,calc(100% - 3.5mm) 0,100% 50%,calc(100% - 3.5mm) 100%,0 100%)}'
+  +'.sl-step .s-d{font-size:10pt;color:'+SL_C.ink+';line-height:1.4;padding:0 2.5mm 0 4mm;text-align:center}'
+  +'.sl-main{flex:1;display:flex;gap:7mm;min-height:0}.sl-col{flex:1;display:flex;flex-direction:column;gap:4.2mm;min-width:0;min-height:0}.sl-col .sl-blk{flex:0 1 auto}'
+  +'.sl-grid{flex:1;display:grid;column-gap:7mm;row-gap:4.2mm;min-height:0}'
+  +'.sl-blk{display:flex;flex-direction:column;min-height:0;min-width:0;flex:1;overflow:hidden}'
+  +'.sl-blk .b-h{font-size:13pt;font-weight:600;color:'+SL_C.blue+';line-height:1.3;padding-bottom:1.2mm}'
+  +'.sl-blk .b-ln{height:0.35mm;background:'+SL_C.blue+';flex:none;margin-bottom:2.2mm}'
+  +'.sl-blk .b-b{display:flex;flex-direction:column;gap:calc(1.7mm*var(--k,1))}'
+  +'.sl-blk .i1{font-size:calc(11.5pt*var(--k,1));line-height:1.45;color:'+SL_C.ink+';padding-left:3.6mm;text-indent:-3.6mm}'
+  +'.sl-blk .i2{font-size:calc(10.5pt*var(--k,1));line-height:1.4;color:'+SL_C.grey+';padding-left:7.2mm;text-indent:-3.2mm}'
+  +'.sl-blk.risk .b-h{color:'+SL_C.red+'}.sl-blk.risk .b-ln{background:'+SL_C.red+'}'
+  +'.sl-vis{flex:1.1;display:flex;flex-direction:column;min-width:0;min-height:0}'
+  +'.sl-vis .b-h{font-size:13pt;font-weight:600;color:'+SL_C.blue+';line-height:1.3;padding-bottom:1.2mm}.sl-vis .b-ln{height:0.35mm;background:'+SL_C.blue+';flex:none;margin-bottom:2.2mm}'
+  +'.sl-vis .v-b{flex:1;display:flex;flex-direction:column;justify-content:center;min-height:0}'
+  +'.sl-vis svg{max-width:100%;max-height:96mm;display:block;margin:0 auto}.sl-vis img{max-width:100%;max-height:96mm;object-fit:contain;display:block;margin:0 auto}'
+  +'.sl-cap{font-size:8.5pt;color:'+SL_C.grey+';margin-top:1.2mm;text-align:right}'
+  +'.sl-vis table{border-collapse:collapse;width:100%;font-size:10pt}.sl-vis th{background:'+SL_C.ink+';color:#fff;padding:1.5mm 2mm;font-weight:600}'
+  +'.sl-vis td{padding:1.4mm 2mm;border-bottom:0.2mm solid '+SL_C.line+';text-align:center;color:'+SL_C.ink+'}.sl-vis tr.sum td{background:'+SL_C.mist+';font-weight:600}'
+  +'.sl-imp{flex:none;display:flex;align-items:center;gap:4mm;background:'+SL_C.navy+';border-radius:1.2mm;padding:2.6mm 5mm}'
+  +'.sl-imp .lab{flex:none;font-size:11pt;font-weight:700;color:#fff;white-space:nowrap}.sl-imp .tx{flex:1;font-size:11.5pt;color:#fff;line-height:1.4}'
+  +'.sl.cover .cv-k{position:absolute;left:10.9mm;top:7.5mm;font-size:14pt;font-weight:600;color:'+SL_C.navy+'}'
+  +'.sl.cover .cv-mid{position:absolute;left:18mm;right:18mm;top:48mm;display:flex;flex-direction:column;align-items:center}'
+  +'.sl.cover .cv-w{display:flex;flex-direction:column;align-items:stretch;max-width:100%}'
+  +'.sl.cover .cv-t{font-size:30pt;font-weight:600;color:'+SL_C.navy+';text-align:center;line-height:1.3}.sl.cover .cv-bar{height:0.5mm;background:'+SL_C.navy+';margin-top:2.6mm}'
+  +'.sl.cover .cv-s{font-size:15pt;color:'+SL_C.ink+';text-align:center;margin-top:5mm;line-height:1.4}'
+  +'.sl.cover .cv-d{position:absolute;left:0;right:0;top:140mm;text-align:center;font-size:16pt;color:'+SL_C.navy+';line-height:1.75}'
+  +'.sl.cover .cv-lg{position:absolute;left:112.6mm;top:175.5mm;width:50mm;height:7.1mm;object-fit:contain}'
+  +'.sl.toc .tc-l{position:absolute;left:11.2mm;top:89.3mm;font-size:28pt;font-weight:600;color:'+SL_C.navy+'}'
+  +'.sl.toc .tc-p{position:absolute;left:101mm;top:0;right:0;bottom:0;background:'+SL_C.navy+'}'
+  +'.sl.toc .tc-i{position:absolute;left:117.7mm;right:12mm;font-size:20pt;color:#fff;line-height:1.3}';
+const SL_PV='.pv-slides{width:275.1mm;max-width:100%;margin:0 auto}.pv-slides .sl{margin:0 auto 10mm;box-shadow:0 2px 10px rgba(0,0,0,.14)}.pv-slides[contenteditable]:focus{outline:none}'
   +SL_CSS.replace(/(^|\})\.sl/g,'$1.pv-slides .sl');
-const SL_PRINT='@page{size:A4 landscape;margin:0}body{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+SL_CSS+'.sl{page-break-after:always;break-after:page}.sl:last-child{page-break-after:auto;break-after:auto}';
-const REPORT_SYS='너는 석유화학 회사(대한유화) 전략기획팀 과장이다. 사용자의 메모(회의 정리본·글·표·그래프·이미지)를 전략회의 보고용 PPT(A4 가로) 초안으로 구성한다.\n'
-  +'- 흐름: 표지 다음 「요약」(핵심 수치 kpis + 결론 블록) → Ⅰ. 현황 → Ⅱ. 문제·원인 → Ⅲ. 대응 방안 → Ⅳ. 향후 계획(steps) 순으로, 내용에 맞게 5~9장. section 에 장 번호와 이름을 쓴다\n'
-  +'- 한 장을 꽉 채운다: blocks 를 2~4개(각 블록 items 3~5개, 필요하면 sub 1~2개) 넣고, 수치가 있으면 kpis(2~4개), 근거 자료가 있으면 visual 을 넣는다. 한 장이 휑하지 않게 하되 글자를 지어내 채우지는 않는다\n'
-  +'- title 은 그 장의 결론(25자 안팎), msg 는 거버닝 메시지 한두 문장(무엇이 문제이고 그래서 무엇을 해야 하는지), implication 은 그 장의 시사점 한 문장\n'
+const SL_PRINT='@import url('+SL_FONT_URL+');@page{size:275.1mm 190.5mm;margin:0}body{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+SL_CSS+'.sl{page-break-after:always;break-after:page}.sl:last-child{page-break-after:auto;break-after:auto}';
+(function(){try{if(!document.querySelector('link[data-sl-font]')){const l=document.createElement('link');l.rel='stylesheet';l.href=SL_FONT_URL;l.setAttribute('data-sl-font','1');document.head.appendChild(l);}}catch(_){}})();
+const REPORT_SYS='너는 석유화학 회사(대한유화) 경영기획팀 과장이다. 사용자의 메모(회의 정리본·글·표·그래프·이미지)를 대한유화 보고서 표준양식(전략회의)에 맞춘 PPT 초안으로 구성한다.\n'
+  +'- 흐름: 표지·목차 다음 「요약」(핵심 수치 kpis + 결론 블록) → Ⅰ. 현황 → Ⅱ. 문제·원인 → Ⅲ. 대응 방안 → Ⅳ. 향후 계획(steps) 순으로, 내용에 맞게 5~9장. section 은 「Ⅰ. 현황 I 시장 동향」처럼 장 번호·이름과 소제목\n'
+  +'- title 은 그 장의 Headline 메시지(결론을 담은 한 문장, 30자 안팎). msg 는 보조 메시지 한 문장(근거·그래서 무엇을 할지)\n'
+  +'- 한 장을 꽉 채운다: blocks 를 2~4개(각 블록 items 3~5개, 필요하면 sub 1~2개) 넣고, 수치가 있으면 kpis(2~4개, value 는 「30 억원」처럼 숫자+단위 짧게), 근거 자료가 있으면 visual 을 넣는다. 한 장이 휑하지 않게 하되 글자를 지어내 채우지는 않는다\n'
+  +'- 위험·이슈·지연을 다루는 블록은 "tone":"risk" 를 붙인다(빨간 제목). implication 은 그 장의 결론·시사점 한 문장\n'
   +'- 문장은 「~함」「~임」 개조식. 메모의 수치·이름·근거를 정확히 옮긴다. 메모에 없는 사실·숫자·결정은 지어내지 않는다. 녹음·통역 상태에 관한 말은 쓰지 않는다\n'
   +'- visual: 메모의 표·그래프·이미지가 근거가 되면 ref 로 넣고, 메모의 숫자로 비교·추이를 보여 줄 수 있으면 chart 를 새로 만든다(실제 숫자만). 한 장에 하나\n'
   +'- JSON 만 출력한다(앞뒤 설명·코드블록 금지)';
 const REPORT_FMT='{"title":"보고서 제목","subtitle":"부제","slides":[\n'
-  +' {"section":"Ⅰ. 현황","title":"결론형 제목","msg":"거버닝 메시지",\n'
-  +'  "kpis":[{"label":"지표","value":"수치·단위","note":"비교·설명"}],\n'
-  +'  "blocks":[{"head":"소제목","items":["요점",{"t":"요점","sub":["세부"]}]}],\n'
+  +' {"section":"Ⅰ. 현황 I 소제목","title":"Headline 메시지","msg":"보조 메시지",\n'
+  +'  "kpis":[{"label":"지표","value":"수치 단위","note":"비교·설명"}],\n'
+  +'  "blocks":[{"head":"소제목","tone":"risk(선택)","items":["요점",{"t":"요점","sub":["세부"]}]}],\n'
   +'  "steps":[{"title":"단계·시기","desc":"할 일"}],\n'
   +'  "visual":null 또는 {"type":"table|chart|image","ref":"메모 자료 id","title":"자료 제목"} 또는 {"type":"table","title":"","head":["…"],"rows":[["…"]],"unit":""} 또는 {"type":"chart","kind":"bar|hbar|line|pie","title":"","unit":"","cats":["…"],"series":[{"name":"","vals":[1]}]},\n'
-  +'  "implication":"시사점","note":"출처(선택)"}]}\n'
+  +'  "implication":"결론·시사점","note":"출처·주석(선택)"}]}\n'
   +'(kpis·steps·visual·implication 은 필요한 장에만. 요약 장의 section 은 「요약」)';
 async function makeReport(ev,onStep){
   onStep&&onStep('메모 읽는 중…');
@@ -38808,7 +38836,7 @@ async function makeReport(ev,onStep){
   const terms=await Terms.load().catch(()=>[]);
   const when=ev.date+(ev.start?' '+ev.start:'');
   onStep&&onStep('보고서 구성 짜는 중… (Claude)');
-  const out=await askClaude('아래 메모로 A4 가로 전략회의 보고 PPT 초안을 구성한다. 아래 JSON 형식으로만 답하고, JSON 다음 줄에 〔끝〕 을 적는다.\n\n--- 형식 ---\n'+REPORT_FMT
+  const out=await askClaude('아래 메모로 대한유화 보고서 표준양식 PPT 초안을 구성한다. 아래 JSON 형식으로만 답하고, JSON 다음 줄에 〔끝〕 을 적는다.\n\n--- 형식 ---\n'+REPORT_FMT
     +'\n\n--- 일정 ---\n제목: '+(ev.title||'')+'\n일시: '+when+(ev.category?'\n분류: '+ev.category:'')
     +(terms.length?'\n\n--- 용어 교정표 (왼쪽은 반드시 오른쪽으로) ---\n'+terms.map(([a,b])=>a+' → '+b).join('\n'):'')
     +(assets.length?'\n\n--- 메모의 시각자료 (ref 로 쓸 수 있음) ---\n'+assets.join('\n\n'):'')
@@ -38817,27 +38845,28 @@ async function makeReport(ev,onStep){
   const raw=String(out||'').replace(/〔끝〕/g,'');const a=raw.indexOf('{'),b=raw.lastIndexOf('}');
   let deck;try{deck=JSON.parse(raw.slice(a,b+1));}catch(_){throw new Error('보고서 구성을 읽지 못했습니다 — 다시 만들어 보세요');}
   if(!deck||!Array.isArray(deck.slides)||!deck.slides.length)throw new Error('보고서 구성이 비어 있습니다 — 다시 만들어 보세요');
-  const fix=s=>termText(String(s||''),terms).s;
+  return slNorm(deck,ev,terms);}
+/* 덱 다듬기 — 용어 교정, 예전 형식(bullets·lead)도 받아 준다 */
+function slNorm(deck,ev,terms){
+  const fix=s=>termText(String(s||''),terms||[]).s;
   const item=x=>typeof x==='string'?{t:fix(x),sub:[]}:{t:fix(x&&x.t),sub:((x&&x.sub)||[]).map(fix).filter(Boolean)};
-  deck.title=fix(deck.title||ev.title||'');deck.subtitle=fix(deck.subtitle||'');
-  deck.slides=deck.slides.map(sl=>{
-    /* 예전 형식(bullets·lead)도 받아 준다 */
+  return {...deck,title:fix(deck.title||ev.title||''),subtitle:fix(deck.subtitle||''),slides:(deck.slides||[]).map(sl=>{
     let blocks=Array.isArray(sl.blocks)?sl.blocks:[];if(!blocks.length&&Array.isArray(sl.bullets))blocks=[{head:'',items:sl.bullets}];
     return {section:fix(sl.section),title:fix(sl.title),msg:fix(sl.msg||sl.lead),implication:fix(sl.implication),note:fix(sl.note),visual:sl.visual||null,
       kpis:(sl.kpis||[]).slice(0,4).map(k=>({label:fix(k.label),value:fix(k.value),note:fix(k.note)})).filter(k=>k.label||k.value),
       steps:(sl.steps||[]).slice(0,6).map(s=>({title:fix(s.title),desc:fix(s.desc)})).filter(s=>s.title||s.desc),
-      blocks:blocks.slice(0,4).map(bk=>({head:fix(bk.head),items:(bk.items||[]).map(item).filter(x=>x.t)})).filter(bk=>bk.head||bk.items.length)};});
-  return deck;}
+      blocks:blocks.slice(0,4).map(bk=>({head:fix(bk.head),tone:bk.tone==='risk'?'risk':'',items:(bk.items||[]).map(item).filter(x=>x.t)})).filter(bk=>bk.head||bk.items.length)};})};}
 /* 시각자료 하나를 그린다 — 메모의 표·그래프·이미지(ref) 또는 Claude가 만든 표·그래프 */
 function slVisual(v,items){
   if(!v||!v.type)return '';
   const it=v.ref?items.find(i=>i.id===v.ref):null;
-  const tbl=(g,head,unit)=>'<table>'+(head?'<tr>'+head.map(c=>'<th>'+escH(c)+'</th>').join('')+'</tr>':'')+g.map(r=>'<tr>'+r.map(c=>'<td>'+escH(c)+'</td>').join('')+'</tr>').join('')+'</table>'+(unit?'<div class="sl-cap">(단위: '+escH(unit)+')</div>':'');
+  const sum=r=>/^(합계|총계|소계|계|total)$|\s계$/i.test(String(r[0]||'').trim());
+  const tbl=(g,head,unit)=>'<table>'+(head?'<tr>'+head.map(c=>'<th>'+escH(c)+'</th>').join('')+'</tr>':'')+g.map(r=>'<tr'+(sum(r)?' class="sum"':'')+'>'+r.map(c=>'<td>'+escH(c)+'</td>').join('')+'</tr>').join('')+'</table>'+(unit?'<div class="sl-cap">(단위: '+escH(unit)+')</div>':'');
   if(v.type==='table'){if(it&&it.type==='table'){const g=tableGrid(it.html||'');if(!g.length)return '';return tbl(g.slice(1),g[0]);}
     if(Array.isArray(v.rows))return tbl(v.rows.map(r=>r.map(String)),Array.isArray(v.head)?v.head.map(String):null,v.unit);return '';}
-  if(v.type==='chart'){let d=null,o={kind:'bar',title:'',labels:true,w:520,legend:'top',grid:true};
+  if(v.type==='chart'){let d=null,o={kind:'bar',title:'',labels:true,w:520,legend:'top',grid:true,pal:'kpic'};
     if(it&&it.type==='chart'){const src=items.find(x=>x.id===it.src);d=(src?chartData(tableGrid(src.html||''),{tr:!!it.tr,cat:it.cat|0}):null)||it.data;
-      o={...o,kind:it.kind||'bar',stack:!!it.stack,pal:it.pal||'base',colors:it.colors||{},unit:it.unit,hide:it.hide||[]};}
+      o={...o,kind:it.kind||'bar',stack:!!it.stack,pal:it.pal&&it.pal!=='base'?it.pal:'kpic',colors:it.colors||{},unit:it.unit,hide:it.hide||[]};}
     else if(Array.isArray(v.cats)&&Array.isArray(v.series)){d={cats:v.cats.map(String),series:v.series.map(s=>({name:String(s.name||''),vals:(s.vals||[]).map(x=>+x||0)})),unit:v.unit||''};
       o={...o,kind:/^(bar|hbar|line|pie)$/.test(v.kind)?v.kind:'bar'};}
     if(!d)return '';try{return chartSvg(d,o)||'';}catch(_){return '';}}
@@ -38845,32 +38874,43 @@ function slVisual(v,items){
   return '';}
 const slVisTitle=(v,items)=>{if(!v)return '';if(v.title)return v.title;const it=v.ref&&items.find(i=>i.id===v.ref);return (it&&it.title)||({table:'자료',chart:'그래프',image:'사진'})[v.type]||'자료';};
 function slidesHtml(deck,ev){
-  const items=boardOf(ev).items||[];const when=(ev.date||'').replace(/-/g,'. ')+'.';const foot=escH(deck.title||ev.title||'');
-  const n=deck.slides.length+1;const E=escH;
-  const cover='<section class="sl cover"><div class="cv-top bx"><div class="cv-k t">전 략 회 의 보 고</div><div class="cv-t t">'+E(deck.title||ev.title||'')+'</div>'
-    +(deck.subtitle?'<div class="cv-s t">'+E(deck.subtitle)+'</div>':'')+'</div><div class="cv-acc bx"></div><div class="cv-d t">'+E(when)+(ev.category?'<br>'+E(ev.category):'')+'</div></section>';
-  const card=bk=>'<div class="sl-card bx">'+(bk.head?'<div class="c-h t bx">□ '+E(bk.head)+'</div>':'')+'<div class="c-b">'
-    +bk.items.map(x=>'<div class="i1 t">○ '+E(x.t)+'</div>'+(x.sub||[]).map(s=>'<div class="i2 t">- '+E(s)+'</div>').join('')).join('')+'</div></div>';
-  return cover+deck.slides.map((sl,k)=>{
+  const items=boardOf(ev).items||[];const E=escH;const d=String(ev.date||'');const when=d?d.replace(/-/g,'. ')+'.':'';
+  const secs=[];deck.slides.forEach(sl=>{const s=String(sl.section||'').split(/\s+I\s+|\s*[|｜]\s*/)[0].trim();if(s&&s!=='요약'&&!secs.includes(s))secs.push(s);});
+  const toc=secs.length>=2;let pg=1;
+  const logo='<img class="sl-lg lg" src="'+SL_LOGO_KPIC+'" alt="">';
+  const cover='<section class="sl sl-k2 cover"><div class="cv-k t">'+E((d.slice(0,4)||'')+' '+(ev.category||'보고'))+'</div>'
+    +'<div class="cv-mid"><div class="cv-w"><div class="cv-t t">'+E(deck.title||ev.title||'')+'</div><div class="cv-bar bx"></div></div>'
+    +(deck.subtitle?'<div class="cv-s t">'+E(deck.subtitle)+'</div>':'')+'</div>'
+    +'<div class="cv-d t">'+E(when)+'</div><img class="cv-lg lg" src="'+SL_LOGO_CO+'" alt=""></section>';
+  const gap=Math.min(28.1,128/Math.max(1,secs.length));
+  const tocHtml=toc?'<section class="sl sl-k2 toc"><div class="tc-p bx"></div><div class="tc-l t">Contents</div>'
+    +secs.map((s,i)=>'<div class="tc-i t" style="top:'+(49+i*gap).toFixed(1)+'mm">'+E(s)+'</div>').join('')+'</section>':'';
+  if(toc)pg++;
+  const blk=bk=>'<div class="sl-blk'+(bk.tone==='risk'?' risk':'')+'">'+(bk.head?'<div class="b-h t">'+E(bk.head)+'</div><div class="b-ln bx"></div>':'')+'<div class="b-b">'
+    +bk.items.map(x=>'<div class="i1 t">• '+E(x.t)+'</div>'+(x.sub||[]).map(s=>'<div class="i2 t">- '+E(s)+'</div>').join('')).join('')+'</div></div>';
+  return cover+tocHtml+deck.slides.map(sl=>{pg++;
     const vis=slVisual(sl.visual,items);const bks=sl.blocks||[];
     let main='';
-    if(vis){main='<div class="sl-main"><div class="sl-col">'+bks.map(card).join('')+'</div><div class="sl-vis bx" data-v="'+E(JSON.stringify(sl.visual))+'" contenteditable="false"><div class="c-h t bx">■ '+E(slVisTitle(sl.visual,items))+'</div><div class="v-b">'+vis+'</div></div></div>';}
-    else if(bks.length){const c=bks.length===4?2:Math.min(3,bks.length);main='<div class="sl-grid" style="grid-template-columns:repeat('+c+',1fr)">'+bks.map(card).join('')+'</div>';}
-    return '<section class="sl">'
-      +'<div class="sl-hd">'+(sl.section?'<div class="sl-sec t bx">'+E(sl.section)+'</div>':'')+'<h2 class="sl-ttl t">'+E(sl.title)+'</h2></div><div class="sl-rule bx"></div>'
-      +(sl.msg?'<div class="sl-msg bx"><div class="acc bx"></div><div class="t">'+E(sl.msg)+'</div></div>':'')
-      +((sl.kpis||[]).length?'<div class="sl-kpis">'+sl.kpis.map(x=>'<div class="sl-kpi bx"><div class="k-l t">'+E(x.label)+'</div><div class="k-v t">'+E(x.value)+'</div>'+(x.note?'<div class="k-n t">'+E(x.note)+'</div>':'')+'</div>').join('')+'</div>':'')
-      +((sl.steps||[]).length?'<div class="sl-steps">'+sl.steps.map(x=>'<div class="sl-step bx"><div class="s-t t">'+E(x.title)+'</div>'+(x.desc?'<div class="s-d t">'+E(x.desc)+'</div>':'')+'</div>').join('')+'</div>':'')
+    if(vis){main='<div class="sl-main"><div class="sl-col">'+bks.map(blk).join('')+'</div><div class="sl-vis" data-v="'+E(JSON.stringify(sl.visual))+'" contenteditable="false"><div class="b-h t">'+E(slVisTitle(sl.visual,items))+'</div><div class="b-ln bx"></div><div class="v-b">'+vis+'</div></div></div>';}
+    else if(bks.length){const c=bks.length===4?2:Math.min(3,bks.length);main='<div class="sl-grid" style="grid-template-columns:repeat('+c+',minmax(0,1fr))">'+bks.map(blk).join('')+'</div>';}
+    return '<section class="sl sl-k2">'+logo
+      +'<div class="sl-hd"><div class="sl-sec t">'+E(sl.section||'')+'</div><h2 class="sl-ttl t">'+E(sl.title)+'</h2>'+(sl.msg?'<div class="sl-msg t">'+E(sl.msg)+'</div>':'')+'</div><div class="sl-rule bx"></div>'
+      +'<div class="sl-body">'
+      +((sl.kpis||[]).length?'<div class="sl-kpis">'+sl.kpis.map(x=>'<div class="sl-kpi bx"><div class="k-v t">'+E(x.value)+'</div><div class="k-l t">'+E(x.label)+'</div>'+(x.note?'<div class="k-n t">'+E(x.note)+'</div>':'')+'</div>').join('')+'</div>':'')
+      +((sl.steps||[]).length?'<div class="sl-steps">'+sl.steps.map((x,i)=>{const c=SL_STEP_COL[Math.min(i,SL_STEP_COL.length-1)];
+        return '<div class="sl-step"><div class="s-h t bx" style="background:'+c[0]+';color:'+c[1]+'">'+E(x.title)+'</div>'+(x.desc?'<div class="s-d t">'+E(x.desc)+'</div>':'')+'</div>';}).join('')+'</div>':'')
       +main
-      +(sl.implication?'<div class="sl-imp bx"><div class="lab t bx">시사점</div><div class="t">'+E(sl.implication)+'</div></div>':'')
-      +(sl.note?'<div class="sl-note t">※ '+E(sl.note)+'</div>':'')
-      +'<div class="sl-f" contenteditable="false"><span class="t">'+foot+'</span><span class="t">'+(k+2)+' / '+n+'</span></div></section>';}).join('');}
-/* 글이 적은 장은 글자를 키워 빈 곳을 줄이고(최대 1.5배), 넘치는 장은 줄인다(최소 0.8배) */
-function slFit(root){if(!root)return;root.querySelectorAll('section.sl:not(.cover)').forEach(sl=>{
-  const over=()=>sl.scrollHeight>sl.clientHeight+1||[...sl.querySelectorAll('.sl-card')].some(c=>c.scrollHeight>c.clientHeight+1);
+      +(sl.implication?'<div class="sl-imp bx"><div class="lab t">시사점</div><div class="tx t">'+E(sl.implication)+'</div></div>':'')
+      +'</div>'
+      +(sl.note?'<div class="sl-note t">1. '+E(sl.note)+'</div>':'')
+      +'<div class="sl-pg t" contenteditable="false">'+pg+'</div></section>';}).join('');}
+/* 글이 적은 장은 글자를 키워 빈 곳을 줄이고(최대 1.3배), 넘치는 장은 줄인다(최소 0.75배) */
+function slFit(root){if(!root)return;root.querySelectorAll('section.sl:not(.cover):not(.toc)').forEach(sl=>{
+  const body=sl.querySelector('.sl-body');if(!body)return;
+  const over=()=>body.scrollHeight>body.clientHeight+1||[...sl.querySelectorAll('.sl-blk')].some(c=>c.scrollHeight>c.clientHeight+1);
   let k=1;sl.style.setProperty('--k','1');
-  if(over()){while(k>0.8&&over()){k=+(k-0.05).toFixed(2);sl.style.setProperty('--k',k);}return;}
-  while(k<1.5){const n=+(k+0.05).toFixed(2);sl.style.setProperty('--k',n);if(over()){sl.style.setProperty('--k',k);break;}k=n;}});}
+  if(over()){while(k>0.75&&over()){k=+(k-0.05).toFixed(2);sl.style.setProperty('--k',k);}return;}
+  while(k<1.3){const n=+(k+0.05).toFixed(2);sl.style.setProperty('--k',n);if(over()){sl.style.setProperty('--k',k);break;}k=n;}});}
 const slidesMd=deck=>'# '+(deck.title||'')+'\n'+deck.slides.map(sl=>'## '+(sl.section?sl.section+' · ':'')+sl.title+'\n'+(sl.msg?'> '+sl.msg+'\n':'')
   +(sl.kpis||[]).map(x=>'- **'+x.label+'** '+x.value+(x.note?' ('+x.note+')':'')).join('\n')+((sl.kpis||[]).length?'\n':'')
   +(sl.blocks||[]).map(bk=>(bk.head?'### '+bk.head+'\n':'')+bk.items.map(b=>'- '+b.t+(b.sub||[]).map(x=>'\n  - '+x).join('')).join('\n')).join('\n')
@@ -38887,46 +38927,50 @@ const blobUrlData=b=>new Promise((ok,err)=>{const r=new FileReader();r.onload=()
 const cssHex=c=>{const m=/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?/.exec(c||'');if(!m)return null;if(m[4]!==undefined&&+m[4]===0)return null;
   return [m[1],m[2],m[3]].map(x=>(+x).toString(16).padStart(2,'0')).join('').toUpperCase();};
 async function slidesPptx(root,ev,name){
-  const P=await loadPptx();const pptx=new P();pptx.defineLayout({name:'A4L',width:11.69,height:8.27});pptx.layout='A4L';
-  const F='Malgun Gothic';const items=boardOf(ev).items||[];
+  const P=await loadPptx();const pptx=new P();const PW=10.83,PH=7.5;pptx.defineLayout({name:'KPIC_A4',width:PW,height:PH});pptx.layout='KPIC_A4';
+  const F='Pretendard';const items=boardOf(ev).items||[];
   for(const el of [...root.querySelectorAll('section.sl')]){const s=pptx.addSlide();
-    const R=el.getBoundingClientRect();const k=11.69/R.width;   /* 화면 px → 인치 */
+    const R=el.getBoundingClientRect();const k=PW/R.width;   /* 화면 px → 인치 */
     const box=x=>{const r=x.getBoundingClientRect();return {x:(r.left-R.left)*k,y:(r.top-R.top)*k,w:r.width*k,h:r.height*k};};
     const vis=el.querySelector('.sl-vis .v-b');
     /* ① 상자 */
     el.querySelectorAll('.bx').forEach(b=>{const cs=getComputedStyle(b);const fill=cssHex(cs.backgroundColor);const bw=parseFloat(cs.borderTopWidth)||0;const line=bw>0?cssHex(cs.borderTopColor):null;
       if(!fill&&!line)return;const g=box(b);if(g.w<=0||g.h<=0)return;
-      const shape=b.classList.contains('sl-step')?pptx.ShapeType.chevron:pptx.ShapeType.rect;
-      s.addShape(shape,{...g,fill:fill?{color:fill}:{type:'none'},line:line?{color:line,width:Math.max(0.5,bw*0.75)}:{type:'none'}});});
-    /* ② 글 — 상자 안 글자는 도형 위에 글상자로(표·그래프 안은 빼고) */
+      const shape=b.classList.contains('s-h')?pptx.ShapeType.chevron:b.classList.contains('sl-imp')?pptx.ShapeType.roundRect:pptx.ShapeType.rect;
+      s.addShape(shape,{...g,fill:fill?{color:fill}:{type:'none'},line:line?{color:line,width:Math.max(0.5,bw*0.75)}:{type:'none'},
+        ...(shape===pptx.ShapeType.roundRect?{rectRadius:0.06}:{}),...(shape===pptx.ShapeType.chevron?{adjustPoint:0.3}:{})});});
+    /* ② 로고 */
+    el.querySelectorAll('img.lg').forEach(im=>{const g=box(im);const nw=im.naturalWidth||1,nh=im.naturalHeight||1;const r=Math.min(g.w/nw,g.h/nh);
+      const w=nw*r,h=nh*r;s.addImage({data:im.src,x:g.x+(g.w-w)/2,y:g.y+(g.h-h)/2,w,h});});
+    /* ③ 글 — 상자 안 글자는 도형 위에 글상자로(표·그래프 안은 빼고) */
     el.querySelectorAll('.t').forEach(t=>{if(vis&&vis.contains(t))return;const txt=t.innerText.replace(/\s+\n/g,'\n').trim();if(!txt)return;
       const cs=getComputedStyle(t);const g=box(t);const pl=parseFloat(cs.paddingLeft)*k,pr=parseFloat(cs.paddingRight)*k,pt=parseFloat(cs.paddingTop)*k,pb=parseFloat(cs.paddingBottom)*k;
-      const ti=parseFloat(cs.textIndent)||0;
+      const ti=parseFloat(cs.textIndent)||0;const ctr=cs.textAlign==='center'||cs.justifyContent==='center';
       s.addText(txt,{x:g.x+pl+(ti<0?ti*k:0),y:g.y+pt,w:Math.max(0.2,g.w-pl-pr-(ti<0?ti*k:0)),h:Math.max(0.15,g.h-pt-pb),margin:0,fontFace:F,
-        fontSize:Math.max(6,Math.round(parseFloat(cs.fontSize)*0.75*10)/10),bold:+cs.fontWeight>=600,color:cssHex(cs.color)||'1C1C1C',
-        valign:cs.alignItems==='center'||t.classList.contains('lab')?'middle':'top',align:cs.textAlign==='right'?'right':cs.textAlign==='center'?'center':'left',fit:'shrink',lineSpacingMultiple:1.05});});
-    /* ③ 시각자료 */
+        fontSize:Math.max(6,Math.round(parseFloat(cs.fontSize)*0.75*10)/10),bold:+cs.fontWeight>=600,color:cssHex(cs.color)||'3E4756',
+        valign:cs.alignItems==='center'||t.classList.contains('s-h')?'middle':'top',align:cs.textAlign==='right'?'right':ctr?'center':'left',fit:'shrink',lineSpacingMultiple:1.05});});
+    /* ④ 시각자료 */
     if(vis){const host=vis.closest('.sl-vis');let v=null;try{v=JSON.parse(host.getAttribute('data-v')||'null');}catch(_){}
-      const it=v&&v.ref?items.find(i=>i.id===v.ref):null;const g=box(vis);const pad=0.08;const gx=g.x+pad,gy=g.y+pad,gw=g.w-pad*2,gh=g.h-pad*2;
+      const it=v&&v.ref?items.find(i=>i.id===v.ref):null;const g=box(vis);const gx=g.x,gy=g.y+0.03,gw=g.w,gh=g.h-0.03;
       const tb=vis.querySelector('table');const img=vis.querySelector('img');
       let chartD=null,kind='bar';
       if(v&&v.type==='chart'){if(it&&it.type==='chart'){const src=items.find(x=>x.id===it.src);chartD=(src?chartData(tableGrid(src.html||''),{tr:!!it.tr,cat:it.cat|0}):null)||it.data;kind=it.kind||'bar';}
         else if(v.cats){chartD={cats:v.cats.map(String),series:(v.series||[]).map(x=>({name:String(x.name||''),vals:(x.vals||[]).map(z=>+z||0)}))};kind=v.kind||'bar';}}
       if(chartD&&chartD.series&&chartD.series.length){const T={bar:pptx.ChartType.bar,hbar:pptx.ChartType.bar,line:pptx.ChartType.line,pie:pptx.ChartType.pie,donut:pptx.ChartType.doughnut}[kind]||pptx.ChartType.bar;
         const data=(kind==='pie'||kind==='donut'?chartD.series.slice(0,1):chartD.series).map(x=>({name:x.name,labels:chartD.cats,values:x.vals}));
-        s.addChart(T,data,{x:gx,y:gy,w:gw,h:gh,barDir:kind==='hbar'?'bar':'col',showLegend:data.length>1||kind==='pie',legendPos:'t',legendFontFace:F,legendFontSize:9,
-          catAxisLabelFontFace:F,catAxisLabelFontSize:9,valAxisLabelFontFace:F,valAxisLabelFontSize:8,dataLabelFontFace:F,showValue:true,dataLabelFontSize:8,
-          valGridLine:{color:'E1E6EC',size:0.5},chartColors:['1F3A5F','4E82AE','9DB9D6','C8102E','7A7A7A','2E7D6B']});}
-      else if(tb){const rows=[...tb.rows].map(r=>[...r.cells].map(c=>({text:c.innerText.trim(),options:c.tagName==='TH'?{bold:true,color:'FFFFFF',fill:{color:'1F3A5F'}}:{}})));
+        s.addChart(T,data,{x:gx,y:gy,w:gw,h:gh,barDir:kind==='hbar'?'bar':'col',showLegend:data.length>1||kind==='pie',legendPos:'t',legendFontFace:F,legendFontSize:9,legendColor:'6B7787',
+          catAxisLabelFontFace:F,catAxisLabelFontSize:9,catAxisLabelColor:'6B7787',valAxisLabelFontFace:F,valAxisLabelFontSize:8,valAxisLabelColor:'6B7787',
+          dataLabelFontFace:F,showValue:true,dataLabelFontSize:8,dataLabelColor:'3E4756',catAxisLineColor:'A8B4C2',valAxisLineShow:false,
+          valGridLine:{color:'E9ECF0',size:0.5},chartColors:CH_PALS.kpic[1].map(c=>c.slice(1))});}
+      else if(tb){const rows=[...tb.rows].map(r=>{const sum=r.classList.contains('sum');return [...r.cells].map(c=>({text:c.innerText.trim(),
+          options:c.tagName==='TH'?{bold:true,color:'FFFFFF',fill:{color:'3E4756'}}:sum?{bold:true,fill:{color:'E9ECF0'}}:{}}));});
         const fs=Math.max(7,Math.round(parseFloat(getComputedStyle(tb).fontSize)*0.75));
-        s.addTable(rows,{x:gx,y:gy,w:gw,fontFace:F,fontSize:fs,border:{type:'solid',pt:0.5,color:'B9C6D6'},align:'center',valign:'middle',autoPage:false,margin:0.04});
-        const cap=vis.querySelector('.sl-cap');if(cap){const cg=box(cap);s.addText(cap.innerText,{...cg,margin:0,fontFace:F,fontSize:8,color:'666666',align:'right'});}}
+        s.addTable(rows,{x:gx,y:gy,w:gw,fontFace:F,fontSize:fs,color:'3E4756',border:{type:'solid',pt:0.5,color:'D4DAE1'},align:'center',valign:'middle',autoPage:false,margin:0.04});
+        const cap=vis.querySelector('.sl-cap');if(cap){const cg=box(cap);s.addText(cap.innerText,{...cg,margin:0,fontFace:F,fontSize:8,color:'6B7787',align:'right'});}}
       else if(img&&img.getAttribute('data-pms')){try{const b=await Files.blob(img.getAttribute('data-pms'));const durl=await blobUrlData(b);
           const dim=await new Promise(ok=>{const im=new Image();im.onload=()=>ok([im.naturalWidth,im.naturalHeight]);im.onerror=()=>ok([4,3]);im.src=durl;});
           const r=Math.min(gw/dim[0],gh/dim[1]);const w=dim[0]*r,h=dim[1]*r;s.addImage({data:durl,x:gx+(gw-w)/2,y:gy+(gh-h)/2,w,h});}catch(_){}}
-      else{const svg=vis.querySelector('svg');if(svg){try{const b=await svgToPng(svg.outerHTML,2);const durl=await blobUrlData(b);const sg=box(svg);s.addImage({data:durl,...sg});}catch(_){}}}}
-    /* ④ 바닥줄 */
-    const f=el.querySelector('.sl-f');if(f){const fg=box(f);s.addShape(pptx.ShapeType.line,{x:fg.x,y:fg.y,w:fg.w,h:0,line:{color:'D5DAE0',width:0.5}});}}
+      else{const svg=vis.querySelector('svg');if(svg){try{const b=await svgToPng(svg.outerHTML,2);const durl=await blobUrlData(b);const sg=box(svg);s.addImage({data:durl,...sg});}catch(_){}}}}}
   await pptx.writeFile({fileName:(name||'보고서')+'.pptx'});}
 function printHtml(html,title,css){
   const f=document.createElement('iframe');f.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0';document.body.appendChild(f);
@@ -39034,7 +39078,7 @@ function PrintPreview({e,setE,onClose,toast,init}){
             <div className="pv-box" dangerouslySetInnerHTML={{__html:boxHtml(i)||(i.type==='img'?'<p style="color:#999">이미지 불러오는 중…</p>':'')}}/></div>)}
           {!items.length&&<p style={{color:'#999'}}>보드가 비어 있습니다</p>}</div>
         :T&&T.slides?<div key={tpl+':'+ver} ref={ed} className="pv-slides" contentEditable={!!cur&&!busy} suppressContentEditableWarning onInput={edited}
-          dangerouslySetInnerHTML={{__html:cur?cur.html:'<div style="background:#fff;width:297mm;max-width:100%;height:120mm;margin:0 auto;display:flex;align-items:center;justify-content:center;color:#999;box-shadow:0 2px 10px rgba(0,0,0,.12)">아직 보고서가 없습니다</div>'}}/>
+          dangerouslySetInnerHTML={{__html:cur?(cur.deck&&!/sl-k2/.test(cur.html||'')?slidesHtml(slNorm(cur.deck,e,[]),e):cur.html):'<div style="background:#fff;width:275.1mm;max-width:100%;height:120mm;margin:0 auto;display:flex;align-items:center;justify-content:center;color:#999;box-shadow:0 2px 10px rgba(0,0,0,.12)">아직 보고서가 없습니다</div>'}}/>
         :<div key={tpl+':'+ver} ref={ed} className="pv-paper" contentEditable={!!cur&&!busy} suppressContentEditableWarning onInput={edited}
           dangerouslySetInnerHTML={{__html:cur?cur.html:'<p style="color:#999;text-align:center;margin-top:40mm">아직 정리본이 없습니다</p>'}}
           style={{width:'210mm',maxWidth:'100%',margin:'0 auto',background:'#fff',padding:'18mm 16mm',boxSizing:'border-box',boxShadow:'0 2px 10px rgba(0,0,0,.12)',minHeight:'297mm'}}/>}
@@ -39806,7 +39850,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.22';
+const APP_VERSION='v2.23';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
