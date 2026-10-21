@@ -37362,7 +37362,7 @@ function MemoBoard({docKey,board,onChange}){
   React.useEffect(()=>{if(!document.getElementById('bd-css')){const s=document.createElement('style');s.id='bd-css';s.textContent=BD_CSS+SHEET_CSS;document.head.appendChild(s);}
     if(!document.getElementById('rn-css')){const s=document.createElement('style');s.id='rn-css';s.textContent=RN_CSS+SHEET_CSS;document.head.appendChild(s);}},[]);
   React.useEffect(()=>{setSel([]);setAct(null);last.current=null;},[docKey]);
-  const commit=arr=>onChange({...(boardRef.current||{}),items:arr,merged:true},bdText(arr));
+  const commit=arr=>{itemsRef.current=arr;onChange({...(boardRef.current||{}),items:arr,merged:true},bdText(arr));};   /* 바로 반영 — 한 번에 두 상자를 넣어도(그래프+표) 앞의 것이 사라지지 않게 */
   const patch=(id,p)=>commit(itemsRef.current.map(i=>i.id===id?{...i,...p}:i));
   const sn=v=>snap?Math.round(v/BD_GRID)*BD_GRID:Math.round(v);
   const topZ=()=>Math.max(0,...itemsRef.current.map(i=>i.z||0))+1;
@@ -38303,6 +38303,7 @@ const PRINT_TPLS=[
   {hide:true,id:'seminar',label:'세미나·출장 정리',md:'# {제목}\n## 핵심 요약\n- (3~5줄)\n## Ⅰ. 개요\n- **일시** : {일시}\n- **장소** : \n- **주최·발표** : \n- **내용** : (한 줄)\n## Ⅱ. 주요 내용\n### (주제 — 발표 순서대로)\n- (내용)\n  - (세부·근거·수치)\n## Ⅲ. 주요 수치·전망\n(표로)\n## Ⅳ. 시사점\n(메모에 근거가 있을 때만)\n## Ⅴ. 참고 자료'},
   {hide:true,id:'free',label:'일반 정리',md:'# {제목}\n## 핵심 요약\n- (3~5줄)\n## Ⅰ. 주요 내용\n### (주제)\n- (내용)\n  - (세부·근거·수치)\n## Ⅱ. 참고 자료'},
   /* AI 인사이트 — 회의록을 읽고 개선 방향·의견 보고·필요한 프로세스나 도구의 윤곽을 낸다(사실 정리가 아니라 검토 의견) */
+  {id:'slides',label:'보고서',slides:true,md:''},
   {id:'insight',label:'AI 인사이트',insight:true,md:'# {제목} — AI 인사이트\n## 핵심 요약\n- (이 회의에서 드러난 가장 중요한 이슈와 권고 3~5줄)\n'
     +'## Ⅰ. 회의록 검토\n- **다룬 주제** : (한 줄씩)\n- **드러난 문제·리스크** : (회의록 근거를 「(근거: …)」로 붙여서)\n- **결정·조치의 빈틈** : (담당·기한·측정 기준이 빠진 곳, 서로 어긋나는 결정)\n'
     +'## Ⅱ. 개선 방향\n### (방향 1)\n- **왜** : (회의록의 어떤 문제에서 나왔는지)\n- **무엇을** : (구체적으로 바꿀 것)\n- **기대 효과** : \n- **우선순위** : (상·중·하와 이유)\n'
@@ -38742,9 +38743,151 @@ function TermFixDialog({text,count,apply,onClose,toast}){
         <Button size="sm" disabled={!rows||!!busy} onClick={run}>{total?'바꾸기 ('+total+'곳)':'표 저장'}</Button>
       </div>
     </div></div>,document.body);}
-function printHtml(html,title){
+/* ── 📊 보고서(v2.21) — 메모를 A4 가로 슬라이드(PPT 형태) 보고서 초안으로. Claude가 슬라이드 구성(JSON)을 짜고,
+   메모의 표·그래프·이미지를 알맞은 장에 넣는다. 미리보기에서 글을 고칠 수 있고, 인쇄(PDF)·PPT(.pptx)로 내보낸다.
+   대한유화 양식 견본을 받기 전까지는 사내 보고서 관례(두괄식 결론형 제목, 핵심 메시지 띠, 개조식)를 따른 기본 디자인 */
+const SL_NAVY='#1F3A5F';
+const SL_CSS='.sl{width:297mm;height:210mm;box-sizing:border-box;padding:13mm 15mm 11mm;background:#fff;position:relative;overflow:hidden;font-family:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif;color:#1c1c1c;display:flex;flex-direction:column}'
+  +'.sl-t{font-size:20pt;font-weight:700;color:'+SL_NAVY+';margin:0;padding-bottom:5pt;border-bottom:2.2pt solid '+SL_NAVY+';line-height:1.3}'
+  +'.sl-l{margin:8pt 0 0;background:#EAF0F7;border-left:5pt solid '+SL_NAVY+';padding:7pt 11pt;font-size:12.5pt;font-weight:700;color:#14263f;line-height:1.45}'
+  +'.sl-body{flex:1;display:flex;gap:9mm;margin-top:9pt;min-height:0}.sl-txt{flex:1;min-width:0}.sl-vis{flex:1.05;min-width:0;display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch}'
+  +'.sl-b{margin:0;padding-left:15pt;font-size:12pt;line-height:1.55}.sl-b>li{margin:0 0 5pt}.sl-b>li::marker{color:'+SL_NAVY+'}.sl-b ul{margin:2pt 0 0;padding-left:14pt;font-size:10.5pt;color:#3a3a3a;list-style:"– "}'
+  +'.sl-vis svg,.sl-vis img{max-width:100%;max-height:118mm;object-fit:contain;display:block;margin:0 auto}.sl-cap{font-size:9pt;color:#666;margin-top:3pt;text-align:right}'
+  +'.sl-vis table{border-collapse:collapse;width:100%;font-size:9.5pt}.sl-vis th{background:'+SL_NAVY+';color:#fff;padding:3pt 5pt;border:0.6pt solid '+SL_NAVY+';font-weight:600}.sl-vis td{padding:3pt 5pt;border:0.6pt solid #b9c3cf;text-align:center}'
+  +'.sl-note{font-size:8.5pt;color:#777;margin-top:4pt}'
+  +'.sl-f{position:absolute;left:15mm;right:15mm;bottom:6mm;display:flex;justify-content:space-between;font-size:8pt;color:#8a8f96;border-top:0.6pt solid #d5dae0;padding-top:3pt}'
+  +'.sl.cover{padding:0;justify-content:center}.sl.cover .cv-band{background:'+SL_NAVY+';color:#fff;padding:22mm 20mm 18mm;margin-top:-10mm}'
+  +'.sl.cover .cv-k{font-size:11pt;color:#c9d6e8;letter-spacing:.06em}.sl.cover .cv-t{font-size:28pt;font-weight:700;margin:6pt 0 0;line-height:1.3}.sl.cover .cv-s{font-size:14pt;margin-top:8pt;color:#e3eaf3}'
+  +'.sl.cover .cv-d{position:absolute;right:20mm;bottom:18mm;font-size:12pt;color:#333;text-align:right}';
+const SL_PV='.pv-slides{width:297mm;max-width:100%;margin:0 auto}.pv-slides .sl{margin:0 auto 10mm;box-shadow:0 2px 10px rgba(0,0,0,.14);zoom:var(--slz,1)}.pv-slides[contenteditable]:focus{outline:none}'
+  +SL_CSS.replace(/(^|\})\.sl/g,'$1.pv-slides .sl');
+const SL_PRINT='@page{size:A4 landscape;margin:0}body{margin:0}'+SL_CSS+'.sl{page-break-after:always;break-after:page}.sl:last-child{page-break-after:auto;break-after:auto}';
+const REPORT_SYS='너는 석유화학 회사(대한유화) 전략기획팀의 보고서 작성 담당자다. 사용자의 메모(회의 정리본·글·표·그래프·이미지)를 임원 보고용 PPT(A4 가로) 초안으로 구성한다.\n'
+  +'- 두괄식: 표지 다음 장은 「요약」(결론·핵심 수치·요청사항). 그다음 현황·문제 → 분석 → 대안·계획 순으로, 내용에 맞게 4~10장\n'
+  +'- 슬라이드 제목(title)은 그 장의 결론을 담은 짧은 문장(25자 안팎). lead 는 이 장에서 꼭 전할 메시지 한 문장\n'
+  +'- 본문(bullets)은 「~함」「~임」 개조식, 장마다 3~5개, 하위(sub)는 2개 이내. 메모의 수치·이름·근거를 정확히 옮긴다\n'
+  +'- 메모에 없는 사실·숫자·결정은 지어내지 않는다. 녹음·통역 상태에 관한 말(녹취 중단, 파악 불가 등)은 쓰지 않는다\n'
+  +'- 시각자료(visual): 메모의 표·그래프·이미지가 그 장의 근거가 되면 ref 로 넣는다. 메모의 숫자로 비교·추이를 보여 줄 수 있으면 그래프(chart)를 새로 만든다(실제 숫자만). 한 장에 시각자료는 하나\n'
+  +'- JSON 만 출력한다(앞뒤 설명·코드블록 금지)';
+const REPORT_FMT='{"title":"보고서 제목","subtitle":"부제(선택)","slides":[\n'
+  +' {"title":"결론형 제목","lead":"핵심 메시지 한 문장","bullets":[{"t":"요점","sub":["세부"]}],\n'
+  +'  "visual":null 또는 {"type":"table","ref":"메모 표 id"} 또는 {"type":"chart","ref":"메모 그래프 id"} 또는 {"type":"image","ref":"메모 이미지 id"}\n'
+  +'   또는 {"type":"table","head":["구분","…"],"rows":[["…"]],"unit":"단위"} 또는 {"type":"chart","kind":"bar|hbar|line|pie","title":"","unit":"","cats":["…"],"series":[{"name":"","vals":[1,2]}]},\n'
+  +'  "note":"출처·근거(선택)"}]}';
+async function makeReport(ev,onStep){
+  onStep&&onStep('메모 읽는 중…');
+  const items=(boardOf(ev).items||[]).slice().sort((a,b)=>a.y-b.y||a.x-b.x);
+  const isTb=i=>/^tbrec:/.test(i.src||'');
+  const txtItems=items.map(i=>isTb(i)&&i.type==='text'?{...i,html:String(i.html||'').replace(/<details[\s\S]*?<\/details>/gi,'')}:i).filter(i=>i.type==='text');
+  const memo=dropRecNotes(boardToMd(txtItems).trim());
+  const near=it=>{const t=items.filter(i=>i.type==='text'&&i.y<=it.y).pop();return t?htmlToText(t.html||'').replace(/\s+/g,' ').slice(-80):'';};
+  const assets=[];
+  items.forEach(i=>{
+    if(i.type==='table')assets.push('[표 id='+i.id+']\n'+boardToMd([i]).trim().slice(0,3000));
+    else if(i.type==='chart'){const src=items.find(x=>x.id===i.src);const d=(src?chartData(tableGrid(src.html||''),{tr:!!i.tr,cat:i.cat|0}):null)||i.data;
+      if(d)assets.push('[그래프 id='+i.id+'] '+(i.title||'(제목 없음)')+' · 종류 '+(i.kind||'bar')+' · 항목 '+d.cats.join(', ')+' · 계열 '+d.series.map(s=>s.name).join(', '));}
+    else if(i.type==='img'&&i.path)assets.push('[이미지 id='+i.id+'] 근처 글: '+(near(i)||'(없음)'));});
+  if(!memo&&!assets.length)throw new Error('보고서로 만들 메모가 없습니다');
+  const terms=await Terms.load().catch(()=>[]);
+  const when=ev.date+(ev.start?' '+ev.start:'');
+  onStep&&onStep('보고서 구성 짜는 중… (Claude)');
+  const out=await askClaude('아래 메모로 A4 가로 PPT 보고서 초안을 구성한다. 아래 JSON 형식으로만 답하고, JSON 다음 줄에 〔끝〕 을 적는다.\n\n--- 형식 ---\n'+REPORT_FMT
+    +'\n\n--- 일정 ---\n제목: '+(ev.title||'')+'\n일시: '+when+(ev.category?'\n분류: '+ev.category:'')
+    +(terms.length?'\n\n--- 용어 교정표 (왼쪽은 반드시 오른쪽으로) ---\n'+terms.map(([a,b])=>a+' → '+b).join('\n'):'')
+    +(assets.length?'\n\n--- 메모의 시각자료 (ref 로 쓸 수 있음) ---\n'+assets.join('\n\n'):'')
+    +'\n\n--- 메모 ---\n'+memo.slice(0,90000),
+    {system:REPORT_SYS,max_tokens:8000,cont:4,done:/〔끝〕/,tag:'일정 보고서'});
+  const raw=String(out||'').replace(/〔끝〕/g,'');const a=raw.indexOf('{'),b=raw.lastIndexOf('}');
+  let deck;try{deck=JSON.parse(raw.slice(a,b+1));}catch(_){throw new Error('보고서 구성을 읽지 못했습니다 — 다시 만들어 보세요');}
+  if(!deck||!Array.isArray(deck.slides)||!deck.slides.length)throw new Error('보고서 구성이 비어 있습니다 — 다시 만들어 보세요');
+  const fix=s=>termText(s,terms).s;
+  deck.title=fix(deck.title||ev.title||'');deck.subtitle=fix(deck.subtitle||'');
+  deck.slides=deck.slides.map(sl=>({...sl,title:fix(sl.title||''),lead:fix(sl.lead||''),note:fix(sl.note||''),
+    bullets:(sl.bullets||[]).map(x=>typeof x==='string'?{t:fix(x),sub:[]}:{t:fix(x.t||''),sub:(x.sub||[]).map(fix)})}));
+  return deck;}
+/* 시각자료 하나를 그린다 — 메모의 표·그래프·이미지(ref) 또는 Claude가 만든 표·그래프 */
+function slVisual(v,items){
+  if(!v||!v.type)return '';
+  const it=v.ref?items.find(i=>i.id===v.ref):null;
+  const tbl=(g,head,unit)=>'<table>'+(head?'<tr>'+head.map(c=>'<th>'+escH(c)+'</th>').join('')+'</tr>':'')+g.map(r=>'<tr>'+r.map(c=>'<td>'+escH(c)+'</td>').join('')+'</tr>').join('')+'</table>'+(unit?'<div class="sl-cap">(단위: '+escH(unit)+')</div>':'');
+  if(v.type==='table'){if(it&&it.type==='table'){const g=tableGrid(it.html||'');if(!g.length)return '';return tbl(g.slice(1),g[0]);}
+    if(Array.isArray(v.rows))return tbl(v.rows.map(r=>r.map(String)),Array.isArray(v.head)?v.head.map(String):null,v.unit);return '';}
+  if(v.type==='chart'){let d=null,o={kind:'bar',title:'',labels:true,w:520,legend:'top',grid:true};
+    if(it&&it.type==='chart'){const src=items.find(x=>x.id===it.src);d=(src?chartData(tableGrid(src.html||''),{tr:!!it.tr,cat:it.cat|0}):null)||it.data;
+      o={...o,kind:it.kind||'bar',title:it.title||'',stack:!!it.stack,pal:it.pal||'base',colors:it.colors||{},unit:it.unit,hide:it.hide||[]};}
+    else if(Array.isArray(v.cats)&&Array.isArray(v.series)){d={cats:v.cats.map(String),series:v.series.map(s=>({name:String(s.name||''),vals:(s.vals||[]).map(x=>+x||0)})),unit:v.unit||''};
+      o={...o,kind:/^(bar|hbar|line|pie)$/.test(v.kind)?v.kind:'bar',title:v.title||''};}
+    if(!d)return '';try{return chartSvg(d,o)||'';}catch(_){return '';}}
+  if(v.type==='image'&&it&&it.type==='img'&&it.path)return '<img data-pms="'+escH(it.path)+'" alt="">';
+  return '';}
+function slidesHtml(deck,ev){
+  const items=boardOf(ev).items||[];const when=(ev.date||'').replace(/-/g,'. ')+'.';const foot=escH(deck.title||ev.title||'');
+  const n=deck.slides.length+1;
+  const cover='<section class="sl cover" data-k="cover"><div class="cv-band"><div class="cv-k">보 고 서</div><div class="cv-t">'+escH(deck.title||ev.title||'')+'</div>'
+    +(deck.subtitle?'<div class="cv-s">'+escH(deck.subtitle)+'</div>':'')+'</div><div class="cv-d">'+escH(when)+(ev.category?'<br>'+escH(ev.category):'')+'</div></section>';
+  return cover+deck.slides.map((sl,k)=>{const vis=slVisual(sl.visual,items);
+    const bl=(sl.bullets||[]).filter(b=>b.t).map(b=>'<li>'+escH(b.t)+((b.sub||[]).length?'<ul>'+b.sub.filter(Boolean).map(x=>'<li>'+escH(x)+'</li>').join('')+'</ul>':'')+'</li>').join('');
+    return '<section class="sl" data-v="'+escH(JSON.stringify(sl.visual||null))+'"><h2 class="sl-t">'+escH(sl.title)+'</h2>'
+      +(sl.lead?'<div class="sl-l">'+escH(sl.lead)+'</div>':'')
+      +'<div class="sl-body"><div class="sl-txt">'+(bl?'<ul class="sl-b">'+bl+'</ul>':'')+(sl.note?'<div class="sl-note">※ '+escH(sl.note)+'</div>':'')+'</div>'
+      +(vis?'<div class="sl-vis" contenteditable="false">'+vis+'</div>':'')+'</div>'
+      +'<div class="sl-f" contenteditable="false"><span>'+foot+'</span><span>'+(k+2)+' / '+n+'</span></div></section>';}).join('');}
+const slidesMd=deck=>'# '+(deck.title||'')+'\n'+deck.slides.map(sl=>'## '+sl.title+'\n'+(sl.lead?'> '+sl.lead+'\n':'')+(sl.bullets||[]).map(b=>'- '+b.t+(b.sub||[]).map(x=>'\n  - '+x).join('')).join('\n')).join('\n\n');
+/* PPT(.pptx) — 화면의 슬라이드(고친 글 포함)를 읽어 PptxGenJS 로 만든다. 표·그래프는 PPT 안에서 다시 고칠 수 있는 개체로 넣는다 */
+let PPTX_LIB=null;
+function loadPptx(){if(window.PptxGenJS)return Promise.resolve(window.PptxGenJS);if(PPTX_LIB)return PPTX_LIB;
+  PPTX_LIB=new Promise((ok,err)=>{const urls=['https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.js','https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js'];
+    const tryOne=i=>{if(i>=urls.length){PPTX_LIB=null;err(new Error('PPT 만들기 도구를 불러오지 못했습니다 — 네트워크를 확인하세요'));return;}
+      const s=document.createElement('script');s.src=urls[i];s.onload=()=>window.PptxGenJS?ok(window.PptxGenJS):tryOne(i+1);s.onerror=()=>{s.remove();tryOne(i+1);};document.head.appendChild(s);};tryOne(0);});
+  return PPTX_LIB;}
+const blobUrlData=b=>new Promise((ok,err)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=()=>err(r.error);r.readAsDataURL(b);});
+async function slidesPptx(root,ev,name){
+  const P=await loadPptx();const pptx=new P();pptx.defineLayout({name:'A4L',width:11.69,height:8.27});pptx.layout='A4L';
+  const NAVY='1F3A5F',F='Malgun Gothic';const items=boardOf(ev).items||[];
+  const secs=[...root.querySelectorAll('section.sl')];const n=secs.length;
+  for(let k=0;k<secs.length;k++){const el=secs[k];const s=pptx.addSlide();const tx=q=>{const x=el.querySelector(q);return x?x.innerText.trim():'';};
+    if(el.classList.contains('cover')){s.addShape(pptx.ShapeType.rect,{x:0,y:2.1,w:11.69,h:2.6,fill:{color:NAVY},line:{color:NAVY}});
+      s.addText('보 고 서',{x:0.8,y:2.35,w:10,h:0.4,fontFace:F,fontSize:12,color:'C9D6E8'});
+      s.addText(tx('.cv-t'),{x:0.8,y:2.8,w:10.1,h:1.0,fontFace:F,fontSize:30,bold:true,color:'FFFFFF',valign:'top'});
+      if(tx('.cv-s'))s.addText(tx('.cv-s'),{x:0.8,y:3.85,w:10.1,h:0.6,fontFace:F,fontSize:15,color:'E3EAF3'});
+      s.addText(tx('.cv-d'),{x:6.5,y:6.7,w:4.4,h:0.8,fontFace:F,fontSize:13,color:'333333',align:'right'});continue;}
+    s.addText(tx('.sl-t'),{x:0.6,y:0.4,w:10.5,h:0.6,fontFace:F,fontSize:22,bold:true,color:NAVY,valign:'bottom'});
+    s.addShape(pptx.ShapeType.line,{x:0.6,y:1.02,w:10.5,h:0,line:{color:NAVY,width:2.2}});
+    let y=1.15;
+    if(tx('.sl-l')){s.addShape(pptx.ShapeType.rect,{x:0.6,y,w:10.5,h:0.62,fill:{color:'EAF0F7'},line:{color:'EAF0F7'}});
+      s.addShape(pptx.ShapeType.rect,{x:0.6,y,w:0.07,h:0.62,fill:{color:NAVY},line:{color:NAVY}});
+      s.addText(tx('.sl-l'),{x:0.78,y,w:10.2,h:0.62,fontFace:F,fontSize:14,bold:true,color:'14263F',valign:'middle'});y+=0.8;}
+    let v=null;try{v=JSON.parse(el.getAttribute('data-v')||'null');}catch(_){}
+    const hasVis=!!el.querySelector('.sl-vis');const tw=hasVis?5.0:10.5;const bodyH=7.45-y;
+    const runs=[];el.querySelectorAll('.sl-b>li').forEach(li=>{const own=[...li.childNodes].filter(c=>!(c.nodeType===1&&c.tagName==='UL')).map(c=>c.textContent).join('').trim();
+      if(own)runs.push({text:own,options:{bullet:true,fontSize:14,color:'1C1C1C',breakLine:true,paraSpaceAfter:4}});
+      li.querySelectorAll('ul>li').forEach(sx=>runs.push({text:sx.innerText.trim(),options:{bullet:{code:'2013'},indentLevel:1,fontSize:12,color:'444444',breakLine:true,paraSpaceAfter:2}}));});
+    if(runs.length)s.addText(runs,{x:0.6,y,w:tw,h:bodyH-(tx('.sl-note')?0.35:0),fontFace:F,valign:'top'});
+    if(tx('.sl-note'))s.addText(tx('.sl-note'),{x:0.6,y:7.1,w:tw,h:0.3,fontFace:F,fontSize:9,color:'777777'});
+    if(hasVis){const vx=5.9,vw=5.2,vh=bodyH;
+      const it=v&&v.ref?items.find(i=>i.id===v.ref):null;
+      const tb=el.querySelector('.sl-vis table');const img=el.querySelector('.sl-vis img');
+      let chartD=null,kind='bar',title='';
+      if(v&&v.type==='chart'){if(it&&it.type==='chart'){const src=items.find(x=>x.id===it.src);chartD=(src?chartData(tableGrid(src.html||''),{tr:!!it.tr,cat:it.cat|0}):null)||it.data;kind=it.kind||'bar';title=it.title||'';}
+        else if(v.cats){chartD={cats:v.cats.map(String),series:(v.series||[]).map(x=>({name:String(x.name||''),vals:(x.vals||[]).map(z=>+z||0)}))};kind=v.kind||'bar';title=v.title||'';}}
+      if(chartD&&chartD.series&&chartD.series.length){const T={bar:pptx.ChartType.bar,hbar:pptx.ChartType.bar,line:pptx.ChartType.line,pie:pptx.ChartType.pie,donut:pptx.ChartType.doughnut}[kind]||pptx.ChartType.bar;
+        const data=(kind==='pie'||kind==='donut'?chartD.series.slice(0,1):chartD.series).map(x=>({name:x.name,labels:chartD.cats,values:x.vals}));
+        s.addChart(T,data,{x:vx,y,w:vw,h:Math.min(vh,4.6),barDir:kind==='hbar'?'bar':'col',showTitle:!!title,title,titleFontFace:F,titleFontSize:12,showLegend:data.length>1||kind==='pie',legendPos:'b',legendFontFace:F,
+          catAxisLabelFontFace:F,valAxisLabelFontFace:F,dataLabelFontFace:F,showValue:true,dataLabelFontSize:9,chartColors:['1F3A5F','4E82AE','9DB9D6','C8A951','7A7A7A','2E7D6B']});}
+      else if(tb){const rows=[...tb.rows].map((r,ri)=>[...r.cells].map(c=>({text:c.innerText.trim(),options:ri===0&&c.tagName==='TH'?{bold:true,color:'FFFFFF',fill:{color:NAVY}}:{}})));
+        s.addTable(rows,{x:vx,y,w:vw,fontFace:F,fontSize:10,border:{type:'solid',pt:0.6,color:'B9C3CF'},align:'center',valign:'middle',autoPage:false});
+        const cap=el.querySelector('.sl-vis .sl-cap');if(cap)s.addText(cap.innerText,{x:vx,y:Math.min(7.1,y+0.32*rows.length+0.1),w:vw,h:0.3,fontFace:F,fontSize:9,color:'666666',align:'right'});}
+      else if(img&&img.getAttribute('data-pms')){try{const b=await Files.blob(img.getAttribute('data-pms'));const durl=await blobUrlData(b);
+          const dim=await new Promise(ok=>{const im=new Image();im.onload=()=>ok([im.naturalWidth,im.naturalHeight]);im.onerror=()=>ok([4,3]);im.src=durl;});
+          const r=Math.min(vw/dim[0],vh/dim[1]);const w=dim[0]*r,h=dim[1]*r;s.addImage({data:durl,x:vx+(vw-w)/2,y,w,h});}catch(_){}}
+      else{const svg=el.querySelector('.sl-vis svg');if(svg){try{const b=await svgToPng(svg.outerHTML,2);const durl=await blobUrlData(b);s.addImage({data:durl,x:vx,y,w:vw,h:Math.min(vh,vw*0.6)});}catch(_){}}}}
+    s.addShape(pptx.ShapeType.line,{x:0.6,y:7.72,w:10.5,h:0,line:{color:'D5DAE0',width:0.6}});
+    s.addText(tx('.sl-f span'),{x:0.6,y:7.75,w:8,h:0.3,fontFace:F,fontSize:9,color:'8A8F96'});
+    s.addText((k+1)+' / '+n,{x:9.1,y:7.75,w:2,h:0.3,fontFace:F,fontSize:9,color:'8A8F96',align:'right'});}
+  await pptx.writeFile({fileName:(name||'보고서')+'.pptx'});}
+function printHtml(html,title,css){
   const f=document.createElement('iframe');f.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0';document.body.appendChild(f);
-  const d=f.contentDocument;d.open();d.write('<!doctype html><html><head><meta charset="utf-8"><title>'+xmlEsc(title||'출력')+'</title><style>'+PRINT_CSS+'</style></head><body>'+html+'</body></html>');d.close();
+  const d=f.contentDocument;d.open();d.write('<!doctype html><html><head><meta charset="utf-8"><title>'+xmlEsc(title||'출력')+'</title><style>'+(css||PRINT_CSS)+'</style></head><body>'+html+'</body></html>');d.close();
   const imgs=[...d.images].filter(i=>!i.complete);
   Promise.all(imgs.map(i=>new Promise(r=>{i.onload=i.onerror=r;setTimeout(r,8000);}))).then(()=>{
     f.contentWindow.focus();f.contentWindow.print();setTimeout(()=>f.remove(),60000);});}
@@ -38779,8 +38922,10 @@ function PrintPreview({e,setE,onClose,toast,init}){
   const choose=id=>{setTpl(id);setErr('');try{localStorage.setItem('cal.printTpl',id);}catch(_){}};
   const fill=async()=>{
     setErr('');setBusy('준비 중…');
-    try{await MeetCfg.load();const md=await fillTemplate(e,T,setBusy);
-      setE(p=>putDoc(p,tpl,{id:uid(),html:aDocHtml(md,p,T),md,at:nowStamp()}));setVer(v=>v+1);}
+    try{await MeetCfg.load();
+      if(T.slides){const deck=await makeReport(e,setBusy);setE(p=>putDoc(p,tpl,{id:uid(),html:slidesHtml(deck,p),md:slidesMd(deck),deck,at:nowStamp()}));setVer(v=>v+1);}
+      else{const md=await fillTemplate(e,T,setBusy);
+      setE(p=>putDoc(p,tpl,{id:uid(),html:aDocHtml(md,p,T),md,at:nowStamp()}));setVer(v=>v+1);}}
     catch(x){setErr(x.message);}setBusy('');};
   /* 미리보기에서 고친 내용은 일정에 저장된다(다음에 열어도 그대로) */
   const t=React.useRef();
@@ -38790,27 +38935,29 @@ function PrintPreview({e,setE,onClose,toast,init}){
   const outHtml=()=>raw?items.filter(i=>!off.has(i.id)).map(i=>'<div class="pv-box">'+boxHtml(i)+'</div>').join('')
     :(ed.current?ed.current.innerHTML:(cur&&cur.html)||'');
   const name=(e.title||'메모')+(raw?'':' '+T.label.replace(/·/g,' '))+' '+(e.date||'');
-  const doPrint=()=>{const h=outHtml();if(!h.trim()){toast&&toast('출력할 내용이 없습니다');return;}printHtml(h,name);};
-  const doWord=async()=>{if(!raw){if(!ed.current||!ed.current.textContent.trim()){toast&&toast('출력할 내용이 없습니다');return;}
+  const doPrint=()=>{const h=outHtml();if(!h.trim()){toast&&toast('출력할 내용이 없습니다');return;}printHtml(h,name,T&&T.slides?SL_PRINT:undefined);};
+  const doWord=async()=>{if(T&&T.slides){if(!ed.current||!ed.current.querySelector('section.sl')){toast&&toast('출력할 내용이 없습니다');return;}
+      setBusy('PPT 만드는 중…');try{await slidesPptx(ed.current,e,name);}catch(x){setErr('PPT 만들기 실패 — '+x.message);}setBusy('');return;}
+    if(!raw){if(!ed.current||!ed.current.textContent.trim()){toast&&toast('출력할 내용이 없습니다');return;}
       setBusy('워드 만드는 중…');try{saveBlob(await aDocx(ed.current),name);}catch(x){setErr('워드 만들기 실패 — '+x.message);}setBusy('');return;}
     const md=htmlToMd(outHtml());if(!md.trim()){toast&&toast('출력할 내용이 없습니다');return;}downloadDocx(md,name);};
   const chip=(id,label)=><button key={id} type="button" onClick={()=>choose(id)} disabled={!!busy}
     style={{border:'1px solid '+(tpl===id?'var(--text-body)':'var(--border-strong)'),background:tpl===id?'var(--text-body)':'#fff',color:tpl===id?'#fff':'var(--text-body)',
       borderRadius:14,padding:'3px 11px',fontSize:'var(--fs-sm2)',cursor:'pointer',fontFamily:'inherit'}}>{label}{docs[id]&&id!=='raw'?' ✓':''}</button>;
   return ReactDOM.createPortal(<div className="pv-wrap" style={{position:'fixed',inset:0,zIndex:100000,background:'#e9ebee',display:'flex',flexDirection:'column',fontFamily:'var(--font-sans)'}}>
-    <style>{PV_CSS}</style>
+    <style>{PV_CSS+SL_PV}</style>
     <div style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center',padding:'10px 16px',background:'#fff',borderBottom:'1px solid var(--border-default)'}}>
-      <strong style={{fontSize:'var(--fs-base)',marginRight:6}}>{T&&T.insight?'🤖 AI 인사이트':'📝 회의록 생성'}</strong>
+      <strong style={{fontSize:'var(--fs-base)',marginRight:6}}>{T&&T.slides?'📊 보고서':T&&T.insight?'🤖 AI 인사이트':'📝 회의록 생성'}</strong>
       <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>양식</span>
-      {PRINT_TPLS.filter(x=>!x.insight&&!x.hide).map(x=>chip(x.id,x.label))}{chip('raw','원본 그대로')}
+      {PRINT_TPLS.filter(x=>!x.insight&&!x.hide&&!x.slides).map(x=>chip(x.id,x.label))}{chip('raw','원본 그대로')}
       <span style={{width:1,height:18,background:'var(--border-strong)',margin:'0 4px'}}/>
-      {PRINT_TPLS.filter(x=>x.insight).map(x=>chip(x.id,'🤖 '+x.label))}
+      {PRINT_TPLS.filter(x=>x.insight).map(x=>chip(x.id,'🤖 '+x.label))}{chip('slides','📊 보고서')}
       <span style={{flex:1}}/>
-      {!raw&&<Button size="sm" variant={cur?'ghost':undefined} disabled={!!busy} onClick={fill} title={T.insight?'회의록·메모를 Claude가 검토해 개선 방향, 개선안 의견 보고, 필요한 프로세스·도구의 윤곽을 씁니다':'보드의 메모·표·녹취를 Claude가 다듬어 이 양식에 채웁니다'}>{busy?'⏳ '+busy:cur?(T.insight?'↻ 인사이트 다시 만들기':'↻ 다시 정리'):(T.insight?'🤖 AI 인사이트 만들기':'✨ Claude로 정리해 채우기')}</Button>}
+      {!raw&&<Button size="sm" variant={cur?'ghost':undefined} disabled={!!busy} onClick={fill} title={T.slides?'메모의 글·표·그래프·이미지로 A4 가로 슬라이드 보고서 초안을 만듭니다':T.insight?'회의록·메모를 Claude가 검토해 개선 방향, 개선안 의견 보고, 필요한 프로세스·도구의 윤곽을 씁니다':'보드의 메모·표·녹취를 Claude가 다듬어 이 양식에 채웁니다'}>{busy?'⏳ '+busy:cur?(T.slides?'↻ 보고서 다시 만들기':T.insight?'↻ 인사이트 다시 만들기':'↻ 다시 정리'):(T.slides?'📊 보고서 초안 만들기':T.insight?'🤖 AI 인사이트 만들기':'✨ Claude로 정리해 채우기')}</Button>}
       {!raw&&cur&&<Button size="sm" variant="ghost" disabled={!!busy} onClick={()=>setTerms(true)} title="잘못 받아쓴 고유명사·용어를 이 문서에서 한꺼번에 바꿉니다">🔤 용어 수정</Button>}
       <Button size="sm" variant="ghost" disabled={!!busy} onClick={()=>setShowHist(v=>!v)} title="지금까지 만든 회의록·인사이트를 다시 열거나 지웁니다">🗂 저장된 문서{hist.length?' '+hist.length:''}</Button>
       <Button size="sm" disabled={!!busy||(!raw&&!cur)} onClick={doPrint}>🖨 인쇄·PDF</Button>
-      <Button size="sm" variant="ghost" disabled={!!busy||(!raw&&!cur)} onClick={doWord}>📄 워드</Button>
+      <Button size="sm" variant="ghost" disabled={!!busy||(!raw&&!cur)} onClick={doWord}>{T&&T.slides?'📊 PPT':'📄 워드'}</Button>
       <Button size="sm" variant="ghost" onClick={onClose}>✕ 닫기</Button>
     </div>
     {err&&<div style={{padding:'6px 16px',color:'var(--color-danger)',fontSize:'var(--fs-sm)',background:'#fff'}}>⚠ {err}</div>}
@@ -38821,7 +38968,7 @@ function PrintPreview({e,setE,onClose,toast,init}){
     {showHist&&<div className="pv-hist" style={{background:'#fff',borderBottom:'1px solid var(--border-default)',padding:'8px 16px',maxHeight:'40vh',overflow:'auto'}}>
       {!hist.length&&<div style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>아직 만든 문서가 없습니다. 만든 회의록·인사이트는 여기에 차례로 남습니다.</div>}
       {hist.map(h=>{const on=docs[h.tpl]&&docs[h.tpl].id===h.id;return <div key={h.id} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',borderTop:'1px solid var(--border-subtle,#eee)',fontSize:'var(--fs-sm2)'}}>
-        <span style={{minWidth:92,fontWeight:600}}>{PRINT_TPLS.find(x=>x.id===h.tpl&&x.insight)?'🤖 ':'📝 '}{tplLabel(h.tpl)}</span>
+        <span style={{minWidth:92,fontWeight:600}}>{h.tpl==='slides'?'📊 ':PRINT_TPLS.find(x=>x.id===h.tpl&&x.insight)?'🤖 ':'📝 '}{tplLabel(h.tpl)}</span>
         <span style={{color:'var(--text-muted)',whiteSpace:'nowrap'}}>{atTxt(h.at)}</span>
         <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'var(--text-label)'}}>{String(h.md||'').replace(/^#.*\n?/,'').replace(/[#*>|-]/g,' ').replace(/\s+/g,' ').trim().slice(0,80)}</span>
         {on?<span style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>보는 중</span>
@@ -38832,6 +38979,7 @@ function PrintPreview({e,setE,onClose,toast,init}){
       <div style={{maxWidth:'210mm',margin:'0 auto 6px',fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>
         {raw?'보드의 상자를 위→아래, 왼→오 순서로 세웠습니다. 빼고 싶은 상자는 왼쪽 체크를 끄세요. 보드는 바뀌지 않습니다.'
           :cur?'정리본입니다 — 종이 위를 눌러 바로 고칠 수 있고, 고친 내용은 이 일정에 저장됩니다. 다시 만들어도 이전 문서는 「🗂 저장된 문서」에 남습니다.'
+          :T.slides?'「📊 보고서 초안 만들기」를 누르면 메모의 글·표·그래프·이미지로 A4 가로 슬라이드 보고서 초안을 만듭니다. 글은 바로 고칠 수 있고, 인쇄(PDF)·PPT 파일로 내보냅니다.'
           :T.insight?'「🤖 AI 인사이트 만들기」를 누르면 회의록을 검토해 드러난 문제, 개선 방향, 개선안 의견 보고, 필요한 업무 프로세스나 시스템·도구의 윤곽, 확인할 질문을 씁니다. 회의록의 사실과 AI의 의견은 구분해 적습니다.'
           :'「✨ Claude로 정리해 채우기」를 누르면 보드에 흩어진 내용을 다듬어 「'+T.label+'」 양식에 넣습니다.'}</div>
       {raw?<div className="pv-paper" style={{width:'210mm',maxWidth:'100%',margin:'0 auto',background:'#fff',padding:'18mm 16mm',boxSizing:'border-box',boxShadow:'0 2px 10px rgba(0,0,0,.12)',minHeight:'297mm'}}>
@@ -38840,6 +38988,8 @@ function PrintPreview({e,setE,onClose,toast,init}){
               title="출력에 넣기/빼기" style={{position:'absolute',left:'-11mm',top:2,width:16,height:16,cursor:'pointer'}}/>
             <div className="pv-box" dangerouslySetInnerHTML={{__html:boxHtml(i)||(i.type==='img'?'<p style="color:#999">이미지 불러오는 중…</p>':'')}}/></div>)}
           {!items.length&&<p style={{color:'#999'}}>보드가 비어 있습니다</p>}</div>
+        :T&&T.slides?<div key={tpl+':'+ver} ref={ed} className="pv-slides" contentEditable={!!cur&&!busy} suppressContentEditableWarning onInput={edited}
+          dangerouslySetInnerHTML={{__html:cur?cur.html:'<div style="background:#fff;width:297mm;max-width:100%;height:120mm;margin:0 auto;display:flex;align-items:center;justify-content:center;color:#999;box-shadow:0 2px 10px rgba(0,0,0,.12)">아직 보고서가 없습니다</div>'}}/>
         :<div key={tpl+':'+ver} ref={ed} className="pv-paper" contentEditable={!!cur&&!busy} suppressContentEditableWarning onInput={edited}
           dangerouslySetInnerHTML={{__html:cur?cur.html:'<p style="color:#999;text-align:center;margin-top:40mm">아직 정리본이 없습니다</p>'}}
           style={{width:'210mm',maxWidth:'100%',margin:'0 auto',background:'#fff',padding:'18mm 16mm',boxSizing:'border-box',boxShadow:'0 2px 10px rgba(0,0,0,.12)',minHeight:'297mm'}}/>}
@@ -39600,6 +39750,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
         <Button size="sm" variant="ghost" onClick={()=>setTerms(true)} title="잘못 받아쓴 고유명사·용어를 메모 전체에서 한꺼번에 바꿉니다">🔤 용어 수정</Button>
         <Button size="sm" variant="ghost" onClick={()=>setPv('raw')} title="메모 상자를 위→아래 순서로 세워 인쇄합니다(Ctrl+P)">🖨 인쇄</Button>
         <Button size="sm" variant="ghost" onClick={()=>setPv('insight')} title="회의록·메모를 Claude가 검토해 개선 방향, 개선안 의견 보고, 필요한 업무 프로세스·시스템·도구의 윤곽을 씁니다">🤖 AI 인사이트</Button>
+        <Button size="sm" variant="ghost" onClick={()=>setPv('slides')} title="메모의 글·표·그래프·이미지로 A4 가로 슬라이드(PPT) 보고서 초안을 만듭니다">📊 보고서</Button>
         <Button size="sm" onClick={()=>setPv('meeting')} title="메모에 모인 내용을 회의록 양식으로 정리하고, 인쇄(PDF)·워드로 내보냅니다">📝 회의록</Button>
         <Button variant="primary" onClick={close}>닫기</Button></div>
       {pv&&<PrintPreview e={e} setE={setE} toast={toast} init={pv} onClose={()=>setPv('')}/>}
@@ -39613,7 +39764,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.20';
+const APP_VERSION='v2.21';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
