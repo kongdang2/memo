@@ -37349,7 +37349,7 @@ function BdImg({it}){
   const ref=React.useRef(null);
   React.useEffect(()=>{const im=ref.current;if(im&&it.path)Files.url(it.path).then(u=>{im.src=u;}).catch(()=>{im.alt='⚠ 이미지를 불러오지 못했습니다';});},[it.path]);
   return <div className="bd-img"><img ref={ref} alt=""/></div>;}
-function MemoBoard({docKey,board,onChange}){
+function MemoBoard({docKey,board,onChange,onTerms}){
   const items=(board&&board.items)||[];
   const [sel,setSel]=React.useState([]);const [act,setAct]=React.useState(null);const [snap,setSnap]=React.useState(true);
   const [mq,setMq]=React.useState(null);const [busy,setBusy]=React.useState('');const [tbHost,setTbHost]=React.useState(null);const [bottom,setBottom]=React.useState(0);
@@ -37494,6 +37494,7 @@ function MemoBoard({docKey,board,onChange}){
         <Bt t="⟷" title="가로 간격 같게 (3개 이상)" dis={sel.length<3} on={()=>align('hgap')}/><Bt t="⇳" title="세로 간격 같게 (3개 이상)" dis={sel.length<3} on={()=>align('vgap')}/>
         <span className="sep"/>
         <Bt t="앞으로" title="맨 앞으로" dis={!sel.length} on={()=>align('front')}/><Bt t="뒤로" title="맨 뒤로" dis={!sel.length} on={()=>align('back')}/>
+        {onTerms&&<Bt t="🔤 용어 수정" title="잘못 받아쓴 고유명사·용어를 메모 전체에서 한꺼번에 바꿉니다" on={onTerms}/>}
         <Bt t="⧉" title="고른 상자 복제 (Ctrl+D)" dis={!sel.length} on={dupSel}/><Bt t="🗑" title="고른 상자 지우기 (Delete · 오른쪽 클릭)" dis={!sel.length} on={delSel}/>
         <label style={{fontSize:12,color:'var(--text-muted)',marginLeft:6,display:'inline-flex',alignItems:'center',gap:3,cursor:'pointer'}}>
           <input type="checkbox" checked={snap} onChange={x=>setSnap(x.target.checked)}/>격자 맞춤</label>
@@ -38743,37 +38744,53 @@ function TermFixDialog({text,count,apply,onClose,toast}){
         <Button size="sm" disabled={!rows||!!busy} onClick={run}>{total?'바꾸기 ('+total+'곳)':'표 저장'}</Button>
       </div>
     </div></div>,document.body);}
-/* ── 📊 보고서(v2.21) — 메모를 A4 가로 슬라이드(PPT 형태) 보고서 초안으로. Claude가 슬라이드 구성(JSON)을 짜고,
-   메모의 표·그래프·이미지를 알맞은 장에 넣는다. 미리보기에서 글을 고칠 수 있고, 인쇄(PDF)·PPT(.pptx)로 내보낸다.
-   대한유화 양식 견본을 받기 전까지는 사내 보고서 관례(두괄식 결론형 제목, 핵심 메시지 띠, 개조식)를 따른 기본 디자인 */
-const SL_NAVY='#1F3A5F';
-const SL_CSS='.sl{width:297mm;height:210mm;box-sizing:border-box;padding:13mm 15mm 11mm;background:#fff;position:relative;overflow:hidden;font-family:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif;color:#1c1c1c;display:flex;flex-direction:column}'
-  +'.sl-t{font-size:20pt;font-weight:700;color:'+SL_NAVY+';margin:0;padding-bottom:5pt;border-bottom:2.2pt solid '+SL_NAVY+';line-height:1.3}'
-  +'.sl-l{margin:8pt 0 0;background:#EAF0F7;border-left:5pt solid '+SL_NAVY+';padding:7pt 11pt;font-size:12.5pt;font-weight:700;color:#14263f;line-height:1.45}'
-  +'.sl-body{flex:1;display:flex;gap:9mm;margin-top:9pt;min-height:0}.sl-txt{flex:1;min-width:0}.sl-vis{flex:1.05;min-width:0;display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch}'
-  +'.sl-b{margin:0;padding-left:15pt;font-size:12pt;line-height:1.55}.sl-b>li{margin:0 0 5pt}.sl-b>li::marker{color:'+SL_NAVY+'}.sl-b ul{margin:2pt 0 0;padding-left:14pt;font-size:10.5pt;color:#3a3a3a;list-style:"– "}'
-  +'.sl-vis svg,.sl-vis img{max-width:100%;max-height:118mm;object-fit:contain;display:block;margin:0 auto}.sl-cap{font-size:9pt;color:#666;margin-top:3pt;text-align:right}'
-  +'.sl-vis table{border-collapse:collapse;width:100%;font-size:9.5pt}.sl-vis th{background:'+SL_NAVY+';color:#fff;padding:3pt 5pt;border:0.6pt solid '+SL_NAVY+';font-weight:600}.sl-vis td{padding:3pt 5pt;border:0.6pt solid #b9c3cf;text-align:center}'
-  +'.sl-note{font-size:8.5pt;color:#777;margin-top:4pt}'
-  +'.sl-f{position:absolute;left:15mm;right:15mm;bottom:6mm;display:flex;justify-content:space-between;font-size:8pt;color:#8a8f96;border-top:0.6pt solid #d5dae0;padding-top:3pt}'
-  +'.sl.cover{padding:0;justify-content:center}.sl.cover .cv-band{background:'+SL_NAVY+';color:#fff;padding:22mm 20mm 18mm;margin-top:-10mm}'
-  +'.sl.cover .cv-k{font-size:11pt;color:#c9d6e8;letter-spacing:.06em}.sl.cover .cv-t{font-size:28pt;font-weight:700;margin:6pt 0 0;line-height:1.3}.sl.cover .cv-s{font-size:14pt;margin-top:8pt;color:#e3eaf3}'
-  +'.sl.cover .cv-d{position:absolute;right:20mm;bottom:18mm;font-size:12pt;color:#333;text-align:right}';
-const SL_PV='.pv-slides{width:297mm;max-width:100%;margin:0 auto}.pv-slides .sl{margin:0 auto 10mm;box-shadow:0 2px 10px rgba(0,0,0,.14);zoom:var(--slz,1)}.pv-slides[contenteditable]:focus{outline:none}'
+/* ── 📊 보고서(v2.22) — 메모를 A4 가로 「전략회의 보고」형 슬라이드로. 각 장 = 장 번호 꼬리표 + 결론형 제목 + 거버닝 메시지 +
+   카드 묶음(□ 소제목 · ○ 요점 · - 세부)·핵심 수치 카드·단계 상자·시각자료 + 시사점 띠. 카드는 남는 높이를 채워 빈 곳이 생기지 않게 한다.
+   PPT 는 화면 슬라이드의 상자(.bx)·글(.t)·표·그래프·이미지 위치를 그대로 옮겨 만든다 */
+const SL_NAVY='#1F3A5F',SL_ACC='#C8102E';
+const SL_CSS='.sl{width:297mm;height:210mm;box-sizing:border-box;padding:8mm 11mm 9mm;background:#fff;position:relative;overflow:hidden;font-family:"Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",sans-serif;color:#1c1c1c;display:flex;flex-direction:column;gap:2.6mm}'
+  +'.sl .t{margin:0}'
+  +'.sl-hd{display:flex;align-items:stretch;gap:3mm}.sl-sec{background:'+SL_NAVY+';color:#fff;font-size:10.5pt;font-weight:700;padding:1.6mm 3.2mm;display:flex;align-items:center;white-space:nowrap}'
+  +'.sl-ttl{font-size:19pt;font-weight:800;color:'+SL_NAVY+';line-height:1.25;display:flex;align-items:center;flex:1}'
+  +'.sl-rule{height:0.9mm;background:'+SL_NAVY+'}'
+  +'.sl-msg{display:flex;border:0.35mm solid '+SL_NAVY+';background:#F3F6FA}.sl-msg .acc{width:2.2mm;background:'+SL_ACC+';flex:none}.sl-msg .t{padding:2.4mm 4mm;font-size:12.5pt;font-weight:700;color:#14263f;line-height:1.45;flex:1}'
+  +'.sl-kpis{display:flex;gap:3mm}.sl-kpi{flex:1;border:0.3mm solid #B9C6D6;background:#fff;padding:2.2mm 3mm;display:flex;flex-direction:column;gap:0.6mm}'
+  +'.sl-kpi .k-l{font-size:9pt;color:#4a5a6e;font-weight:600}.sl-kpi .k-v{font-size:17pt;font-weight:800;color:'+SL_NAVY+';line-height:1.15}.sl-kpi .k-n{font-size:8.5pt;color:#6b7785}'
+  +'.sl-main{flex:1;display:flex;gap:3.5mm;min-height:0}.sl-col{flex:1;display:flex;flex-direction:column;gap:3mm;min-width:0}.sl-grid{flex:1;display:grid;gap:3mm;min-height:0}'
+  +'.sl-card{border:0.3mm solid #B9C6D6;background:#fff;display:flex;flex-direction:column;min-height:0;flex:1}'
+  +'.sl-card .c-h{background:#E4EBF4;color:'+SL_NAVY+';font-size:11pt;font-weight:800;padding:1.6mm 3mm;border-bottom:0.3mm solid #B9C6D6}'
+  +'.sl-card .c-b{padding:2.2mm 3mm;display:flex;flex-direction:column;gap:calc(1.1mm*var(--k,1));flex:1}'
+  +'.sl-card .i1{font-size:calc(10.5pt*var(--k,1));line-height:1.45;padding-left:4.2mm;text-indent:-4.2mm}.sl-card .i2{font-size:calc(9.5pt*var(--k,1));line-height:1.4;color:#3d4652;padding-left:8mm;text-indent:-3.6mm}'
+  +'.sl-vis{flex:1.05;border:0.3mm solid #B9C6D6;display:flex;flex-direction:column;min-width:0;min-height:0}.sl-vis .c-h{background:#E4EBF4;color:'+SL_NAVY+';font-size:11pt;font-weight:800;padding:1.6mm 3mm;border-bottom:0.3mm solid #B9C6D6}'
+  +'.sl-vis .v-b{flex:1;display:flex;flex-direction:column;justify-content:center;padding:2mm 3mm;min-height:0}'
+  +'.sl-vis svg,.sl-vis img{max-width:100%;max-height:100mm;object-fit:contain;display:block;margin:0 auto}.sl-cap{font-size:8.5pt;color:#666;margin-top:1.5mm;text-align:right}'
+  +'.sl-vis table{border-collapse:collapse;width:100%;font-size:9.5pt}.sl-vis th{background:'+SL_NAVY+';color:#fff;padding:1.2mm 2mm;border:0.2mm solid '+SL_NAVY+';font-weight:700}.sl-vis td{padding:1.2mm 2mm;border:0.2mm solid #B9C6D6;text-align:center}'
+  +'.sl-steps{display:flex;gap:2mm;align-items:stretch}.sl-step{flex:1;background:'+SL_NAVY+';color:#fff;padding:2.2mm 3mm;display:flex;flex-direction:column;gap:0.8mm;clip-path:polygon(0 0,calc(100% - 4mm) 0,100% 50%,calc(100% - 4mm) 100%,0 100%,4mm 50%)}'
+  +'.sl-step:first-child{clip-path:polygon(0 0,calc(100% - 4mm) 0,100% 50%,calc(100% - 4mm) 100%,0 100%)}.sl-step .s-t{font-size:10.5pt;font-weight:800;padding-left:3mm}.sl-step .s-d{font-size:9pt;color:#d9e3ef;padding-left:3mm;line-height:1.35}'
+  +'.sl-imp{display:flex;border:0.3mm solid '+SL_NAVY+'}.sl-imp .lab{flex:none;background:'+SL_NAVY+';color:#fff;font-size:10pt;font-weight:800;padding:2mm 3.5mm;display:flex;align-items:center;white-space:nowrap}.sl-imp .t{padding:2mm 3.5mm;font-size:10.5pt;font-weight:600;color:#14263f;line-height:1.4;flex:1}'
+  +'.sl-imp .t.lab{flex:none}.sl-note{font-size:8pt;color:#777}'
+  +'.sl-f{position:absolute;left:11mm;right:11mm;bottom:3mm;display:flex;justify-content:space-between;font-size:7.5pt;color:#8a8f96;border-top:0.2mm solid #d5dae0;padding-top:1mm}'
+  +'.sl.cover{padding:0;gap:0}.sl.cover .cv-top{background:'+SL_NAVY+';height:118mm;display:flex;flex-direction:column;justify-content:flex-end;padding:0 18mm 14mm}'
+  +'.sl.cover .cv-acc{height:2.2mm;background:'+SL_ACC+'}.sl.cover .cv-k{font-size:11pt;color:#c9d6e8;letter-spacing:.3em;font-weight:700}.sl.cover .cv-t{font-size:28pt;font-weight:800;color:#fff;margin-top:4mm;line-height:1.28}'
+  +'.sl.cover .cv-s{font-size:14pt;color:#e3eaf3;margin-top:3mm}.sl.cover .cv-d{padding:12mm 18mm 0;font-size:12.5pt;color:#333;line-height:1.7}';
+const SL_PV='.pv-slides{width:297mm;max-width:100%;margin:0 auto}.pv-slides .sl{margin:0 auto 10mm;box-shadow:0 2px 10px rgba(0,0,0,.14)}.pv-slides[contenteditable]:focus{outline:none}'
   +SL_CSS.replace(/(^|\})\.sl/g,'$1.pv-slides .sl');
-const SL_PRINT='@page{size:A4 landscape;margin:0}body{margin:0}'+SL_CSS+'.sl{page-break-after:always;break-after:page}.sl:last-child{page-break-after:auto;break-after:auto}';
-const REPORT_SYS='너는 석유화학 회사(대한유화) 전략기획팀의 보고서 작성 담당자다. 사용자의 메모(회의 정리본·글·표·그래프·이미지)를 임원 보고용 PPT(A4 가로) 초안으로 구성한다.\n'
-  +'- 두괄식: 표지 다음 장은 「요약」(결론·핵심 수치·요청사항). 그다음 현황·문제 → 분석 → 대안·계획 순으로, 내용에 맞게 4~10장\n'
-  +'- 슬라이드 제목(title)은 그 장의 결론을 담은 짧은 문장(25자 안팎). lead 는 이 장에서 꼭 전할 메시지 한 문장\n'
-  +'- 본문(bullets)은 「~함」「~임」 개조식, 장마다 3~5개, 하위(sub)는 2개 이내. 메모의 수치·이름·근거를 정확히 옮긴다\n'
-  +'- 메모에 없는 사실·숫자·결정은 지어내지 않는다. 녹음·통역 상태에 관한 말(녹취 중단, 파악 불가 등)은 쓰지 않는다\n'
-  +'- 시각자료(visual): 메모의 표·그래프·이미지가 그 장의 근거가 되면 ref 로 넣는다. 메모의 숫자로 비교·추이를 보여 줄 수 있으면 그래프(chart)를 새로 만든다(실제 숫자만). 한 장에 시각자료는 하나\n'
+const SL_PRINT='@page{size:A4 landscape;margin:0}body{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}'+SL_CSS+'.sl{page-break-after:always;break-after:page}.sl:last-child{page-break-after:auto;break-after:auto}';
+const REPORT_SYS='너는 석유화학 회사(대한유화) 전략기획팀 과장이다. 사용자의 메모(회의 정리본·글·표·그래프·이미지)를 전략회의 보고용 PPT(A4 가로) 초안으로 구성한다.\n'
+  +'- 흐름: 표지 다음 「요약」(핵심 수치 kpis + 결론 블록) → Ⅰ. 현황 → Ⅱ. 문제·원인 → Ⅲ. 대응 방안 → Ⅳ. 향후 계획(steps) 순으로, 내용에 맞게 5~9장. section 에 장 번호와 이름을 쓴다\n'
+  +'- 한 장을 꽉 채운다: blocks 를 2~4개(각 블록 items 3~5개, 필요하면 sub 1~2개) 넣고, 수치가 있으면 kpis(2~4개), 근거 자료가 있으면 visual 을 넣는다. 한 장이 휑하지 않게 하되 글자를 지어내 채우지는 않는다\n'
+  +'- title 은 그 장의 결론(25자 안팎), msg 는 거버닝 메시지 한두 문장(무엇이 문제이고 그래서 무엇을 해야 하는지), implication 은 그 장의 시사점 한 문장\n'
+  +'- 문장은 「~함」「~임」 개조식. 메모의 수치·이름·근거를 정확히 옮긴다. 메모에 없는 사실·숫자·결정은 지어내지 않는다. 녹음·통역 상태에 관한 말은 쓰지 않는다\n'
+  +'- visual: 메모의 표·그래프·이미지가 근거가 되면 ref 로 넣고, 메모의 숫자로 비교·추이를 보여 줄 수 있으면 chart 를 새로 만든다(실제 숫자만). 한 장에 하나\n'
   +'- JSON 만 출력한다(앞뒤 설명·코드블록 금지)';
-const REPORT_FMT='{"title":"보고서 제목","subtitle":"부제(선택)","slides":[\n'
-  +' {"title":"결론형 제목","lead":"핵심 메시지 한 문장","bullets":[{"t":"요점","sub":["세부"]}],\n'
-  +'  "visual":null 또는 {"type":"table","ref":"메모 표 id"} 또는 {"type":"chart","ref":"메모 그래프 id"} 또는 {"type":"image","ref":"메모 이미지 id"}\n'
-  +'   또는 {"type":"table","head":["구분","…"],"rows":[["…"]],"unit":"단위"} 또는 {"type":"chart","kind":"bar|hbar|line|pie","title":"","unit":"","cats":["…"],"series":[{"name":"","vals":[1,2]}]},\n'
-  +'  "note":"출처·근거(선택)"}]}';
+const REPORT_FMT='{"title":"보고서 제목","subtitle":"부제","slides":[\n'
+  +' {"section":"Ⅰ. 현황","title":"결론형 제목","msg":"거버닝 메시지",\n'
+  +'  "kpis":[{"label":"지표","value":"수치·단위","note":"비교·설명"}],\n'
+  +'  "blocks":[{"head":"소제목","items":["요점",{"t":"요점","sub":["세부"]}]}],\n'
+  +'  "steps":[{"title":"단계·시기","desc":"할 일"}],\n'
+  +'  "visual":null 또는 {"type":"table|chart|image","ref":"메모 자료 id","title":"자료 제목"} 또는 {"type":"table","title":"","head":["…"],"rows":[["…"]],"unit":""} 또는 {"type":"chart","kind":"bar|hbar|line|pie","title":"","unit":"","cats":["…"],"series":[{"name":"","vals":[1]}]},\n'
+  +'  "implication":"시사점","note":"출처(선택)"}]}\n'
+  +'(kpis·steps·visual·implication 은 필요한 장에만. 요약 장의 section 은 「요약」)';
 async function makeReport(ev,onStep){
   onStep&&onStep('메모 읽는 중…');
   const items=(boardOf(ev).items||[]).slice().sort((a,b)=>a.y-b.y||a.x-b.x);
@@ -38791,7 +38808,7 @@ async function makeReport(ev,onStep){
   const terms=await Terms.load().catch(()=>[]);
   const when=ev.date+(ev.start?' '+ev.start:'');
   onStep&&onStep('보고서 구성 짜는 중… (Claude)');
-  const out=await askClaude('아래 메모로 A4 가로 PPT 보고서 초안을 구성한다. 아래 JSON 형식으로만 답하고, JSON 다음 줄에 〔끝〕 을 적는다.\n\n--- 형식 ---\n'+REPORT_FMT
+  const out=await askClaude('아래 메모로 A4 가로 전략회의 보고 PPT 초안을 구성한다. 아래 JSON 형식으로만 답하고, JSON 다음 줄에 〔끝〕 을 적는다.\n\n--- 형식 ---\n'+REPORT_FMT
     +'\n\n--- 일정 ---\n제목: '+(ev.title||'')+'\n일시: '+when+(ev.category?'\n분류: '+ev.category:'')
     +(terms.length?'\n\n--- 용어 교정표 (왼쪽은 반드시 오른쪽으로) ---\n'+terms.map(([a,b])=>a+' → '+b).join('\n'):'')
     +(assets.length?'\n\n--- 메모의 시각자료 (ref 로 쓸 수 있음) ---\n'+assets.join('\n\n'):'')
@@ -38800,10 +38817,16 @@ async function makeReport(ev,onStep){
   const raw=String(out||'').replace(/〔끝〕/g,'');const a=raw.indexOf('{'),b=raw.lastIndexOf('}');
   let deck;try{deck=JSON.parse(raw.slice(a,b+1));}catch(_){throw new Error('보고서 구성을 읽지 못했습니다 — 다시 만들어 보세요');}
   if(!deck||!Array.isArray(deck.slides)||!deck.slides.length)throw new Error('보고서 구성이 비어 있습니다 — 다시 만들어 보세요');
-  const fix=s=>termText(s,terms).s;
+  const fix=s=>termText(String(s||''),terms).s;
+  const item=x=>typeof x==='string'?{t:fix(x),sub:[]}:{t:fix(x&&x.t),sub:((x&&x.sub)||[]).map(fix).filter(Boolean)};
   deck.title=fix(deck.title||ev.title||'');deck.subtitle=fix(deck.subtitle||'');
-  deck.slides=deck.slides.map(sl=>({...sl,title:fix(sl.title||''),lead:fix(sl.lead||''),note:fix(sl.note||''),
-    bullets:(sl.bullets||[]).map(x=>typeof x==='string'?{t:fix(x),sub:[]}:{t:fix(x.t||''),sub:(x.sub||[]).map(fix)})}));
+  deck.slides=deck.slides.map(sl=>{
+    /* 예전 형식(bullets·lead)도 받아 준다 */
+    let blocks=Array.isArray(sl.blocks)?sl.blocks:[];if(!blocks.length&&Array.isArray(sl.bullets))blocks=[{head:'',items:sl.bullets}];
+    return {section:fix(sl.section),title:fix(sl.title),msg:fix(sl.msg||sl.lead),implication:fix(sl.implication),note:fix(sl.note),visual:sl.visual||null,
+      kpis:(sl.kpis||[]).slice(0,4).map(k=>({label:fix(k.label),value:fix(k.value),note:fix(k.note)})).filter(k=>k.label||k.value),
+      steps:(sl.steps||[]).slice(0,6).map(s=>({title:fix(s.title),desc:fix(s.desc)})).filter(s=>s.title||s.desc),
+      blocks:blocks.slice(0,4).map(bk=>({head:fix(bk.head),items:(bk.items||[]).map(item).filter(x=>x.t)})).filter(bk=>bk.head||bk.items.length)};});
   return deck;}
 /* 시각자료 하나를 그린다 — 메모의 표·그래프·이미지(ref) 또는 Claude가 만든 표·그래프 */
 function slVisual(v,items){
@@ -38814,26 +38837,46 @@ function slVisual(v,items){
     if(Array.isArray(v.rows))return tbl(v.rows.map(r=>r.map(String)),Array.isArray(v.head)?v.head.map(String):null,v.unit);return '';}
   if(v.type==='chart'){let d=null,o={kind:'bar',title:'',labels:true,w:520,legend:'top',grid:true};
     if(it&&it.type==='chart'){const src=items.find(x=>x.id===it.src);d=(src?chartData(tableGrid(src.html||''),{tr:!!it.tr,cat:it.cat|0}):null)||it.data;
-      o={...o,kind:it.kind||'bar',title:it.title||'',stack:!!it.stack,pal:it.pal||'base',colors:it.colors||{},unit:it.unit,hide:it.hide||[]};}
+      o={...o,kind:it.kind||'bar',stack:!!it.stack,pal:it.pal||'base',colors:it.colors||{},unit:it.unit,hide:it.hide||[]};}
     else if(Array.isArray(v.cats)&&Array.isArray(v.series)){d={cats:v.cats.map(String),series:v.series.map(s=>({name:String(s.name||''),vals:(s.vals||[]).map(x=>+x||0)})),unit:v.unit||''};
-      o={...o,kind:/^(bar|hbar|line|pie)$/.test(v.kind)?v.kind:'bar',title:v.title||''};}
+      o={...o,kind:/^(bar|hbar|line|pie)$/.test(v.kind)?v.kind:'bar'};}
     if(!d)return '';try{return chartSvg(d,o)||'';}catch(_){return '';}}
   if(v.type==='image'&&it&&it.type==='img'&&it.path)return '<img data-pms="'+escH(it.path)+'" alt="">';
   return '';}
+const slVisTitle=(v,items)=>{if(!v)return '';if(v.title)return v.title;const it=v.ref&&items.find(i=>i.id===v.ref);return (it&&it.title)||({table:'자료',chart:'그래프',image:'사진'})[v.type]||'자료';};
 function slidesHtml(deck,ev){
   const items=boardOf(ev).items||[];const when=(ev.date||'').replace(/-/g,'. ')+'.';const foot=escH(deck.title||ev.title||'');
-  const n=deck.slides.length+1;
-  const cover='<section class="sl cover" data-k="cover"><div class="cv-band"><div class="cv-k">보 고 서</div><div class="cv-t">'+escH(deck.title||ev.title||'')+'</div>'
-    +(deck.subtitle?'<div class="cv-s">'+escH(deck.subtitle)+'</div>':'')+'</div><div class="cv-d">'+escH(when)+(ev.category?'<br>'+escH(ev.category):'')+'</div></section>';
-  return cover+deck.slides.map((sl,k)=>{const vis=slVisual(sl.visual,items);
-    const bl=(sl.bullets||[]).filter(b=>b.t).map(b=>'<li>'+escH(b.t)+((b.sub||[]).length?'<ul>'+b.sub.filter(Boolean).map(x=>'<li>'+escH(x)+'</li>').join('')+'</ul>':'')+'</li>').join('');
-    return '<section class="sl" data-v="'+escH(JSON.stringify(sl.visual||null))+'"><h2 class="sl-t">'+escH(sl.title)+'</h2>'
-      +(sl.lead?'<div class="sl-l">'+escH(sl.lead)+'</div>':'')
-      +'<div class="sl-body"><div class="sl-txt">'+(bl?'<ul class="sl-b">'+bl+'</ul>':'')+(sl.note?'<div class="sl-note">※ '+escH(sl.note)+'</div>':'')+'</div>'
-      +(vis?'<div class="sl-vis" contenteditable="false">'+vis+'</div>':'')+'</div>'
-      +'<div class="sl-f" contenteditable="false"><span>'+foot+'</span><span>'+(k+2)+' / '+n+'</span></div></section>';}).join('');}
-const slidesMd=deck=>'# '+(deck.title||'')+'\n'+deck.slides.map(sl=>'## '+sl.title+'\n'+(sl.lead?'> '+sl.lead+'\n':'')+(sl.bullets||[]).map(b=>'- '+b.t+(b.sub||[]).map(x=>'\n  - '+x).join('')).join('\n')).join('\n\n');
-/* PPT(.pptx) — 화면의 슬라이드(고친 글 포함)를 읽어 PptxGenJS 로 만든다. 표·그래프는 PPT 안에서 다시 고칠 수 있는 개체로 넣는다 */
+  const n=deck.slides.length+1;const E=escH;
+  const cover='<section class="sl cover"><div class="cv-top bx"><div class="cv-k t">전 략 회 의 보 고</div><div class="cv-t t">'+E(deck.title||ev.title||'')+'</div>'
+    +(deck.subtitle?'<div class="cv-s t">'+E(deck.subtitle)+'</div>':'')+'</div><div class="cv-acc bx"></div><div class="cv-d t">'+E(when)+(ev.category?'<br>'+E(ev.category):'')+'</div></section>';
+  const card=bk=>'<div class="sl-card bx">'+(bk.head?'<div class="c-h t bx">□ '+E(bk.head)+'</div>':'')+'<div class="c-b">'
+    +bk.items.map(x=>'<div class="i1 t">○ '+E(x.t)+'</div>'+(x.sub||[]).map(s=>'<div class="i2 t">- '+E(s)+'</div>').join('')).join('')+'</div></div>';
+  return cover+deck.slides.map((sl,k)=>{
+    const vis=slVisual(sl.visual,items);const bks=sl.blocks||[];
+    let main='';
+    if(vis){main='<div class="sl-main"><div class="sl-col">'+bks.map(card).join('')+'</div><div class="sl-vis bx" data-v="'+E(JSON.stringify(sl.visual))+'" contenteditable="false"><div class="c-h t bx">■ '+E(slVisTitle(sl.visual,items))+'</div><div class="v-b">'+vis+'</div></div></div>';}
+    else if(bks.length){const c=bks.length===4?2:Math.min(3,bks.length);main='<div class="sl-grid" style="grid-template-columns:repeat('+c+',1fr)">'+bks.map(card).join('')+'</div>';}
+    return '<section class="sl">'
+      +'<div class="sl-hd">'+(sl.section?'<div class="sl-sec t bx">'+E(sl.section)+'</div>':'')+'<h2 class="sl-ttl t">'+E(sl.title)+'</h2></div><div class="sl-rule bx"></div>'
+      +(sl.msg?'<div class="sl-msg bx"><div class="acc bx"></div><div class="t">'+E(sl.msg)+'</div></div>':'')
+      +((sl.kpis||[]).length?'<div class="sl-kpis">'+sl.kpis.map(x=>'<div class="sl-kpi bx"><div class="k-l t">'+E(x.label)+'</div><div class="k-v t">'+E(x.value)+'</div>'+(x.note?'<div class="k-n t">'+E(x.note)+'</div>':'')+'</div>').join('')+'</div>':'')
+      +((sl.steps||[]).length?'<div class="sl-steps">'+sl.steps.map(x=>'<div class="sl-step bx"><div class="s-t t">'+E(x.title)+'</div>'+(x.desc?'<div class="s-d t">'+E(x.desc)+'</div>':'')+'</div>').join('')+'</div>':'')
+      +main
+      +(sl.implication?'<div class="sl-imp bx"><div class="lab t bx">시사점</div><div class="t">'+E(sl.implication)+'</div></div>':'')
+      +(sl.note?'<div class="sl-note t">※ '+E(sl.note)+'</div>':'')
+      +'<div class="sl-f" contenteditable="false"><span class="t">'+foot+'</span><span class="t">'+(k+2)+' / '+n+'</span></div></section>';}).join('');}
+/* 글이 적은 장은 글자를 키워 빈 곳을 줄이고(최대 1.5배), 넘치는 장은 줄인다(최소 0.8배) */
+function slFit(root){if(!root)return;root.querySelectorAll('section.sl:not(.cover)').forEach(sl=>{
+  const over=()=>sl.scrollHeight>sl.clientHeight+1||[...sl.querySelectorAll('.sl-card')].some(c=>c.scrollHeight>c.clientHeight+1);
+  let k=1;sl.style.setProperty('--k','1');
+  if(over()){while(k>0.8&&over()){k=+(k-0.05).toFixed(2);sl.style.setProperty('--k',k);}return;}
+  while(k<1.5){const n=+(k+0.05).toFixed(2);sl.style.setProperty('--k',n);if(over()){sl.style.setProperty('--k',k);break;}k=n;}});}
+const slidesMd=deck=>'# '+(deck.title||'')+'\n'+deck.slides.map(sl=>'## '+(sl.section?sl.section+' · ':'')+sl.title+'\n'+(sl.msg?'> '+sl.msg+'\n':'')
+  +(sl.kpis||[]).map(x=>'- **'+x.label+'** '+x.value+(x.note?' ('+x.note+')':'')).join('\n')+((sl.kpis||[]).length?'\n':'')
+  +(sl.blocks||[]).map(bk=>(bk.head?'### '+bk.head+'\n':'')+bk.items.map(b=>'- '+b.t+(b.sub||[]).map(x=>'\n  - '+x).join('')).join('\n')).join('\n')
+  +(sl.implication?'\n시사점: '+sl.implication:'')).join('\n\n');
+/* PPT(.pptx) — 화면에 그린 슬라이드를 그대로 옮긴다: 상자(.bx)는 도형, 글(.t)은 글상자, 표는 PPT 표, 그래프는 PPT 차트, 사진은 그림.
+   위치·크기·글꼴 크기·색은 화면에서 잰 값을 쓰므로 미리보기에서 고친 내용과 모양이 그대로 들어간다 */
 let PPTX_LIB=null;
 function loadPptx(){if(window.PptxGenJS)return Promise.resolve(window.PptxGenJS);if(PPTX_LIB)return PPTX_LIB;
   PPTX_LIB=new Promise((ok,err)=>{const urls=['https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.js','https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js'];
@@ -38841,49 +38884,49 @@ function loadPptx(){if(window.PptxGenJS)return Promise.resolve(window.PptxGenJS)
       const s=document.createElement('script');s.src=urls[i];s.onload=()=>window.PptxGenJS?ok(window.PptxGenJS):tryOne(i+1);s.onerror=()=>{s.remove();tryOne(i+1);};document.head.appendChild(s);};tryOne(0);});
   return PPTX_LIB;}
 const blobUrlData=b=>new Promise((ok,err)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=()=>err(r.error);r.readAsDataURL(b);});
+const cssHex=c=>{const m=/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?/.exec(c||'');if(!m)return null;if(m[4]!==undefined&&+m[4]===0)return null;
+  return [m[1],m[2],m[3]].map(x=>(+x).toString(16).padStart(2,'0')).join('').toUpperCase();};
 async function slidesPptx(root,ev,name){
   const P=await loadPptx();const pptx=new P();pptx.defineLayout({name:'A4L',width:11.69,height:8.27});pptx.layout='A4L';
-  const NAVY='1F3A5F',F='Malgun Gothic';const items=boardOf(ev).items||[];
-  const secs=[...root.querySelectorAll('section.sl')];const n=secs.length;
-  for(let k=0;k<secs.length;k++){const el=secs[k];const s=pptx.addSlide();const tx=q=>{const x=el.querySelector(q);return x?x.innerText.trim():'';};
-    if(el.classList.contains('cover')){s.addShape(pptx.ShapeType.rect,{x:0,y:2.1,w:11.69,h:2.6,fill:{color:NAVY},line:{color:NAVY}});
-      s.addText('보 고 서',{x:0.8,y:2.35,w:10,h:0.4,fontFace:F,fontSize:12,color:'C9D6E8'});
-      s.addText(tx('.cv-t'),{x:0.8,y:2.8,w:10.1,h:1.0,fontFace:F,fontSize:30,bold:true,color:'FFFFFF',valign:'top'});
-      if(tx('.cv-s'))s.addText(tx('.cv-s'),{x:0.8,y:3.85,w:10.1,h:0.6,fontFace:F,fontSize:15,color:'E3EAF3'});
-      s.addText(tx('.cv-d'),{x:6.5,y:6.7,w:4.4,h:0.8,fontFace:F,fontSize:13,color:'333333',align:'right'});continue;}
-    s.addText(tx('.sl-t'),{x:0.6,y:0.4,w:10.5,h:0.6,fontFace:F,fontSize:22,bold:true,color:NAVY,valign:'bottom'});
-    s.addShape(pptx.ShapeType.line,{x:0.6,y:1.02,w:10.5,h:0,line:{color:NAVY,width:2.2}});
-    let y=1.15;
-    if(tx('.sl-l')){s.addShape(pptx.ShapeType.rect,{x:0.6,y,w:10.5,h:0.62,fill:{color:'EAF0F7'},line:{color:'EAF0F7'}});
-      s.addShape(pptx.ShapeType.rect,{x:0.6,y,w:0.07,h:0.62,fill:{color:NAVY},line:{color:NAVY}});
-      s.addText(tx('.sl-l'),{x:0.78,y,w:10.2,h:0.62,fontFace:F,fontSize:14,bold:true,color:'14263F',valign:'middle'});y+=0.8;}
-    let v=null;try{v=JSON.parse(el.getAttribute('data-v')||'null');}catch(_){}
-    const hasVis=!!el.querySelector('.sl-vis');const tw=hasVis?5.0:10.5;const bodyH=7.45-y;
-    const runs=[];el.querySelectorAll('.sl-b>li').forEach(li=>{const own=[...li.childNodes].filter(c=>!(c.nodeType===1&&c.tagName==='UL')).map(c=>c.textContent).join('').trim();
-      if(own)runs.push({text:own,options:{bullet:true,fontSize:14,color:'1C1C1C',breakLine:true,paraSpaceAfter:4}});
-      li.querySelectorAll('ul>li').forEach(sx=>runs.push({text:sx.innerText.trim(),options:{bullet:{code:'2013'},indentLevel:1,fontSize:12,color:'444444',breakLine:true,paraSpaceAfter:2}}));});
-    if(runs.length)s.addText(runs,{x:0.6,y,w:tw,h:bodyH-(tx('.sl-note')?0.35:0),fontFace:F,valign:'top'});
-    if(tx('.sl-note'))s.addText(tx('.sl-note'),{x:0.6,y:7.1,w:tw,h:0.3,fontFace:F,fontSize:9,color:'777777'});
-    if(hasVis){const vx=5.9,vw=5.2,vh=bodyH;
-      const it=v&&v.ref?items.find(i=>i.id===v.ref):null;
-      const tb=el.querySelector('.sl-vis table');const img=el.querySelector('.sl-vis img');
-      let chartD=null,kind='bar',title='';
-      if(v&&v.type==='chart'){if(it&&it.type==='chart'){const src=items.find(x=>x.id===it.src);chartD=(src?chartData(tableGrid(src.html||''),{tr:!!it.tr,cat:it.cat|0}):null)||it.data;kind=it.kind||'bar';title=it.title||'';}
-        else if(v.cats){chartD={cats:v.cats.map(String),series:(v.series||[]).map(x=>({name:String(x.name||''),vals:(x.vals||[]).map(z=>+z||0)}))};kind=v.kind||'bar';title=v.title||'';}}
+  const F='Malgun Gothic';const items=boardOf(ev).items||[];
+  for(const el of [...root.querySelectorAll('section.sl')]){const s=pptx.addSlide();
+    const R=el.getBoundingClientRect();const k=11.69/R.width;   /* 화면 px → 인치 */
+    const box=x=>{const r=x.getBoundingClientRect();return {x:(r.left-R.left)*k,y:(r.top-R.top)*k,w:r.width*k,h:r.height*k};};
+    const vis=el.querySelector('.sl-vis .v-b');
+    /* ① 상자 */
+    el.querySelectorAll('.bx').forEach(b=>{const cs=getComputedStyle(b);const fill=cssHex(cs.backgroundColor);const bw=parseFloat(cs.borderTopWidth)||0;const line=bw>0?cssHex(cs.borderTopColor):null;
+      if(!fill&&!line)return;const g=box(b);if(g.w<=0||g.h<=0)return;
+      const shape=b.classList.contains('sl-step')?pptx.ShapeType.chevron:pptx.ShapeType.rect;
+      s.addShape(shape,{...g,fill:fill?{color:fill}:{type:'none'},line:line?{color:line,width:Math.max(0.5,bw*0.75)}:{type:'none'}});});
+    /* ② 글 — 상자 안 글자는 도형 위에 글상자로(표·그래프 안은 빼고) */
+    el.querySelectorAll('.t').forEach(t=>{if(vis&&vis.contains(t))return;const txt=t.innerText.replace(/\s+\n/g,'\n').trim();if(!txt)return;
+      const cs=getComputedStyle(t);const g=box(t);const pl=parseFloat(cs.paddingLeft)*k,pr=parseFloat(cs.paddingRight)*k,pt=parseFloat(cs.paddingTop)*k,pb=parseFloat(cs.paddingBottom)*k;
+      const ti=parseFloat(cs.textIndent)||0;
+      s.addText(txt,{x:g.x+pl+(ti<0?ti*k:0),y:g.y+pt,w:Math.max(0.2,g.w-pl-pr-(ti<0?ti*k:0)),h:Math.max(0.15,g.h-pt-pb),margin:0,fontFace:F,
+        fontSize:Math.max(6,Math.round(parseFloat(cs.fontSize)*0.75*10)/10),bold:+cs.fontWeight>=600,color:cssHex(cs.color)||'1C1C1C',
+        valign:cs.alignItems==='center'||t.classList.contains('lab')?'middle':'top',align:cs.textAlign==='right'?'right':cs.textAlign==='center'?'center':'left',fit:'shrink',lineSpacingMultiple:1.05});});
+    /* ③ 시각자료 */
+    if(vis){const host=vis.closest('.sl-vis');let v=null;try{v=JSON.parse(host.getAttribute('data-v')||'null');}catch(_){}
+      const it=v&&v.ref?items.find(i=>i.id===v.ref):null;const g=box(vis);const pad=0.08;const gx=g.x+pad,gy=g.y+pad,gw=g.w-pad*2,gh=g.h-pad*2;
+      const tb=vis.querySelector('table');const img=vis.querySelector('img');
+      let chartD=null,kind='bar';
+      if(v&&v.type==='chart'){if(it&&it.type==='chart'){const src=items.find(x=>x.id===it.src);chartD=(src?chartData(tableGrid(src.html||''),{tr:!!it.tr,cat:it.cat|0}):null)||it.data;kind=it.kind||'bar';}
+        else if(v.cats){chartD={cats:v.cats.map(String),series:(v.series||[]).map(x=>({name:String(x.name||''),vals:(x.vals||[]).map(z=>+z||0)}))};kind=v.kind||'bar';}}
       if(chartD&&chartD.series&&chartD.series.length){const T={bar:pptx.ChartType.bar,hbar:pptx.ChartType.bar,line:pptx.ChartType.line,pie:pptx.ChartType.pie,donut:pptx.ChartType.doughnut}[kind]||pptx.ChartType.bar;
         const data=(kind==='pie'||kind==='donut'?chartD.series.slice(0,1):chartD.series).map(x=>({name:x.name,labels:chartD.cats,values:x.vals}));
-        s.addChart(T,data,{x:vx,y,w:vw,h:Math.min(vh,4.6),barDir:kind==='hbar'?'bar':'col',showTitle:!!title,title,titleFontFace:F,titleFontSize:12,showLegend:data.length>1||kind==='pie',legendPos:'b',legendFontFace:F,
-          catAxisLabelFontFace:F,valAxisLabelFontFace:F,dataLabelFontFace:F,showValue:true,dataLabelFontSize:9,chartColors:['1F3A5F','4E82AE','9DB9D6','C8A951','7A7A7A','2E7D6B']});}
-      else if(tb){const rows=[...tb.rows].map((r,ri)=>[...r.cells].map(c=>({text:c.innerText.trim(),options:ri===0&&c.tagName==='TH'?{bold:true,color:'FFFFFF',fill:{color:NAVY}}:{}})));
-        s.addTable(rows,{x:vx,y,w:vw,fontFace:F,fontSize:10,border:{type:'solid',pt:0.6,color:'B9C3CF'},align:'center',valign:'middle',autoPage:false});
-        const cap=el.querySelector('.sl-vis .sl-cap');if(cap)s.addText(cap.innerText,{x:vx,y:Math.min(7.1,y+0.32*rows.length+0.1),w:vw,h:0.3,fontFace:F,fontSize:9,color:'666666',align:'right'});}
+        s.addChart(T,data,{x:gx,y:gy,w:gw,h:gh,barDir:kind==='hbar'?'bar':'col',showLegend:data.length>1||kind==='pie',legendPos:'t',legendFontFace:F,legendFontSize:9,
+          catAxisLabelFontFace:F,catAxisLabelFontSize:9,valAxisLabelFontFace:F,valAxisLabelFontSize:8,dataLabelFontFace:F,showValue:true,dataLabelFontSize:8,
+          valGridLine:{color:'E1E6EC',size:0.5},chartColors:['1F3A5F','4E82AE','9DB9D6','C8102E','7A7A7A','2E7D6B']});}
+      else if(tb){const rows=[...tb.rows].map(r=>[...r.cells].map(c=>({text:c.innerText.trim(),options:c.tagName==='TH'?{bold:true,color:'FFFFFF',fill:{color:'1F3A5F'}}:{}})));
+        const fs=Math.max(7,Math.round(parseFloat(getComputedStyle(tb).fontSize)*0.75));
+        s.addTable(rows,{x:gx,y:gy,w:gw,fontFace:F,fontSize:fs,border:{type:'solid',pt:0.5,color:'B9C6D6'},align:'center',valign:'middle',autoPage:false,margin:0.04});
+        const cap=vis.querySelector('.sl-cap');if(cap){const cg=box(cap);s.addText(cap.innerText,{...cg,margin:0,fontFace:F,fontSize:8,color:'666666',align:'right'});}}
       else if(img&&img.getAttribute('data-pms')){try{const b=await Files.blob(img.getAttribute('data-pms'));const durl=await blobUrlData(b);
           const dim=await new Promise(ok=>{const im=new Image();im.onload=()=>ok([im.naturalWidth,im.naturalHeight]);im.onerror=()=>ok([4,3]);im.src=durl;});
-          const r=Math.min(vw/dim[0],vh/dim[1]);const w=dim[0]*r,h=dim[1]*r;s.addImage({data:durl,x:vx+(vw-w)/2,y,w,h});}catch(_){}}
-      else{const svg=el.querySelector('.sl-vis svg');if(svg){try{const b=await svgToPng(svg.outerHTML,2);const durl=await blobUrlData(b);s.addImage({data:durl,x:vx,y,w:vw,h:Math.min(vh,vw*0.6)});}catch(_){}}}}
-    s.addShape(pptx.ShapeType.line,{x:0.6,y:7.72,w:10.5,h:0,line:{color:'D5DAE0',width:0.6}});
-    s.addText(tx('.sl-f span'),{x:0.6,y:7.75,w:8,h:0.3,fontFace:F,fontSize:9,color:'8A8F96'});
-    s.addText((k+1)+' / '+n,{x:9.1,y:7.75,w:2,h:0.3,fontFace:F,fontSize:9,color:'8A8F96',align:'right'});}
+          const r=Math.min(gw/dim[0],gh/dim[1]);const w=dim[0]*r,h=dim[1]*r;s.addImage({data:durl,x:gx+(gw-w)/2,y:gy+(gh-h)/2,w,h});}catch(_){}}
+      else{const svg=vis.querySelector('svg');if(svg){try{const b=await svgToPng(svg.outerHTML,2);const durl=await blobUrlData(b);const sg=box(svg);s.addImage({data:durl,...sg});}catch(_){}}}}
+    /* ④ 바닥줄 */
+    const f=el.querySelector('.sl-f');if(f){const fg=box(f);s.addShape(pptx.ShapeType.line,{x:fg.x,y:fg.y,w:fg.w,h:0,line:{color:'D5DAE0',width:0.5}});}}
   await pptx.writeFile({fileName:(name||'보고서')+'.pptx'});}
 function printHtml(html,title,css){
   const f=document.createElement('iframe');f.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0';document.body.appendChild(f);
@@ -38917,6 +38960,8 @@ function PrintPreview({e,setE,onClose,toast,init}){
   React.useEffect(()=>{const ps=new Set();items.forEach(i=>{if(i.type==='img'&&i.path)ps.add(i.path);if(i.type==='chart'&&i.pic)ps.add(i.pic);String(i.html||'').replace(/data-pms="([^"]+)"/g,(_,x)=>{ps.add(x);return '';});});
     [...ps].filter(x=>!urls[x]).forEach(x=>Files.url(x).then(u=>setUrls(m=>({...m,[x]:u}))).catch(()=>{}));},[items]);
   /* 정리본 속 저장소 그림은 볼 때마다 서명 주소를 붙인다(저장할 때는 뗀다 — 주소가 1시간 뒤 만료되므로) */
+  React.useEffect(()=>{if(!(T&&T.slides)||!cur||!ed.current)return;const el=ed.current;const t=setTimeout(()=>slFit(el),80);
+    const imgs=[...el.querySelectorAll('img')];imgs.forEach(im=>im.addEventListener('load',()=>slFit(el),{once:true}));return()=>clearTimeout(t);},[tpl,ver,cur&&cur.id]);
   React.useEffect(()=>{const el=ed.current;if(!el)return;el.querySelectorAll('img[data-pms]:not([src])').forEach(im=>Files.url(im.getAttribute('data-pms')).then(u=>{im.src=u;}).catch(()=>{im.alt='⚠ 그림';}));});
   React.useEffect(()=>{const k=x=>{if(x.key==='Escape'){x.stopPropagation();onClose();}};window.addEventListener('keydown',k,true);return()=>window.removeEventListener('keydown',k,true);},[]);
   const choose=id=>{setTpl(id);setErr('');try{localStorage.setItem('cal.printTpl',id);}catch(_){}};
@@ -38947,7 +38992,7 @@ function PrintPreview({e,setE,onClose,toast,init}){
   return ReactDOM.createPortal(<div className="pv-wrap" style={{position:'fixed',inset:0,zIndex:100000,background:'#e9ebee',display:'flex',flexDirection:'column',fontFamily:'var(--font-sans)'}}>
     <style>{PV_CSS+SL_PV}</style>
     <div style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center',padding:'10px 16px',background:'#fff',borderBottom:'1px solid var(--border-default)'}}>
-      <strong style={{fontSize:'var(--fs-base)',marginRight:6}}>{T&&T.slides?'📊 보고서':T&&T.insight?'🤖 AI 인사이트':'📝 회의록 생성'}</strong>
+      <strong style={{fontSize:'var(--fs-base)',marginRight:6}}>📝 리포트</strong>
       <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>양식</span>
       {PRINT_TPLS.filter(x=>!x.insight&&!x.hide&&!x.slides).map(x=>chip(x.id,x.label))}{chip('raw','원본 그대로')}
       <span style={{width:1,height:18,background:'var(--border-strong)',margin:'0 4px'}}/>
@@ -39743,15 +39788,12 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
             {refs.map(x=><button key={x.id} type="button" onClick={()=>window.dispatchEvent(new CustomEvent('pms-open',{detail:{id:x.id}}))} title="이 일정을 @멘션한 일정 열기"
               style={{border:'1px solid var(--border-default)',background:'#eff6ff',color:'#1d4ed8',borderRadius:4,padding:'2px 8px',fontSize:'var(--fs-sm)',cursor:'pointer',fontFamily:'inherit'}}>@{x.title} · {x.date}</button>)}</div></PRow>;})()}
         <div style={{marginTop:16,fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>📝 메모 <span style={{fontSize:11}}>· 글상자·표·이미지를 끌어 자유롭게 배치 · 엑셀 범위는 빈 곳에 Ctrl+V · 글에서 @로 다른 일정 연결</span></div>
-        <MemoBoard docKey={e.id+':'+rev} board={boardOf(e)} onChange={(b,txt)=>setE(p=>({...p,board:b,boardText:txt,notes:txt}))}/>
+        <MemoBoard docKey={e.id+':'+rev} onTerms={()=>setTerms(true)} board={boardOf(e)} onChange={(b,txt)=>setE(p=>({...p,board:b,boardText:txt,notes:txt}))}/>
       </div>
       <div className="ev-foot" style={{padding:'10px 14px',borderTop:'1px solid var(--border-default)',display:'flex',alignItems:'center',justifyContent:'flex-end',gap:6,flexWrap:'wrap'}}>
         <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',marginRight:'auto'}}>{!(e.title||'').trim()?'제목을 넣으면 자동 저장됩니다':savedAt?'✓ 자동 저장됨 · '+savedAt:'입력하면 자동 저장됩니다'}</span>
-        <Button size="sm" variant="ghost" onClick={()=>setTerms(true)} title="잘못 받아쓴 고유명사·용어를 메모 전체에서 한꺼번에 바꿉니다">🔤 용어 수정</Button>
         <Button size="sm" variant="ghost" onClick={()=>setPv('raw')} title="메모 상자를 위→아래 순서로 세워 인쇄합니다(Ctrl+P)">🖨 인쇄</Button>
-        <Button size="sm" variant="ghost" onClick={()=>setPv('insight')} title="회의록·메모를 Claude가 검토해 개선 방향, 개선안 의견 보고, 필요한 업무 프로세스·시스템·도구의 윤곽을 씁니다">🤖 AI 인사이트</Button>
-        <Button size="sm" variant="ghost" onClick={()=>setPv('slides')} title="메모의 글·표·그래프·이미지로 A4 가로 슬라이드(PPT) 보고서 초안을 만듭니다">📊 보고서</Button>
-        <Button size="sm" onClick={()=>setPv('meeting')} title="메모에 모인 내용을 회의록 양식으로 정리하고, 인쇄(PDF)·워드로 내보냅니다">📝 회의록</Button>
+        <Button size="sm" onClick={()=>setPv('meeting')} title="메모를 회의록·AI 인사이트·보고서(PPT)로 정리하고, 인쇄(PDF)·워드·PPT로 내보냅니다. 만든 문서는 「🗂 저장된 문서」에 남습니다">📝 리포트</Button>
         <Button variant="primary" onClick={close}>닫기</Button></div>
       {pv&&<PrintPreview e={e} setE={setE} toast={toast} init={pv} onClose={()=>setPv('')}/>}
       {terms&&<TermFixDialog toast={toast} onClose={()=>setTerms(false)} text={()=>boardToMd(boardOf(e).items||[])}
@@ -39764,7 +39806,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.21';
+const APP_VERSION='v2.22';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
