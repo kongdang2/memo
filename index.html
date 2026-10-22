@@ -37530,9 +37530,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
             if(it.type==='img'||(it.type==='chart'&&e.target.closest('svg'))){e.preventDefault();setAct(null);startDrag(e,'move',it.id);}}}>
         <div className="bd-grip" onPointerDown={e=>startDrag(e,'move',it.id)} title="끌어서 옮기기 · 누르고 Ctrl+C로 상자 복사">⠿ {it.type==='img'?'이미지':it.type==='chart'?'그래프':it.grp==='minutes'?'회의록':/^tbrec:/.test(it.src||'')?'통번역':/^tbwait:/.test(it.src||'')?'녹취 중':it.type==='table'?'표':'글'}
           {/^tbrec:/.test(it.src||'')&&<a href={TB_URL+'#rec='+encodeURIComponent(it.src.slice(6))} target="_blank" rel="noopener" onPointerDown={x=>x.stopPropagation()} onClick={x=>x.stopPropagation()}
-            title="통번역 앱에서 이 기록(원문·녹음) 열기" style={{color:'inherit',textDecoration:'none',marginLeft:4,fontWeight:700}}>↗</a>}
-          {it.type==='rec'&&it.url&&<a href={it.url.replace('&embed=1','')} target="_blank" rel="noopener" onPointerDown={x=>x.stopPropagation()} onClick={x=>x.stopPropagation()}
-            title="통번역 앱을 새 탭으로 크게 열기 (여기서 녹음 중이면 거기서는 따로 시작됩니다)" style={{color:'inherit',textDecoration:'none',marginLeft:4,fontWeight:700}}>↗</a>}</div>
+            title="통번역 앱에서 이 기록(원문·녹음) 열기" style={{color:'inherit',textDecoration:'none',marginLeft:4,fontWeight:700}}>↗</a>}</div>
         {it.type==='img'?<BdImg it={it}/>
           :it.type==='rec'?<div className="bd-rec" style={{height:(it.h||460)-6}}><iframe src={it.url} allow="microphone; autoplay; clipboard-write" title="녹취 (통번역)"/></div>
           :it.type==='chart'?<BdChart it={it} items={shown} patch={patch}/>
@@ -39882,7 +39880,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.25';
+const APP_VERSION='v2.25.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
