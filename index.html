@@ -36380,6 +36380,7 @@ Object.assign(window,{TrashModal,Login,SettingsModal,NotiTab});
      HTML에는 주소 대신 data-pms="경로"만 남기고, 볼 때 1시간짜리 서명 주소로 바꿔 띄운다
    · 예전 메모(마크다운)는 처음 열 때 HTML로 바꿔 보여 주고, 고치면 그때부터 HTML로 저장한다
    · 단축키: 줄 맨 앞에서 「# 」「## 」「### 」「- 」「1. 」「[] 」「> 」, 「---」+Enter, 빈 줄에서 「/」 → 블록 메뉴 */
+const TB_URL='https://kongdang2.github.io/record/';   /* 통번역 앱 — 녹취·받아쓰기·통역은 여기서(새 탭). 끝나면 그 일정 메모로 들어온다(v2.24) */
 const BUCKET='pms-files';
 function idbOpen(){return new Promise((ok,err)=>{const r=indexedDB.open('pms-files',1);
   r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains('f'))r.result.createObjectStore('f');};
@@ -37521,7 +37522,9 @@ function MemoBoard({docKey,board,onChange,onTerms}){
           onMouseDown={e=>{e.stopPropagation();if(e.shiftKey){e.preventDefault();setSel(s=>s.includes(it.id)?s.filter(x=>x!==it.id):[...s,it.id]);return;}
             if(!sel.includes(it.id)||sel.length>1)setSel([it.id]);
             if(it.type==='img'||(it.type==='chart'&&e.target.closest('svg'))){e.preventDefault();setAct(null);startDrag(e,'move',it.id);}}}>
-        <div className="bd-grip" onPointerDown={e=>startDrag(e,'move',it.id)} title="끌어서 옮기기 · 누르고 Ctrl+C로 상자 복사">⠿ {it.type==='img'?'이미지':it.type==='chart'?'그래프':it.grp==='minutes'?'회의록':it.type==='table'?'표':'글'}</div>
+        <div className="bd-grip" onPointerDown={e=>startDrag(e,'move',it.id)} title="끌어서 옮기기 · 누르고 Ctrl+C로 상자 복사">⠿ {it.type==='img'?'이미지':it.type==='chart'?'그래프':it.grp==='minutes'?'회의록':/^tbrec:/.test(it.src||'')?'통번역':it.type==='table'?'표':'글'}
+          {/^tbrec:/.test(it.src||'')&&<a href={TB_URL+'#rec='+encodeURIComponent(it.src.slice(6))} target="_blank" rel="noopener" onPointerDown={x=>x.stopPropagation()} onClick={x=>x.stopPropagation()}
+            title="통번역 앱에서 이 기록(원문·녹음) 열기" style={{color:'inherit',textDecoration:'none',marginLeft:4,fontWeight:700}}>↗</a>}</div>
         {it.type==='img'?<BdImg it={it}/>
           :it.type==='chart'?<BdChart it={it} items={shown} patch={patch}/>
           :<RichNote docKey={it.id+'|'+docKey} html={it.html||''} compact tbHost={tbHost} active={!!actIt&&actIt.id===it.id}
@@ -39754,6 +39757,16 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
     window.addEventListener('popstate',pop);return()=>window.removeEventListener('popstate',pop);},[]);
   if(!e)return null;
   const close=()=>{flush(e);onClose();};closeRef.current=close;
+  /* 🎙 녹취(v2.24): 녹음·받아쓰기·통번역은 통번역 앱이 맡는다 — 이 일정 번호·제목·날짜·언어를 주소에 실어 새 탭으로 열고,
+     통번역이 녹취를 마치고 정리하면 이 일정 메모에 자동으로 넣어 준다(열려 있으면 바로 보인다) */
+  const startRec=async()=>{
+    if(!(e.title||'').trim()){toast&&toast('제목을 먼저 넣어 주세요 — 어느 일정의 녹취인지 통번역에 알려야 합니다');return;}
+    const lang=await pickDialog('어떤 녹취인가요? 통번역 앱이 새 탭으로 열립니다',[
+      {id:'ko',label:'🇰🇷 한국어 받아쓰기',sub:'한국어 회의를 받아써서 정리'},{id:'en',label:'🇺🇸 영어 → 한국어 통역'},
+      {id:'ja',label:'🇯🇵 일본어 → 한국어 통역'},{id:'zh',label:'🇨🇳 중국어 → 한국어 통역'}]);
+    if(!lang)return;flush(e);
+    const q=new URLSearchParams({cal:e.id,date:e.date||'',title:(e.title||'').trim(),lang,back:location.href.split('#')[0]});
+    window.open(TB_URL+'#'+q.toString(),'_blank');};
   const f=k=>v=>setE({...e,[k]:v});const isNew=!(ev&&ev.title)&&!savedAt;
   const linkList=(e.links||'').split('\n').map(x=>x.trim()).filter(Boolean);
   const attachTb=async rec=>{const full=await Store.getTbrec(rec.id);const md=(full&&full.md)||'';
@@ -39836,6 +39849,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
       </div>
       <div className="ev-foot" style={{padding:'10px 14px',borderTop:'1px solid var(--border-default)',display:'flex',alignItems:'center',justifyContent:'flex-end',gap:6,flexWrap:'wrap'}}>
         <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',marginRight:'auto'}}>{!(e.title||'').trim()?'제목을 넣으면 자동 저장됩니다':savedAt?'✓ 자동 저장됨 · '+savedAt:'입력하면 자동 저장됩니다'}</span>
+        <Button size="sm" variant="ghost" onClick={startRec} title="통번역 앱을 새 탭으로 열어 이 일정에 연결된 녹취(한국어 받아쓰기 · 영어/일본어/중국어 통역)를 시작합니다. 끝나면 정리본이 이 메모에 자동으로 들어옵니다">🎙 녹취</Button>
         <Button size="sm" variant="ghost" onClick={()=>setPv('raw')} title="메모 상자를 위→아래 순서로 세워 인쇄합니다(Ctrl+P)">🖨 인쇄</Button>
         <Button size="sm" onClick={()=>setPv('meeting')} title="메모를 회의록·AI 인사이트·보고서(PPT)로 정리하고, 인쇄(PDF)·워드·PPT로 내보냅니다. 만든 문서는 「🗂 저장된 문서」에 남습니다">📝 리포트</Button>
         <Button variant="primary" onClick={close}>닫기</Button></div>
@@ -39850,7 +39864,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.23.1';
+const APP_VERSION='v2.24';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
