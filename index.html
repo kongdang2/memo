@@ -37528,7 +37528,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
           onMouseDown={e=>{e.stopPropagation();if(e.shiftKey){e.preventDefault();setSel(s=>s.includes(it.id)?s.filter(x=>x!==it.id):[...s,it.id]);return;}
             if(!sel.includes(it.id)||sel.length>1)setSel([it.id]);
             if(it.type==='img'||(it.type==='chart'&&e.target.closest('svg'))){e.preventDefault();setAct(null);startDrag(e,'move',it.id);}}}>
-        <div className="bd-grip" onPointerDown={e=>startDrag(e,'move',it.id)} title="끌어서 옮기기 · 누르고 Ctrl+C로 상자 복사">⠿ {it.type==='img'?'이미지':it.type==='chart'?'그래프':it.grp==='minutes'?'회의록':/^tbrec:/.test(it.src||'')?'통번역':/^tbwait:/.test(it.src||'')?'녹취 중':it.type==='table'?'표':'글'}
+        <div className="bd-grip" onPointerDown={e=>startDrag(e,'move',it.id)} title="끌어서 옮기기 · 누르고 Ctrl+C로 상자 복사">⠿ {it.type==='img'?'이미지':it.type==='chart'?'그래프':it.grp==='minutes'?'회의록':/^tbrec:/.test(it.src||'')?'통번역':/^tbwait:/.test(it.src||'')?(it.lab||'녹취 중'):it.type==='table'?'표':'글'}
           {/^tbrec:/.test(it.src||'')&&<a href={TB_URL+'#rec='+encodeURIComponent(it.src.slice(6))} target="_blank" rel="noopener" onPointerDown={x=>x.stopPropagation()} onClick={x=>x.stopPropagation()}
             title="통번역 앱에서 이 기록(원문·녹음) 열기" style={{color:'inherit',textDecoration:'none',marginLeft:4,fontWeight:700}}>↗</a>}</div>
         {it.type==='img'?<BdImg it={it}/>
@@ -39770,7 +39770,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
       else if(d.state==='done'){recLive.current=false;window.dispatchEvent(new Event('pms-pull-now'));}};   /* 정리본이 들어갔다 → 바로 받아와서 녹취 상자를 정리본으로 바꾼다 */
     window.addEventListener('message',on);return()=>window.removeEventListener('message',on);},[]);
   if(!e)return null;
-  const close=async()=>{if(recLive.current){const a=await pickDialog('녹음이 진행 중입니다. 창을 닫으면 녹음이 끊깁니다',[{id:'stay',label:'계속 녹음'},{id:'go',label:'닫고 녹음 끊기'}]);if(a!=='go')return;}
+  const close=async()=>{if(recLive.current){const a=await pickDialog('녹음·전사가 진행 중입니다. 창을 닫으면 끊깁니다',[{id:'stay',label:'계속 진행'},{id:'go',label:'닫고 끊기'}]);if(a!=='go')return;}
     flush(e);onClose();};closeRef.current=close;
   /* 🎙 녹취(v2.24): 녹음·받아쓰기·통번역은 통번역 앱이 맡는다 — 이 일정 번호·제목·날짜·언어를 주소에 실어 새 탭으로 열고,
      통번역이 녹취를 마치고 정리하면 이 일정 메모에 자동으로 넣어 준다(열려 있으면 바로 보인다) */
@@ -39778,12 +39778,14 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
     if(!(e.title||'').trim()){toast&&toast('제목을 먼저 넣어 주세요 — 어느 일정의 녹취인지 통번역에 알려야 합니다');return;}
     const lang=await pickDialog('어떤 녹취인가요? 메모에 녹취 상자가 뜹니다',[
       {id:'ko',label:'🇰🇷 한국어 받아쓰기',sub:'한국어 회의를 받아써서 정리'},{id:'en',label:'🇺🇸 영어 → 한국어 통역'},
-      {id:'ja',label:'🇯🇵 일본어 → 한국어 통역'},{id:'zh',label:'🇨🇳 중국어 → 한국어 통역'}]);
+      {id:'ja',label:'🇯🇵 일본어 → 한국어 통역'},{id:'zh',label:'🇨🇳 중국어 → 한국어 통역'},
+      {id:'file',label:'📁 음성 파일로 전사',sub:'녹음 파일을 올려 받아쓰기 → 정리 (언어는 상자 안에서 고릅니다)'}]);
     if(!lang)return;
-    const q=new URLSearchParams({cal:e.id,date:e.date||'',title:(e.title||'').trim(),lang,back:location.href.split('#')[0]});const url=TB_URL+'#'+q.toString()+'&embed=1';
+    const file=lang==='file';
+    const q=new URLSearchParams({cal:e.id,date:e.date||'',title:(e.title||'').trim(),...(file?{}:{lang}),back:location.href.split('#')[0]});const url=TB_URL+'#'+q.toString()+'&embed=1'+(file?'&file=1':'');
     /* 메모에 녹취 상자(통번역 화면)를 바로 띄운다 — 통번역이 정리본을 넣으면 이 상자는 사라진다(dropWait) */
     const b=boardOf(e);const seen=(b.items||[]).filter(i=>/^tbrec:/.test(i.src||'')).map(i=>i.src);
-    const next={...e,board:bdAppend(b,[{type:'rec',src:'tbwait:'+Date.now(),seen,url,h:460}])};setE(next);setRev(r=>r+1);flush(next);};
+    const next={...e,board:bdAppend(b,[{type:'rec',src:'tbwait:'+Date.now(),seen,url,h:460,...(file?{lab:'전사 중'}:{})}])};setE(next);setRev(r=>r+1);flush(next);};
   const f=k=>v=>setE({...e,[k]:v});const isNew=!(ev&&ev.title)&&!savedAt;
   const linkList=(e.links||'').split('\n').map(x=>x.trim()).filter(Boolean);
   const attachTb=async rec=>{const full=await Store.getTbrec(rec.id);const md=(full&&full.md)||'';
@@ -39880,7 +39882,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.25.1';
+const APP_VERSION='v2.26';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
