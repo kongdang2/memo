@@ -37495,10 +37495,13 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
   React.useEffect(()=>{
     const groups=[...new Set(items.filter(i=>i.stk).map(i=>i.stk))];
     if(!groups.length){setBottom(measureBottom());return;}
+    /* v2.27.1: 묶음이 여러 개(통번역에서 여러 건을 한꺼번에 보냄)면 앞 묶음 바로 밑에 이어 쌓는다 — 아직 자리 잡지 않은 상자(맨 위에 숨어 있음)는 바닥 계산에서 뺀다 */
     const t=requestAnimationFrame(()=>{let arr=itemsRef.current.slice();
-      groups.forEach(g=>{const ids=new Set(arr.filter(i=>i.stk===g).map(i=>i.id));let y=sn(measureBottom(ids)+(measureBottom(ids)?30:20));
+      const pend=new Set(arr.filter(i=>i.stk).map(i=>i.id));let bot=measureBottom(pend);
+      groups.forEach(g=>{let y=sn(bot+(bot?30:20));
         arr.filter(i=>i.stk===g).sort((a,b)=>(a.ord||0)-(b.ord||0)).forEach(i=>{const el=boxOf(i.id);const h=el?el.offsetHeight:120;
-          arr=arr.map(x=>x.id===i.id?(()=>{const {stk,ord,...rest}=x;return {...rest,y};})():x);y=sn(y+h+16);});});
+          arr=arr.map(x=>x.id===i.id?(()=>{const {stk,ord,...rest}=x;return {...rest,y};})():x);y=sn(y+h+16);});
+        bot=y-16;});
       commit(arr);});
     return ()=>cancelAnimationFrame(t);});
   const nextPos=()=>{if(last.current)return last.current;return {x:20,y:sn(measureBottom()?measureBottom()+24:20)};};
@@ -37553,13 +37556,15 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
     if(!e.shiftKey)setSel([]);if(!(e.nativeEvent.sourceCapabilities&&e.nativeEvent.sourceCapabilities.firesTouchEvents)&&lastPT.current!=='touch')startDrag(e,'marquee');wrap.current.focus({preventScroll:true});};
   /* 맞춤 */
   const geo=()=>{const m={};wrap.current.querySelectorAll('[data-bd]').forEach(el=>{m[el.getAttribute('data-bd')]={w:el.offsetWidth,h:el.offsetHeight};});return m;};
-  const align=k=>{const g=geo();const S=itemsRef.current.filter(i=>sel.includes(i.id)&&g[i.id]);if(S.length<2&&!/^(front|back)$/.test(k))return;if(!S.length)return;
+  const align=k=>{const g=geo();const S=itemsRef.current.filter(i=>(k==='stack'&&!sel.length||sel.includes(i.id))&&g[i.id]);if(S.length<2&&!/^(front|back)$/.test(k))return;if(!S.length)return;
     const L=Math.min(...S.map(i=>i.x)),R=Math.max(...S.map(i=>i.x+g[i.id].w)),T=Math.min(...S.map(i=>i.y)),B=Math.max(...S.map(i=>i.y+g[i.id].h));
     let map={};
     if(k==='left')S.forEach(i=>map[i.id]={x:L});if(k==='right')S.forEach(i=>map[i.id]={x:R-g[i.id].w});if(k==='center')S.forEach(i=>map[i.id]={x:Math.round((L+R)/2-g[i.id].w/2)});
     if(k==='top')S.forEach(i=>map[i.id]={y:T});if(k==='bottom')S.forEach(i=>map[i.id]={y:B-g[i.id].h});if(k==='middle')S.forEach(i=>map[i.id]={y:Math.round((T+B)/2-g[i.id].h/2)});
     if(k==='hgap'){const o=S.slice().sort((a,b)=>a.x-b.x);const tot=o.reduce((s,i)=>s+g[i.id].w,0);const gap=(R-L-tot)/(o.length-1);let x=L;o.forEach(i=>{map[i.id]={x:Math.round(x)};x+=g[i.id].w+gap;});}
     if(k==='vgap'){const o=S.slice().sort((a,b)=>a.y-b.y);const tot=o.reduce((s,i)=>s+g[i.id].h,0);const gap=(B-T-tot)/(o.length-1);let y=T;o.forEach(i=>{map[i.id]={y:Math.round(y)};y+=g[i.id].h+gap;});}
+    /* 차례로 쌓기(v2.27.1): 위에서부터 순서대로 왼쪽을 맞춰 겹침 없이 쌓는다 — 고른 것이 없으면 메모 전체 */
+    if(k==='stack'){const o=S.slice().sort((a,b)=>a.y-b.y||a.x-b.x);let y=T;o.forEach(i=>{map[i.id]={x:L,y:sn(y)};y=sn(y)+g[i.id].h+16;});}
     if(k==='front'){let z=topZ();S.forEach(i=>map[i.id]={z:z++});}
     if(k==='back'){const mn=Math.min(0,...itemsRef.current.map(i=>i.z||0))-S.length;S.forEach((i,n)=>map[i.id]={z:mn+n});}
     commit(itemsRef.current.map(i=>map[i.id]?{...i,...map[i.id]}:i));};
@@ -37613,7 +37618,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
         <span className="sep"/>
         <Bt t="⇤" title="왼쪽 맞춤 (2개 이상 선택)" dis={!many} on={()=>align('left')}/><Bt t="↔" title="가운데 맞춤" dis={!many} on={()=>align('center')}/><Bt t="⇥" title="오른쪽 맞춤" dis={!many} on={()=>align('right')}/>
         <Bt t="⤒" title="위쪽 맞춤" dis={!many} on={()=>align('top')}/><Bt t="↕" title="가운데(세로) 맞춤" dis={!many} on={()=>align('middle')}/><Bt t="⤓" title="아래쪽 맞춤" dis={!many} on={()=>align('bottom')}/>
-        <Bt t="⟷" title="가로 간격 같게 (3개 이상)" dis={sel.length<3} on={()=>align('hgap')}/><Bt t="⇳" title="세로 간격 같게 (3개 이상)" dis={sel.length<3} on={()=>align('vgap')}/>
+        <Bt t="⟷" title="가로 간격 같게 (3개 이상)" dis={sel.length<3} on={()=>align('hgap')}/><Bt t="⇳" title="세로 간격 같게 (3개 이상)" dis={sel.length<3} on={()=>align('vgap')}/><Bt t="☰ 차례로 쌓기" title="겹치거나 떨어진 상자를 위에서부터 순서대로 왼쪽 맞춰 쌓습니다 — 고른 상자가 없으면 메모 전체" dis={sel.length===1} on={()=>align('stack')}/>
         <span className="sep"/>
         <Bt t="앞으로" title="맨 앞으로" dis={!sel.length} on={()=>align('front')}/><Bt t="뒤로" title="맨 뒤로" dis={!sel.length} on={()=>align('back')}/>
         {onTerms&&<Bt t="🔤 용어 수정" title="잘못 받아쓴 고유명사·용어를 메모 전체에서 한꺼번에 바꿉니다" on={onTerms}/>}
@@ -39996,7 +40001,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.27';
+const APP_VERSION='v2.27.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
