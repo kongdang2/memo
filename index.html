@@ -35719,6 +35719,17 @@ create policy "own items" on pms_items for all
   using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create index if not exists pms_items_live_idx on pms_items (user_id, kind) where deleted_at is null;`;
 const TRASH_DAYS=30;
+/* ── 오프라인(v2.27): 일정 사본을 이 기기(IndexedDB)에 두고, 끊겼을 때는 사본으로 열고, 고친 것은 모아 두었다가 다시 연결되면 올린다 ── */
+const OFFLINE_ERR=Object.assign(new Error('오프라인 — 이 기기에 임시저장했습니다'),{offline:true});
+const isNetErr=e=>!navigator.onLine||/Failed to fetch|NetworkError|Load failed|ERR_INTERNET|접속할 수 없습니다|network/i.test(String((e&&(e.message||e))||''));
+const OffDB={
+  p:null,
+  open(){return this.p||(this.p=new Promise((ok,err)=>{const r=indexedDB.open('pms-offline',1);
+    r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains('kv'))r.result.createObjectStore('kv');};
+    r.onsuccess=()=>ok(r.result);r.onerror=()=>{this.p=null;err(r.error||new Error('IndexedDB 열기 실패'));};}));},
+  async get(k){const d=await this.open();return new Promise((ok,err)=>{const q=d.transaction('kv','readonly').objectStore('kv').get(k);q.onsuccess=()=>ok(q.result);q.onerror=()=>err(q.error);});},
+  async set(k,v){const d=await this.open();return new Promise((ok,err)=>{const t=d.transaction('kv','readwrite');t.objectStore('kv').put(v,k);t.oncomplete=()=>ok();t.onerror=()=>err(t.error);});},
+};
 const isMissingTable=e=>e&&(e.code==='PGRST205'||e.code==='42P01'||/Could not find the table|does not exist/i.test(e.message||''));
 const titleOf=it=>it&&(it.subject||it.title||it.label||it.email)||'(제목 없음)';
 
@@ -35776,10 +35787,15 @@ const Store={
   get cloudReady(){return !!(this.cfg.supabaseUrl&&this.cfg.supabaseKey);},
   async init(){
     if(this.cloudReady){
+      const off=this.offUser();
       try{ if(!window.supabase) await loadScript(SB_CDN);
         this.sb=window.supabase.createClient(this.cfg.supabaseUrl,this.cfg.supabaseKey);this.mode='supabase';
-        const {data}=await this.sb.auth.getSession();if(data&&data.session)this.user=this.userOf(data.session.user);
-      }catch(e){console.warn('supabase load failed',e);this.mode='local';this.initError=explainSbError(e);}
+        const {data,error}=await this.sb.auth.getSession();
+        if(data&&data.session){this.user=this.userOf(data.session.user);this.keepUser();}
+        else if(off&&isNetErr(error)){this.user=off;this.offline=true;}   /* 끊긴 채로 열었고 로그인 유효시간이 지났다 — 이 기기의 사본으로 연다 */
+      }catch(e){console.warn('supabase load failed',e);
+        if(off&&isNetErr(e)){this.mode='supabase';this.user=off;this.offline=true;}   /* 오프라인 — 서버 부품을 못 받아도 사본으로 연다 */
+        else{this.mode='local';this.initError=explainSbError(e);}}
     }
     if(this.mode==='local'){const u=sessionStorage.getItem('cal.session');if(u)this.user=JSON.parse(u);}
     return this.user;
@@ -35796,17 +35812,79 @@ const Store={
     return {ok:true,step:'done',msg:'연결 성공 · 테이블 확인됨 — 저장하면 새로 고침 후 클라우드 모드로 시작합니다'};
   },
   async signIn(email,pw){
-    if(this.mode==='supabase'){const {data,error}=await this.sb.auth.signInWithPassword({email,password:pw});if(error)throw new Error(explainSbError(error));this.user=this.userOf(data.user);return this.user;}
+    if(this.mode==='supabase'){const {data,error}=await this.sb.auth.signInWithPassword({email,password:pw});if(error)throw new Error(explainSbError(error));this.user=this.userOf(data.user);this.keepUser();return this.user;}
     const users=JSON.parse(localStorage.getItem('cal.users')||'{}');const h=await sha256(email+':'+pw);
     if(!users[email]){users[email]=h;localStorage.setItem('cal.users',JSON.stringify(users));}
     else if(users[email]!==h)throw new Error('비밀번호가 일치하지 않습니다');
     this.user={id:'local:'+email,email,name:email.split('@')[0]};sessionStorage.setItem('cal.session',JSON.stringify(this.user));return this.user;
   },
   async signUp(email,pw){if(this.mode==='supabase'){const {data,error}=await this.sb.auth.signUp({email,password:pw});if(error)throw new Error(explainSbError(error));if(data.session){this.user=this.userOf(data.user);}return true;}return this.signIn(email,pw);},
-  async signOut(){if(this.mode==='supabase')await this.sb.auth.signOut();sessionStorage.removeItem('cal.session');this.user=null;this.snap={};},
+  async signOut(){try{localStorage.removeItem('cal.offuser');}catch(_){}if(this.mode==='supabase'&&this.sb)await this.sb.auth.signOut().catch(()=>{});sessionStorage.removeItem('cal.session');this.user=null;this.snap={};},
   key(kind){return 'cal.data.'+this.user.id+'.'+kind;},
   trashKey(){return 'cal.trash.'+this.user.id;},
   setSnap(db){KINDS.forEach(k=>{this.snap[k]=new Map((db[k]||[]).map(x=>[x.id,JSON.stringify(x)]));});},
+  /* ── 오프라인(v2.27) ── server: 마지막으로 서버와 맞춘 내용(snap) · local: 화면의 지금 내용. 둘의 차이가 「아직 못 올린 것」 */
+  offline:false,local:null,
+  offKey(){return 'u:'+this.user.id;},
+  offUser(){try{return JSON.parse(localStorage.getItem('cal.offuser')||'null');}catch(_){return null;}},
+  keepUser(){try{localStorage.setItem('cal.offuser',JSON.stringify(this.user));}catch(_){}},
+  writeLocal(){clearTimeout(this._lw);this._lw=setTimeout(()=>{if(!this.user||this.mode!=='supabase'||!this.local)return;
+    const server={};KINDS.forEach(k=>{server[k]=[...(this.snap[k]||new Map())];});
+    OffDB.set(this.offKey(),{local:this.local,server,rowMode:this.rowMode,pullAt:this.pullAt||'',at:nowStamp()}).catch(e=>console.warn('오프라인 사본 저장 실패',e));},400);},
+  keepLocal(kind,arr){if(this.mode!=='supabase')return;this.local={...(this.local||{}),[kind]:arr};this.writeLocal();},
+  async loadLocal(){let c=null;try{c=await OffDB.get(this.offKey());}catch(_){}
+    if(!c||!c.local)return null;
+    this.rowMode=c.rowMode!==false;this.pullAt=c.pullAt||'';this.local={...c.local};this.offAt=c.at||'';
+    this.snap={};KINDS.forEach(k=>{this.snap[k]=new Map((c.server&&c.server[k])||[]);});
+    return migrateDb({...c.local});},
+  /* 아직 서버에 못 올린 일정 수 */
+  pendingCount(){let n=0;const same=(j,o)=>{try{return sameJson(JSON.parse(j),o);}catch(_){return false;}};
+    KINDS.forEach(k=>{const sn=this.snap[k]||new Map();const arr=(this.local||{})[k];if(!arr)return;const ids=new Set();
+      arr.forEach(x=>{ids.add(x.id);const b=sn.get(x.id);if(b===undefined||!same(b,x))n++;});
+      sn.forEach((j,id)=>{if(!ids.has(id))n++;});});
+    return n;},
+  /* 다시 연결됐을 때 — 오프라인에서 고친 것을 올린다. 그사이 다른 기기가 같은 일정을 고쳤으면 merge(내 것, 서버 것)로 둘 다 남긴다.
+     돌려주는 값 {changes:{kind:{id:data|null}}, conflicts:[제목], n:올린 수} — 화면은 changes만 반영하면 된다 */
+  async sync(merge){
+    if(this.mode!=='supabase'||!this.offline||this._syncing||!navigator.onLine)return null;
+    this._syncing=true;
+    try{
+      if(!this.sb){await loadScript(SB_CDN);this.sb=window.supabase.createClient(this.cfg.supabaseUrl,this.cfg.supabaseKey);}
+      const {data,error}=await this.sb.auth.getSession();
+      if(!data||!data.session){if(isNetErr(error))return null;
+        throw new Error('로그인이 만료되어 아직 못 올렸습니다 — 로그아웃 후 다시 로그인하면 이 기기에 남은 내용이 올라갑니다');}
+      if(data.session.user.id!==this.user.id)throw new Error('다른 계정으로 로그인되어 있어 오프라인에서 고친 내용을 올리지 않았습니다');
+      const n=this.pendingCount();
+      const out={changes:{},conflicts:[],n};
+      if(!this.rowMode){for(const k of KINDS)if((this.local||{})[k])await this.persist0(k,this.local[k]);this.offline=false;this.writeLocal();return out;}
+      const since=this.pullAt?new Date(Date.parse(this.pullAt)-600000).toISOString():'';
+      const rows=(await this.pull(since))||[];
+      const same=(j,o)=>{try{return sameJson(JSON.parse(j),o);}catch(_){return false;}};
+      for(const k of KINDS){
+        const cur=(this.local||{})[k];if(!cur)continue;
+        const sn=this.snap[k]||new Map();const ch={};const arr=cur.slice();
+        for(const r of rows.filter(x=>x.kind===k)){
+          const id=r.item_id;const base=sn.get(id);const srv=r.deleted_at?null:r.data;
+          if(r.updated_at&&r.updated_at>(this.pullAt||''))this.pullAt=r.updated_at;
+          if(base!==undefined&&srv&&same(base,srv))continue;      /* 서버는 그대로 */
+          if(base===undefined&&!srv)continue;
+          const i=arr.findIndex(x=>x.id===id);const mine=i<0?null:arr[i];
+          const iChanged=base===undefined?!!mine:(!mine||!same(base,mine));
+          if(!iChanged){                                           /* 나는 안 고쳤다 → 서버 것 */
+            if(srv){if(i<0)arr.push(srv);else arr[i]=srv;}else if(i>=0)arr.splice(i,1);
+            ch[id]=srv;
+          }else if(mine&&srv){                                     /* 둘 다 고쳤다 → 내 것 + 서버 쪽 내용 상자 */
+            const m=merge?merge(mine,srv):mine;arr[i]=m;ch[id]=m;out.conflicts.push(mine.title||srv.title||'(제목 없음)');
+          }else if(!mine&&srv){arr.push(srv);ch[id]=srv;}           /* 나는 지웠는데 서버가 고쳤다 → 서버 것 살림(지운 것보다 고친 것을 남긴다) */
+                                                                   /* 서버가 지웠는데 내가 고쳤다 → 내 것을 다시 올린다 */
+          if(srv)sn.set(id,JSON.stringify(srv));else sn.delete(id);
+        }
+        this.snap[k]=sn;
+        await this.persist0(k,arr);this.local[k]=arr;out.changes[k]=ch;
+      }
+      this.offline=false;this.writeLocal();return out;
+    }finally{this._syncing=false;}
+  },
   /* 다른 기기가 바꾼 것만 가져오기 — 바뀐 행만 골라 오므로 가볍다.
      행 단위 저장(pms_items)이 아니면 null 을 돌려주고, 그때는 통째로 다시 불러온다 */
   async pull(since){
@@ -35819,6 +35897,16 @@ const Store={
     return data||[];
   },
   async loadAll(){
+    if(this.mode==='supabase'){
+      if(this.offline||!this.sb){const l=await this.loadLocal();if(l)return l;
+        throw new Error('인터넷에 연결되어 있지 않고, 이 기기에 저장된 일정 사본도 없습니다 — 인터넷에 연결된 상태에서 한 번 열어 두면 다음부터 오프라인에서도 열립니다');}
+      /* 지난번 오프라인에서 고치고 못 올린 것이 남아 있으면 그 사본으로 열고 곧바로 올린다(서버 것으로 덮지 않게) */
+      const l=await this.loadLocal();if(l&&this.pendingCount()>0){this.offline=true;return l;}
+    }
+    try{const out=await this.loadAll0();if(this.mode==='supabase'){this.local={...out};this.writeLocal();}return out;}
+    catch(e){if(this.mode==='supabase'&&isNetErr(e)){const l=await this.loadLocal();if(l){this.offline=true;return l;}}throw e;}
+  },
+  async loadAll0(){
     const db={};
     if(this.mode==='supabase'){
       /* ① 행 단위(pms_items) 우선 — 테이블이 없으면 예전 방식으로 자동 전환 */
@@ -35911,6 +35999,14 @@ const Store={
     }catch(_){}
   },
   async persist(kind,arr){
+    if(this.mode!=='supabase')return this.persist0(kind,arr);
+    this.local={...(this.local||{}),[kind]:arr};
+    if(this.offline||!this.sb||!navigator.onLine){this.offline=true;this.writeLocal();throw OFFLINE_ERR;}
+    try{await this.persist0(kind,arr);}
+    catch(e){if(isNetErr(e)){this.offline=true;this.writeLocal();throw OFFLINE_ERR;}throw e;}
+    this.writeLocal();
+  },
+  async persist0(kind,arr){
     const prev=this.snap[kind]||new Map();
     const next=new Map((arr||[]).map(x=>[x.id,JSON.stringify(x)]));
     const gone=[];prev.forEach((j,id)=>{if(!next.has(id))gone.push(id);});
@@ -36424,13 +36520,21 @@ const Files={
   },
   async url(path){
     const c=this.cache[path];if(c&&c.exp>Date.now())return c.url;
-    if(this.cloud){const {data,error}=await Store.sb.storage.from(BUCKET).createSignedUrl(path,3600);
-      if(error)throw new Error(error.message);this.cache[path]={url:data.signedUrl,exp:Date.now()+3300e3};return data.signedUrl;}
+    if(this.cloud){
+      if(Store.offline||!Store.sb||!navigator.onLine){const b=await idbGet('c:'+path).catch(()=>null);if(!b)throw new Error('오프라인 — 이 이미지는 이 기기에 받아 둔 적이 없습니다');
+        const u=URL.createObjectURL(b);this.cache[path]={url:u,exp:Date.now()+36e5};return u;}
+      const {data,error}=await Store.sb.storage.from(BUCKET).createSignedUrl(path,3600);
+      if(error)throw new Error(error.message);this.cache[path]={url:data.signedUrl,exp:Date.now()+3300e3};this.keep(path,data.signedUrl);return data.signedUrl;}
     const b=await idbGet(path);if(!b)throw new Error('이 브라우저에 파일이 없습니다');
     const u=URL.createObjectURL(b);this.cache[path]={url:u,exp:Date.now()+36e5};return u;
   },
+  /* 본 이미지는 이 기기에도 한 벌 받아 둔다 — 오프라인에서도 보이게(v2.27) */
+  kept:{},
+  keep(path,url){if(this.kept[path])return;this.kept[path]=1;
+    idbGet('c:'+path).then(b=>b?null:fetch(url).then(r=>r.ok?r.blob():null).then(x=>{if(x&&x.size<8e6)return idbPut('c:'+path,x);})).catch(()=>{});},
   async blob(path){
-    if(this.cloud){const {data,error}=await Store.sb.storage.from(BUCKET).download(path);if(error)throw new Error(error.message);return data;}
+    if(this.cloud){if(Store.offline||!Store.sb||!navigator.onLine){const b=await idbGet('c:'+path).catch(()=>null);if(b)return b;throw new Error('오프라인 — 이 파일은 이 기기에 없습니다');}
+      const {data,error}=await Store.sb.storage.from(BUCKET).download(path);if(error)throw new Error(error.message);return data;}
     const b=await idbGet(path);if(!b)throw new Error('이 브라우저에 파일이 없습니다');return b;
   },
 };
@@ -37105,6 +37209,16 @@ const bdAppend=(board,news)=>{const items=(board&&board.items)||[];const tag='s'
 /* 🎙 녹취 상자(src 'tbwait:…')는 통번역이 그 뒤에 내보낸 정리본(tbrec)이 들어오면 지운다 — seen 은 녹취를 시작할 때 이미 있던 통번역 상자들 */
 const dropWait=items=>{const its=items||[];const tb=its.filter(i=>/^tbrec:/.test(i.src||'')).map(i=>i.src);
   return its.filter(i=>!(/^tbwait:/.test(i.src||'')&&tb.some(x=>!(i.seen||[]).includes(x))));};
+/* 오프라인에서 고친 일정과, 그사이 다른 기기에서 고친 같은 일정(v2.27) — 내 것을 두고, 서버 쪽에서 달라진 상자들을 「다른 기기에서 고친 내용」으로 덧붙인다 */
+const offMerge=(mine,srv)=>{
+  const a=boardOf(mine).items||[];const b=boardOf(srv).items||[];const byId=new Map(a.map(i=>[i.id,i]));
+  const diff=b.filter(i=>!/^tbwait:/.test(i.src||'')).filter(i=>{const m=byId.get(i.id);return !m||m.type!==i.type||(m.html||'')!==(i.html||'')||(m.src||'')!==(i.src||'')||(m.path||'')!==(i.path||'');});
+  const notes=[];if((srv.title||'')!==(mine.title||''))notes.push('제목: '+escH(srv.title||''));
+  if((srv.date||'')!==(mine.date||'')||(srv.start||'')!==(mine.start||''))notes.push('날짜: '+escH(((srv.date||'')+' '+(srv.start||'')).trim()));
+  if(!diff.length&&!notes.length)return mine;
+  const head='<p>🔀 <b>다른 기기에서 그사이 고친 내용</b> · '+escH(new Date().toLocaleString('ko-KR'))+'</p><p>이 기기가 오프라인일 때 다른 곳에서 이 일정을 고쳤습니다. 아래는 그쪽 내용입니다 — 필요한 것만 남기고 지우세요.</p>'+(notes.length?'<p>'+notes.join(' · ')+'</p>':'');
+  const board=bdAppend(boardOf(mine),[{html:head},...diff.map(i=>{const {id,x,y,stk,ord,z,...rest}=i;return rest;})]);
+  return {...mine,board,boardText:bdText(board.items),notes:bdText(board.items)};};
 /* 회의록 마크다운 → 글상자들 (## 단위로 나눠 따로 옮길 수 있게) */
 function minutesToItems(md){
   const L=String(md||'').replace(/\r/g,'').split('\n');const secs=[];let cur=[];
@@ -39882,7 +39996,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.26';
+const APP_VERSION='v2.27';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
@@ -40000,7 +40114,7 @@ const sameJson=(a,b)=>stableJson(a)===stableJson(b);
 function Shell({user,onLogout}){
   const NS=window.HDWorkbookDesignSystem_ad60e4;const {AppHeader,SessionBar,SessionDivider,NavSidebar,Button,Badge,Toast,InfoBar}=NS;
   const [db,setDbRaw]=React.useState(null);
-  const [trashOpen,setTrash]=React.useState(false);const [saved,setSaved]=React.useState('');const [toastMsg,setToastMsg]=React.useState('');const [cfgOpen,setCfg]=React.useState(false);const [err,setErr]=React.useState('');
+  const [trashOpen,setTrash]=React.useState(false);const [saved,setSaved]=React.useState(Store.offline?'offline':'');const [pend,setPend]=React.useState(0);const [toastMsg,setToastMsg]=React.useState('');const [cfgOpen,setCfg]=React.useState(false);const [err,setErr]=React.useState('');
   const [calSt,setCalSt]=React.useState({view:'month',sub:'month',anchor:todayISO()});
   const timers=React.useRef({});const mobile=useMobile();const updated=useAppUpdate();
   /* 세션 줄 안의 자리 — 일정 화면이 연월·이동·보기 단추와 검색·새 일정을 여기에 그린다 */
@@ -40008,7 +40122,9 @@ function Shell({user,onLogout}){
   const [dbForNoti,setDbForNoti]=React.useState(null);
   useNotifications(dbForNoti);
   React.useEffect(()=>{Store.loadAll().then(d=>{setDbRaw(d);
-    if(Store.migrated)setTimeout(()=>toast('로컬 데이터를 클라우드로 이관했습니다'),400);
+    if(Store.offline){setSaved('offline');setPend(Store.pendingCount());
+      setTimeout(()=>toast(navigator.onLine?'📴 지난번 오프라인에서 고친 내용을 올리는 중…':'📴 오프라인 — 이 기기에 저장된 사본으로 열었습니다'+(Store.offAt?' ('+new Date(Store.offAt).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+' 사본)':'')),400);}
+    else if(Store.migrated)setTimeout(()=>toast('로컬 데이터를 클라우드로 이관했습니다'),400);
     else if(Store.rowMigrated)setTimeout(()=>toast('행 단위 저장으로 전환 · '+Store.rowMigrated+'건 이관'),400);}).catch(e=>setErr('데이터 로드 실패: '+e.message+' — 테이블 SQL을 실행했는지 확인하세요'));},[]);
   const toast=m=>{setToastMsg(m);clearTimeout(timers.current.t);timers.current.t=setTimeout(()=>setToastMsg(''),1600);};
   /* 항상 "지금 저장된 값"을 기준으로 고친다 — 전사·정돈처럼 오래 걸리는 작업 중에 다른 화면에서 바뀐 내용이 되돌려지지 않도록.
@@ -40019,7 +40135,7 @@ function Shell({user,onLogout}){
     dbRef.current={...(dbRef.current||{}),[kind]:arr};
     setDbRaw(d=>({...d,[kind]:arr}));
     setSaved('saving');clearTimeout(timers.current[kind]);
-    timers.current[kind]=setTimeout(async()=>{try{await Store.persist(kind,(dbRef.current||{})[kind]||arr);setSaved(new Date().toTimeString().slice(0,8));}catch(e){setSaved('error');toast('⚠ 저장 실패: '+e.message);}},700);
+    timers.current[kind]=setTimeout(async()=>{try{await Store.persist(kind,(dbRef.current||{})[kind]||arr);setSaved(new Date().toTimeString().slice(0,8));}catch(e){if(e&&e.offline){setSaved('offline');setPend(Store.pendingCount());}else{setSaved('error');toast('⚠ 저장 실패: '+e.message);}}},700);
   };
   /* ── 되돌리기 / 다시하기 ────────────────────────────────
      저장되는 모든 변경을 "바뀌기 전 / 바뀐 후" 한 쌍으로 최근 UNDO_MAX 단계까지 쌓아 둔다.
@@ -40038,12 +40154,33 @@ function Shell({user,onLogout}){
     applyDb(kind,arr);
   };
   React.useEffect(()=>{if(db){dbRef.current=db;setDbForNoti(db);}},[db]);
+  /* 다시 연결되면 오프라인에서 고친 것을 올린다(v2.27) */
+  const syncNow=async()=>{
+    if(!Store.offline||!navigator.onLine)return;
+    let r;try{r=await Store.sync(offMerge);}catch(e){toast('⚠ '+e.message);return;}
+    if(!r)return;
+    KINDS.forEach(k=>{const ch=r.changes[k];if(!ch||!Object.keys(ch).length)return;
+      const cur=(dbRef.current&&dbRef.current[k])||[];const m=new Map(cur.map(x=>[x.id,x]));
+      Object.entries(ch).forEach(([id,v])=>{if(v)m.set(id,v);else m.delete(id);});
+      const arr=[...m.values()];dbRef.current={...(dbRef.current||{}),[k]:arr};setDbRaw(d=>({...d,[k]:arr}));
+      const evs=Object.values(ch).filter(Boolean);if(k==='events'&&evs.length)window.dispatchEvent(new CustomEvent('pms-remote-events',{detail:evs}));
+      applyDb(k,arr);});
+    setPend(0);setSaved(new Date().toTimeString().slice(0,8));
+    if(r.n||r.conflicts.length)toast('☁ 다시 연결됨 — 오프라인에서 고친 '+r.n+'건을 올렸습니다'+(r.conflicts.length?' · 그사이 다른 기기에서도 고친 일정 '+r.conflicts.length+'건은 두 내용을 모두 남겼습니다':''));
+    else toast('☁ 다시 연결됐습니다');};
+  const syncRef=React.useRef(syncNow);syncRef.current=syncNow;
+  React.useEffect(()=>{const on=()=>syncRef.current();
+    const off=()=>{if(Store.mode!=='supabase')return;Store.offline=true;setSaved('offline');setPend(Store.pendingCount());};
+    window.addEventListener('online',on);window.addEventListener('offline',off);
+    const t=setInterval(()=>{if(Store.offline)syncRef.current();},30000);
+    const first=setTimeout(()=>{if(Store.offline)syncRef.current();},2500);
+    return()=>{window.removeEventListener('online',on);window.removeEventListener('offline',off);clearInterval(t);clearTimeout(first);};},[]);
   /* ── 다른 기기가 올린 것 받아 오기 ───────────────────────
      「동기화」는 메일 서비스에서 새로 가져오는 동작이라, 다른 기기가 이미 클라우드에 올려 둔 것은
      따로 내려받아야 한다. 바뀐 행만 골라 오므로 자주 불러도 부담이 없다 */
   const pullRef=React.useRef({at:'',busy:false});
   const cloudPull=React.useCallback(async()=>{
-    if(Store.mode!=='supabase')return 0;
+    if(Store.mode!=='supabase'||Store.offline)return 0;   /* 오프라인 중엔 받지 않는다 — 다시 연결되면 sync가 고친 것과 맞춰 본다 */
     Store.why='클라우드에서 받아오기';
     const P=pullRef.current;if(P.busy)return 0;
     P.busy=true;
@@ -40066,17 +40203,18 @@ function Shell({user,onLogout}){
         const base=(dbRef.current&&dbRef.current[kind])||[];
         const m=new Map(base.map(x=>[x.id,x]));let hit=0;const got=[];
         list.forEach(r=>{
-          if(r.deleted_at){if(m.delete(r.item_id))hit++;return;}
+          if(r.deleted_at){if(m.delete(r.item_id))hit++;Store.snap[kind]&&Store.snap[kind].delete(r.item_id);return;}
           const cur=m.get(r.item_id);
           if(cur&&sameJson(cur,r.data))return;   /* 내가 방금 올린 것 — 셈에서 뺀다(서버가 키 순서를 바꿔 돌려주므로 순서는 무시) */
           const mine=(Store.snap[kind]||new Map()).get(r.item_id);
           if(mine&&sameJson(JSON.parse(mine),r.data))return;   /* 내가 마지막으로 올린 그대로 — 그 뒤 화면에서 고친 내용을 옛것으로 덮지 않는다 */
           m.set(r.item_id,r.data);hit++;got.push(r.data);
+          (Store.snap[kind]=Store.snap[kind]||new Map()).set(r.item_id,JSON.stringify(r.data));   /* 받은 것은 「서버와 맞춘 내용」 — 오프라인 비교 기준(v2.27) */
         });
         if(!hit)return;
         n+=hit;const arr=[...m.values()];
         dbRef.current={...(dbRef.current||{}),[kind]:arr};
-        setDbRaw(d=>({...d,[kind]:arr}));
+        setDbRaw(d=>({...d,[kind]:arr}));Store.keepLocal(kind,arr);
         /* 열려 있는 일정 창에도 알린다 — 다른 기기·통번역 앱이 넣은 상자를 창의 옛 내용으로 덮어쓰지 않게 */
         if(kind==='events'&&got.length)window.dispatchEvent(new CustomEvent('pms-remote-events',{detail:got}));
       });
@@ -40142,7 +40280,7 @@ function Shell({user,onLogout}){
   const merge=set=>p=>set(s=>({...s,...p}));
   const nav=calNav(calSt,merge(setCalSt));
   const todayN=expandEvents(db.events,todayISO(),todayISO()).length;
-  const savedBadge=saved==='saving'?'⏳ 저장 중…':saved==='error'?'⚠ 저장 실패':saved?'✓ 자동저장됨 · '+saved:'✓ 불러옴';
+  const savedBadge=saved==='offline'?'📴 오프라인 · 이 기기에 임시저장'+(pend?' ('+pend+'건 대기)':''):saved==='saving'?'⏳ 저장 중…':saved==='error'?'⚠ 저장 실패':saved?'✓ 자동저장됨 · '+saved:'✓ 불러옴';
   return <div style={{minHeight:'100vh',display:'flex',flexDirection:'column',background:'#fff'}}>
     <AppHeader mark="📅" title="일정 관리" version={APP_VERSION} tools={mobile
       ?<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기" onClick={undo}>↶</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기" onClick={redo}>↷</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)}>🗑</Button><Button variant="ghost" size="xs" title="알림 설정" onClick={()=>setCfg(true)}>🔔</Button><Button variant="ghost" size="xs" onClick={onLogout}>나가기</Button></>
@@ -40153,7 +40291,7 @@ function Shell({user,onLogout}){
       <span style={{marginLeft:'auto',border:'1px solid rgba(255,255,255,.55)',borderRadius:6,padding:'3px 12px',fontSize:'var(--fs-sm2)'}}>지금 새로고침</span>
     </div>}
     <SessionBar right={<span ref={setSlotRight} style={{display:'contents'}}/>} icon="📅" name={mobile?'일정'+(todayN?' · 오늘 '+todayN:''):user.name+' 일정'+(todayN?' · 오늘 '+todayN+'건':'')}>
-      <Badge tone="pill">{mobile?(saved==='saving'?'⏳':saved==='error'?'⚠':'✓'):savedBadge}</Badge>
+      <Badge tone="pill">{mobile?(saved==='offline'?'📴'+(pend?' '+pend:''):saved==='saving'?'⏳':saved==='error'?'⚠':'✓'):savedBadge}</Badge>
       {!mobile&&<><SessionDivider/>
       {Store.mode!=='supabase'&&<Badge tone="pill">💾 로컬 저장</Badge>}</>}
       <span ref={setSlotMid} style={{display:'contents'}}/>
