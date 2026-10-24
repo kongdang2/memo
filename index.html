@@ -37708,6 +37708,8 @@ async function askClaude(prompt,opt={}){
     const more=await askClaude1(prompt+'\n\n--- 지금까지 쓴 답 ---\n'+out.text
       +'\n\n--- 지시 ---\n위 답이 길이 제한으로 중간에 끊겼다. 끊긴 바로 다음부터 이어서 쓴다. 앞부분을 되풀이하거나 설명을 붙이지 말고, 이어지는 내용만 같은 형식으로 출력한다.',opt);
     out={text:out.text+more.text,cut:more.cut};}
+  /* 이어 쓰기를 다 써도 끝 표시가 없으면 조용히 넘기지 않고 문서에 표시한다(v2.28.1) */
+  if(opt.done&&unfinished(out)){console.warn('[Claude] 이어 쓰기 한도까지 끝나지 않음',opt.tag||'');out.text+='\n- ⚠ (내용이 길어 여기서 끊김 — 「다시 정리」를 눌러 주세요)';}
   return out.text;
 }
 async function askClaude1(prompt,opt={}){
@@ -38501,7 +38503,7 @@ async function fillTemplate(ev,tpl,onStep){
   /* 장(##)을 나눠 여러 번 쓴다(v2.19) — 한 번에 쓰면 답이 길어 서버가 중간에 잘랐다.
      모든 답 끝에 끝 표시를 받아, 없으면 끊긴 것으로 보고 이어 쓴다 */
   const END='〔끝〕',endNote='\n\n--- 마무리 ---\n맡은 장을 끝까지 다 쓴 다음 맨 마지막 줄에 '+END+' 만 적는다.';
-  const ask=(p,o)=>askClaude(p+endNote,{max_tokens:8000,cont:4,...o,done:/〔끝〕/,system:tpl.insight?INSIGHT_SYS:PRINT_SYS,tag:tpl.insight?'일정 AI 인사이트':'일정 출력 정리'});
+  const ask=(p,o)=>askClaude(p+endNote,{max_tokens:8000,cont:6,tag:tpl.insight?'일정 AI 인사이트':'일정 출력 정리',...o,done:/〔끝〕/,system:tpl.insight?INSIGHT_SYS:PRINT_SYS});
   const clean=t=>String(t||'').replace(/^```(?:markdown|md)?\s*/,'').replace(/```\s*$/,'').replace(/〔끝〕/g,'').trim();
   const form=tpl.md.replace(/\{제목\}/g,ev.title||'').replace(/\{일시\}/g,when).replace(/\{날짜\}/g,ev.date||'');
   const nRec=mk.n+rs.length;
@@ -38526,9 +38528,19 @@ async function fillTemplate(ev,tpl,onStep){
   const left=chs.filter(c=>!rounds.flat(2).includes(c));if(left.length)rounds.push([left]);
   const out=new Map();let step=0;const total=rounds.flat().length;
   const label=g=>g.map(c=>'「'+c.h.replace(/^##\s*/,'')+'」').join('');
+  /* 기록이 여럿이면 「주요 내용」을 챕터(기록)마다 따로 쓴다(v2.28.1) — 한 번에 쓰면 길이 한도에 걸려 뒷 기록이 잘렸다 */
+  const split=!tpl.insight&&nRec>=2&&main.length===1?main[0]:null;
+  const writeSplit=async(c,prevBlk)=>{const name=c.h.replace(/^##\s*/,'');
+    const one=k=>ask(head+src+prevBlk+'\n\n--- 이번에 쓸 것 ---\n양식 「'+name+'」 장 가운데 〔기록 '+k+'〕의 챕터 하나만 쓴다. 첫 줄은 「### 챕터 '+k+'. 발표자 — 주제」이고, 그 아래를 「#### 주제」로 묶는다. 〔기록 '+k+'〕의 발표 내용만 빠짐없이 쓰고 다른 기록의 내용은 쓰지 않는다. 사회자의 진행 안내처럼 발표 내용이 아닌 것은 쓰지 않는다. 이 기록과 관련된 〔상자〕 메모가 있으면 함께 넣는다. 장 제목(## …)이나 문서 제목(# …)은 쓰지 않는다.',{tag:'일정 출력 정리 챕터'+k});
+    const etc=ask(head+src+prevBlk+'\n\n--- 이번에 쓸 것 ---\n양식 「'+name+'」 장의 마지막 챕터만 쓴다. 어느 발표에도 속하지 않는 진행 안내·일정 안내·전체 질의응답, 그리고 어느 기록과도 관련 없는 〔상자〕 메모만 「### 챕터 '+(nRec+1)+'. 기타 — 진행·질의응답」 아래에 「#### 주제」로 묶어 쓴다. 각 발표의 내용은 쓰지 않는다. 그런 내용이 없으면 「없음」 한 줄만 쓴다. 장 제목(## …)은 쓰지 않는다.',{tag:'일정 출력 정리 기타'});
+    let n=0;const tick=t=>{n++;onStep&&onStep('정리 쓰는 중… 챕터 '+n+'/'+(nRec+1));return t;};
+    const parts=await Promise.all([...Array(nRec).keys()].map(i=>one(i+1).then(tick)).concat([etc.then(tick)]));
+    const body=parts.map(t=>clean(t).replace(/^#{1,2} .*\n?/gm,'').trim()).filter(t=>/^### /m.test(t));
+    out.set(c,c.h+'\n'+body.join('\n\n'));};
   for(const r of rounds){onStep&&onStep((tpl.insight?'인사이트':'정리')+' 쓰는 중… ('+step+'/'+total+')');
     const prev=chs.filter(c=>out.has(c)).map(c=>out.get(c)).join('\n\n');
     await Promise.all(r.map(async g=>{
+      if(split&&g.length===1&&g[0]===split){await writeSplit(split,prev?'\n\n--- 이미 쓴 장 ---\n'+prev:'');step++;return;}
       const txt=clean(await ask(head+src+(prev?'\n\n--- 이미 쓴 장 (이 내용과 어긋나지 않게, 되풀이하지 말고) ---\n'+prev:'')
         +'\n\n--- 이번에 쓸 것 ---\n양식 가운데 '+label(g)+' 장만 쓴다. 장 제목 줄(## …)을 양식 그대로 쓰고 그 아래를 채운다. 문서 제목(# …)이나 다른 장은 쓰지 않는다.'));
       step++;onStep&&onStep((tpl.insight?'인사이트':'정리')+' 쓰는 중… ('+step+'/'+total+')');
@@ -40013,7 +40025,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.28';
+const APP_VERSION='v2.28.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
