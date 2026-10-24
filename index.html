@@ -36558,7 +36558,7 @@ function mdToHtml(md){
     if(!l.trim()){i++;continue;}
     /* 그림 줄 ![설명](pms:경로) — 저장소 그림. 설명은 그림 아래 작은 글씨로 */
     if((m=/^\s*!\[([^\]]*)\]\(pms:([^)\s]+)\)\s*$/.exec(l))){out.push('<p class="pic"><img data-pms="'+escH(m[2])+'"></p>'+(m[1].trim()?'<p class="cap"><i>▲ '+escH(m[1].trim())+'</i></p>':''));i++;continue;}
-    if((m=/^(#{1,4})\s+(.*)/.exec(l))){const n=Math.min(3,m[1].length);out.push('<h'+n+'>'+mdInline(m[2])+'</h'+n+'>');i++;continue;}
+    if((m=/^(#{1,4})\s+(.*)/.exec(l))){const n=m[1].length;out.push('<h'+n+'>'+mdInline(m[2])+'</h'+n+'>');i++;continue;}
     if(/^\s*(-{3,}|\*{3,})\s*$/.test(l)){out.push('<hr>');i++;continue;}
     if(isRow(l)){const rows=[];while(i<L.length&&isRow(L[i])){if(!/^\s*\|[\s:|-]+\|\s*$/.test(L[i]))rows.push(L[i].trim().slice(1,-1).split('|').map(c=>c.trim()));i++;}
       out.push('<table><tbody>'+rows.map((r,k)=>'<tr>'+r.map(c=>k===0?'<th>'+mdInline(c)+'</th>':'<td>'+mdInline(c)+'</td>').join('')+'</tr>').join('')+'</tbody></table>');continue;}
@@ -36643,7 +36643,7 @@ const noteHtmlOf=e=>e?(e.notesHtml!=null?e.notesHtml:(e.notes?mdToHtml(e.notes):
 
 const RN_CSS=`.rn-ed{outline:none;min-height:220px;line-height:1.65;font-size:15px;color:var(--text-body);padding:4px 2px 40px;word-break:break-word}
 .rn-ed:empty:before{content:attr(data-ph);color:var(--text-label)}
-.rn-ed h1{font-size:24px;font-weight:700;margin:18px 0 6px}.rn-ed h2{font-size:19px;font-weight:700;margin:14px 0 4px}.rn-ed h3{font-size:16px;font-weight:700;margin:12px 0 2px}
+.rn-ed h1{font-size:24px;font-weight:700;margin:18px 0 6px}.rn-ed h2{font-size:19px;font-weight:700;margin:14px 0 4px}.rn-ed h3{font-size:16px;font-weight:700;margin:12px 0 2px}.rn-ed h4{font-size:14.5px;font-weight:700;margin:10px 0 2px 14px}
 .rn-ed p{margin:2px 0}.rn-ed ul,.rn-ed ol{margin:2px 0;padding-left:24px}.rn-ed li{margin:1px 0}
 .rn-ed blockquote{border-left:3px solid var(--text-body);margin:6px 0;padding:2px 12px;color:var(--text-muted)}
 .rn-ed pre{background:#f5f5f4;border-radius:4px;padding:8px 10px;font-family:var(--font-num),monospace;font-size:13px;white-space:pre-wrap}
@@ -37181,7 +37181,7 @@ function htmlToMd(html){
   const cell=c=>inl(c).replace(/\n/g,' ').replace(/\|/g,'/').trim();
   const blk=(n,depth)=>{
     if(n.nodeType===3){const t=n.nodeValue.trim();if(t)out.push(t);return;}if(n.nodeType!==1)return;const t=n.tagName;
-    if(/^H[1-4]$/.test(t)){out.push('#'.repeat(Math.min(3,+t[1]))+' '+inl(n).trim());return;}
+    if(/^H[1-4]$/.test(t)){out.push('#'.repeat(+t[1])+' '+inl(n).trim());return;}
     if(t==='TABLE'){const rows=[...n.rows].map(r=>[...r.cells].map(cell));if(!rows.length)return;const w=Math.max(...rows.map(r=>r.length));
       const pad=r=>{while(r.length<w)r.push('');return r;};out.push('');out.push('| '+pad(rows[0]).join(' | ')+' |');out.push('|'+rows[0].map(()=>'---').join('|')+'|');
       rows.slice(1).forEach(r=>out.push('| '+pad(r).join(' | ')+' |'));out.push('');return;}
@@ -37194,7 +37194,7 @@ function htmlToMd(html){
     if(t==='DIV'&&n.hasAttribute('data-co')){const inner=[];const save=out.length;[...n.childNodes].forEach(c=>blk(c,depth));const body=out.splice(save);
       body.forEach((l,k)=>out.push('> '+(k===0?n.getAttribute('data-co')+' ':'')+l));return;}
     if(t==='HR'){out.push('---');return;}if(t==='PRE'){out.push(n.textContent);return;}if(t==='IMG'){out.push(n.getAttribute('data-pms')?'![](pms:'+n.getAttribute('data-pms')+')':'(이미지)');return;}
-    if(n.querySelector('table,ul,ol,h1,h2,h3,p,div,blockquote,pre,hr')){[...n.childNodes].forEach(c=>blk(c,depth));return;}
+    if(n.querySelector('table,ul,ol,h1,h2,h3,h4,p,div,blockquote,pre,hr')){[...n.childNodes].forEach(c=>blk(c,depth));return;}
     inl(n).split('\n').forEach(l=>{if(l.trim())out.push(l.trim());});};
   [...d.childNodes].forEach(c=>blk(c,0));
   /* 그림 바로 아래 「▲ 설명」 줄은 그림 줄의 설명으로 되돌린다 */
@@ -37203,6 +37203,13 @@ function htmlToMd(html){
   return out.join('\n');}
 /* 보드 → 마크다운 — 위에서 아래, 왼쪽에서 오른쪽 순서 */
 const boardToMd=items=>(items||[]).slice().sort((a,b)=>a.y-b.y||a.x-b.x).map(i=>i.type==='img'?(i.path?'![](pms:'+i.path+')':''):i.type==='chart'?(i.pic?'!['+String(i.title||'').replace(/[\[\]]/g,'')+'](pms:'+i.pic+')':''):htmlToMd(i.html||'')).filter(x=>x.trim()).join('\n\n');
+/* 보드 → 마크다운에 경계 표시를 붙인다(v2.28) — 통번역 기록마다 〔기록 N〕, 그 밖의 글상자마다 〔상자〕.
+   리포트가 기록(발표)별로 챕터를 나눌 수 있게 하는 표시이며 문서에는 옮기지 않는다 */
+const boardToMdMarked=items=>{const s=(items||[]).slice().sort((a,b)=>a.y-b.y||a.x-b.x);let k=0,last=null;const out=[];
+  s.forEach(i=>{const md=boardToMd([i]).trim();if(!md)return;const tb=/^tbrec:/.test(i.src||'')?i.src:'';
+    if(tb&&tb!==last){k++;out.push('〔기록 '+k+'〕');}else if(!tb&&i.type==='text'&&i.grp!=='minutes')out.push('〔상자〕');
+    last=tb;out.push(md);});
+  return {md:out.join('\n\n'),n:k};};
 /* 새 상자들을 보드 맨 아래에 차례로 쌓는다 — 실제 높이는 화면에 그린 뒤 MemoBoard 가 재서 맞춘다(stk) */
 const bdAppend=(board,news)=>{const items=(board&&board.items)||[];const tag='s'+Date.now().toString(36);
   return {...(board||{}),items:[...items,...news.map((n,k)=>({id:uid(),x:20,y:100000+k*10,w:680,z:0,type:'text',...n,stk:tag,ord:k}))]};};
@@ -38444,7 +38451,8 @@ const PRINT_TPLS=[
 const INSIGHT_SYS='너는 석유화학 회사의 전략기획 담당자이자 경험 많은 업무 개선 컨설턴트다. 사용자의 회의록·메모를 읽고 「AI 인사이트」 보고서를 쓴다.\n'
   +'- 사실 정리가 아니라 검토 의견이다. 회의록에 없는 권고·대안·프로세스를 제안해도 되지만, 회의록의 사실과 너의 의견을 분명히 가른다. 회의록의 사실은 「(근거: …)」로 짚고, 의견은 「~할 것을 권고함」「~로 판단됨」처럼 쓴다\n'
   +'- 회의록에 없는 숫자·이름·결정은 지어내지 않는다. 확인이 필요한 것은 Ⅴ장의 질문으로 돌린다\n'
-  +'- 기록이 여럿이어도 기록별로 장을 나누지 않고 주제 기준으로 통합해 검토한다. 근거를 밝힐 때만 「(근거: 기록 제목 — …)」로 출처를 적는다\n'
+  +'- 메모의 〔기록 N〕은 통번역 기록(회의·발표 하나)의 시작, 〔상자〕는 글상자 하나의 시작 표시다. 이 표시 자체는 문서에 옮기지 않는다\n'
+  +'- 〔기록 N〕이 둘 이상이거나 글상자들이 서로 다른 발표·회의를 담고 있으면 Ⅰ장 「회의록 검토」를 발표(기록)별 챕터로 나눠 「### 챕터 1. 발표자 — 주제」(예: 「### 챕터 1. 왕(王) 대표 — 매크로 시황」) 아래에 그 발표의 다룬 주제·문제·빈틈을 쓴다. Ⅱ장 이하는 전체를 아우르되 각 항목이 어느 챕터에서 나왔는지 「(근거: 챕터 1 — …)」로 밝힌다\n'
   +'- 녹음·통역 상태에 관한 말(녹취 중단, 통역 구간 파악 불가 등)은 문제·빈틈·질문으로 삼지 않고 쓰지 않는다\n'
   +'- 양식의 제목·장 번호·장 이름·순서를 그대로 지킨다. Ⅱ장의 개선 방향과 Ⅳ장의 프로세스·도구는 필요한 만큼 ### 으로 늘린다. Ⅳ장은 새 프로세스나 시스템·도구가 필요 없다고 판단되면 「- 현재 체계로 충분함 — (이유)」 한 줄만 쓴다\n'
   +'- 개선 방향은 실행 가능한 수준으로 구체적으로 쓴다(누가·무엇을·어떻게). 뻔한 일반론(「소통을 강화함」 같은 말)은 쓰지 않는다\n'
@@ -38453,8 +38461,10 @@ const INSIGHT_SYS='너는 석유화학 회사의 전략기획 담당자이자 �
   +'- 마크다운만 출력한다(앞뒤 설명·코드블록 금지)';
 const PRINT_SYS='너는 석유화학 회사의 전략기획 담당자다. 사용자가 메모장처럼 흩어 적은 메모(글·표·녹취·회의록)를 정해진 양식의 업무 보고 문서로 정리한다.\n'
   +'- 양식의 제목·장 번호·장 이름·순서를 그대로 지킨다. 장을 더하거나 빼지 않는다. 해당 내용이 없는 장은 「- 해당 없음」\n'
-  +'- 「주요 내용」은 주제별로 ### 소제목을 달아 묶는다. 같은 주제가 여러 상자에 흩어져 있으면 한 주제로 합친다\n'
-  +'- 회의·인터뷰 기록이 여럿이어도 기록별(기록 1·기록 2)로 나누지 않는다. 모든 기록을 한 회의처럼 보고 주제 기준으로 통합해 정리한다. 같은 주제의 내용은 어느 기록에서 왔든 한 ### 아래에 모은다\n'
+  +'- 메모의 〔기록 N〕은 통번역 기록(회의·발표 하나)의 시작, 〔상자〕는 글상자 하나의 시작 표시다. 이 표시 자체는 문서에 옮기지 않는다\n'
+  +'- 「주요 내용」은 기본으로 주제별 ### 소제목으로 묶는다. 같은 주제가 여러 상자에 흩어져 있으면 한 주제로 합친다\n'
+  +'- 단, 〔기록 N〕이 둘 이상이거나 글상자들이 서로 다른 발표·회의·발표자를 담고 있으면 「주요 내용」을 챕터로 나눈다. 챕터는 기록(발표) 하나에 하나, 메모에 놓인 순서대로 「### 챕터 1. 발표자 — 주제」로 단다(예: 「### 챕터 1. 왕(王) 대표 — 매크로 시황」 「### 챕터 2. 리(李) 주임 — 중국 석유화학 발전 지침」). 발표자를 알 수 없으면 기록 제목이나 주제로 이름 짓는다. 챕터 안의 주제는 「#### 주제」로 묶는다. 한 기록의 내용은 그 챕터 안에만 쓰고 다른 챕터와 섞지 않는다. 진행 안내·질의응답처럼 어느 발표에도 속하지 않는 내용은 마지막 챕터(「### 챕터 N. 기타 — 진행·질의응답」)로 둔다. 같은 회의의 조각이 여러 상자로 나뉜 것뿐이면 한 챕터로 합친다\n'
+  +'- 챕터로 나눈 문서의 「핵심 요약」은 챕터마다 「- **챕터 1. 발표자 — 주제** : 핵심」 한 줄씩(필요하면 「  - 」 세부 1~2개) 쓴다. 결정 사항·향후 조치는 어느 챕터의 것인지 내용에 드러나게 쓴다\n'
   +'- 「결정 사항」「향후 조치」는 녹취·정리본에 실제로 나온 것만 옮긴다(정리본의 「→ 결정」「→ 할 일」 줄과 그에 해당하는 발언). 너의 해석·평가·권고를 결정이나 할 일로 만들지 않는다\n'
   +'- 결정·할 일은 무엇에 관한 것인지(대상·범위)를 함께 쓰고, 녹취에 나온 이유·조건·맥락이 있으면 덧붙인다(예: 「260 등급 가격 축소 — 조 대표(?)에게 전달했으나 올해는 조정 불가」). 녹취에 이유가 없으면 이유를 지어내지 않는다. 담당·기한은 녹취에 있을 때만 쓰고 없으면 「-」\n'
   +'- 녹음·통역 상태에 관한 말(녹취 중단, 통역 구간 파악 불가, 확인 불가, 잘 안 들림 등)은 문서에 넣지 않는다. 그 때문에 알 수 없는 내용은 그냥 쓰지 않는다\n'
@@ -38478,13 +38488,13 @@ async function fillTemplate(ev,tpl,onStep){
   onStep&&onStep('메모 읽는 중…');
   const items0=boardOf(ev).items||[];
   /* 통번역에서 내보낸 상자(src 'tbrec:…')는 정리본만 넘긴다 — 접어 둔 조각별 번역·원문(details)은 길기만 하고 정리본과 겹치므로 뺀다 */
-  const isTb=i=>/^tbrec:/.test(i.src||'');const nTb=items0.filter(isTb).length;
+  const isTb=i=>/^tbrec:/.test(i.src||'');
   const items=items0.map(i=>isTb(i)&&i.type==='text'?{...i,html:String(i.html||'').replace(/<details[\s\S]*?<\/details>/gi,'')}:i);
-  let memo=boardToMd(items).trim();
+  const mk=boardToMdMarked(items);let memo=mk.md.trim();
   /* 예전에 붙인 기록(ev.tbrec)은 상자로 이미 들어온 것을 빼고 읽는다 — 같은 회의가 두 번 들어가지 않게 */
   const inBoard=new Set(items0.filter(isTb).map(i=>i.src.slice(6)));
   const recs=(ev.tbrec||[]).filter(r=>!inBoard.has(r.id));const rs=[];
-  if(!items.some(i=>i.grp==='minutes'))for(const r0 of recs){try{const r=await Store.getTbrec(r0.id);const t=r&&r.md?tbrecText(r.md).trim():'';if(t)rs.push(t.slice(0,40000));}catch(_){}}
+  if(!items.some(i=>i.grp==='minutes'))for(const r0 of recs){try{const r=await Store.getTbrec(r0.id);const t=r&&r.md?tbrecText(r.md).trim():'';if(t)rs.push('〔기록 '+(mk.n+rs.length+1)+'〕\n'+t.slice(0,40000));}catch(_){}}
   const links=(ev.links||'').trim();
   if(!memo&&!rs.length&&!links)throw new Error('정리할 메모가 없습니다');
   const when=ev.date+(ev.start?' '+ev.start+(ev.end?'~'+ev.end:''):'');
@@ -38494,11 +38504,11 @@ async function fillTemplate(ev,tpl,onStep){
   const ask=(p,o)=>askClaude(p+endNote,{max_tokens:8000,cont:4,...o,done:/〔끝〕/,system:tpl.insight?INSIGHT_SYS:PRINT_SYS,tag:tpl.insight?'일정 AI 인사이트':'일정 출력 정리'});
   const clean=t=>String(t||'').replace(/^```(?:markdown|md)?\s*/,'').replace(/```\s*$/,'').replace(/〔끝〕/g,'').trim();
   const form=tpl.md.replace(/\{제목\}/g,ev.title||'').replace(/\{일시\}/g,when).replace(/\{날짜\}/g,ev.date||'');
-  const nRec=nTb+rs.length;
+  const nRec=mk.n+rs.length;
   const terms=await Terms.load().catch(()=>[]);
   const head=(tpl.insight?'아래 회의록·메모를 검토해 양식대로 「AI 인사이트」 보고서를 쓴다.':'아래 메모를 양식대로 업무 문서로 정리한다.')
     +' 괄호 안 설명은 지시문이므로 지우고 내용으로 채운다.'
-    +(nRec>=2?' 메모에 회의·인터뷰 기록이 '+nRec+'개 있다. 기록별로 나누지 말고 하나의 회의처럼 주제 기준으로 통합해 쓴다(「기록 1」「기록 2」 같은 구분을 쓰지 않는다).':'');
+    +(nRec>=2?' 메모에 회의·발표 기록이 '+nRec+'개(〔기록 1〕~〔기록 '+nRec+'〕) 있다. '+(tpl.insight?'Ⅰ장을 기록마다 챕터(### 챕터 N. 발표자 — 주제)로 나눠 검토한다.':'「주요 내용」을 기록마다 챕터(### 챕터 N. 발표자 — 주제)로 나누고, 챕터 안은 #### 주제로 묶는다. 기록끼리 내용을 섞지 않는다.'):'');
   const src='\n\n--- 양식(전체) ---\n'+form
     +'\n\n--- 일정 정보 ---\n제목: '+(ev.title||'')+'\n일시: '+when+(ev.category?'\n분류: '+ev.category:'')+(links?'\n관련 링크:\n'+links:'')
     +(terms.length?'\n\n--- 용어 교정표 (왼쪽처럼 잘못 받아쓴 말은 반드시 오른쪽으로 쓴다) ---\n'+terms.map(([a,b])=>a+' → '+b).join('\n'):'')
@@ -38528,7 +38538,7 @@ async function fillTemplate(ev,tpl,onStep){
       parts.forEach(pt=>{const m=pt.match(/^## (.*)/);const c=m&&ks.get(key(m[0]));if(c&&!out.has(c)){out.set(c,pt.trim());any=true;}});
       if(!any)out.set(g[0],g[0].h+'\n'+txt.replace(/^# .*\n?/,'').trim());
       g.forEach(c=>{if(!out.has(c))out.set(c,c.h+'\n- 해당 없음');});}));}
-  return termText(dropRecNotes([title,...chs.map(c=>out.get(c))].filter(Boolean).join('\n\n')),terms).s;
+  return termText(dropRecNotes([title,...chs.map(c=>out.get(c))].filter(Boolean).join('\n\n').replace(/^[ \t]*〔(기록 \d+|상자)〕[ \t]*\n?/gm,'').replace(/〔(기록 \d+|상자)〕\s*/g,'')),terms).s;
 }
 /* ── 🔗 링크 정리 — 유튜브·블로그·기사를 회의록처럼 정리하고 장면·사진을 넣는다 ──
    읽기는 Edge Function 'webdigest'(yt·page·img)가 대신 한다(브라우저는 다른 사이트를 직접 못 읽는다)
@@ -38711,16 +38721,17 @@ const PRINT_CSS='@page{size:A4;margin:16mm 16mm 16mm 18mm}body{font-family:"Malg
   +'.a-meta{grid-column:2;grid-row:1/span 2;text-align:right;font-size:9pt;font-weight:600;align-self:start}'
   +'.a-sum{border:1.2pt solid '+A_NAVY+';background:#eef3f9;padding:6pt 10pt;margin:0 0 6pt}.a-sum-h{font-weight:700;color:'+A_NAVY+';font-size:10.5pt;margin-bottom:2pt}'
   +'h2{font-size:12.5pt;color:'+A_NAVY+';margin:14pt 0 5pt;padding-bottom:2pt;border-bottom:1pt solid '+A_NAVY+'}'
-  +'h3{font-size:10pt;margin:7pt 0 2pt 4pt;font-weight:700}h3::before{content:"□ "}'
+  +'h3{font-size:10pt;margin:7pt 0 2pt 4pt;font-weight:700}h3::before{content:"□ "}h4{font-size:10pt;margin:5pt 0 1pt 18pt;font-weight:700}h4::before{content:"▸ "}'
   +'p{margin:3pt 0 3pt 4pt}ul,ol{list-style:none;margin:2pt 0;padding-left:4pt}li{margin:1.5pt 0;padding-left:13pt;text-indent:-13pt}'
   +'li::before{content:"□ "}li li::before{content:"○ "}li li li::before{content:"- "}ul ul,ol ol,ul ol,ol ul{padding-left:14pt}'
   +'h3+ul,h3+ol{padding-left:16pt}h3+ul>li::before,h3+ol>li::before{content:"○ "}h3+ul li li::before,h3+ol li li::before{content:"- "}'
+  +'h4+ul,h4+ol{padding-left:30pt}h4+ul>li::before,h4+ol>li::before{content:"○ "}h4+ul li li::before,h4+ol li li::before{content:"- "}'
   +'.a-sum ul{padding-left:2pt}'
   +'table{border-collapse:collapse;width:100%;margin:5pt 0 2pt;font-size:9pt}th,td{border:0.75pt solid #8a94a6;padding:2.5pt 6pt;vertical-align:top;text-align:left}'
   +'th{background:'+A_NAVY+';color:#fff;text-align:center;font-weight:700}td.num{text-align:right}td:first-child{font-weight:600}'
   +'tr{page-break-inside:avoid}img{max-width:100%;height:auto;margin:6pt 0}blockquote{margin:3pt 0;padding-left:8pt;border-left:3px solid #ccc;color:#555;font-size:9pt}'
   +'p.pic{text-align:center;margin:6pt 0 0}p.pic img{max-height:120mm;margin:0}p.cap{text-align:center;font-size:8.5pt;color:#555;margin:1pt 0 6pt}'
-  +'a{color:#1d4ed8;word-break:break-all}.pv-box{margin:0 0 10pt}hr{border:none;border-top:1px solid #bbb}h2,h3{page-break-after:avoid}';
+  +'a{color:#1d4ed8;word-break:break-all}.pv-box{margin:0 0 10pt}hr{border:none;border-top:1px solid #bbb}h2,h3,h4{page-break-after:avoid}';
 /* ── A안 워드 — 미리보기(고친 내용 포함)를 그대로 옮긴다 ── */
 /* 문서 속 그림 → 워드에 넣을 바이트(jpeg·png)와 크기. 저장소 그림(data-pms)은 내려받는다 */
 async function docxImage(im){
@@ -38788,9 +38799,9 @@ function aDocxBuild(root,pics){
       B.push(tbl([W],'<w:tr><w:tc>'+tcp(W,'EEF3F9')+inner.join('')+sub.join('')+'</w:tc></w:tr>',bdr('1F3A5F',10,false)));B.push(pp('',{after:60}));return;}
     if(tg==='H1'){B.push(pp(runs(n,{b:true,sz:34,color:'1F3A5F'}),{after:120}));return;}
     if(tg==='H2'){B.push(pp(runs(n,{b:true,sz:25,color:'1F3A5F'}),{before:220,after:80,bdr:true,keep:true}));return;}
-    if(tg==='H3'||tg==='H4'){B.push(pp(R('□ ',{b:true})+runs(n,{b:true}),{before:80,after:30,ind:360,hang:260,keep:true}));
-      const nx=n.nextElementSibling;if(nx&&(nx.tagName==='UL'||nx.tagName==='OL'))nx.dataset.lv='1';return;}
-    if(tg==='UL'||tg==='OL'){list(n,n.dataset.lv?1:0,{base:100});delete n.dataset.lv;return;}
+    if(tg==='H3'||tg==='H4'){const h4=tg==='H4';B.push(pp(R(h4?'▸ ':'□ ',{b:true})+runs(n,{b:true}),{before:h4?60:80,after:30,ind:h4?620:360,hang:260,keep:true}));
+      const nx=n.nextElementSibling;if(nx&&(nx.tagName==='UL'||nx.tagName==='OL'))nx.dataset.lv=h4?'2':'1';return;}
+    if(tg==='UL'||tg==='OL'){list(n,n.dataset.lv?1:0,{base:n.dataset.lv==='2'?360:100});delete n.dataset.lv;return;}
     if(tg==='TABLE'){table(n);return;}
     if(tg==='BLOCKQUOTE'){B.push(pp(runs(n,{sz:18,color:'666666'}),{ind:200}));return;}
     if(tg==='IMG'||(tg==='P'&&n.querySelector('img')&&!n.textContent.trim())){(tg==='IMG'?[n]:[...n.querySelectorAll('img')]).forEach(pic);return;}
@@ -38934,6 +38945,7 @@ const SL_PRINT='@import url('+SL_FONT_URL+');@page{size:275.1mm 190.5mm;margin:0
 (function(){try{if(!document.querySelector('link[data-sl-font]')){const l=document.createElement('link');l.rel='stylesheet';l.href=SL_FONT_URL;l.setAttribute('data-sl-font','1');document.head.appendChild(l);}}catch(_){}})();
 const REPORT_SYS='너는 석유화학 회사(대한유화) 경영기획팀 과장이다. 사용자의 메모(회의 정리본·글·표·그래프·이미지)를 대한유화 보고서 표준양식(전략회의)에 맞춘 PPT 초안으로 구성한다.\n'
   +'- 흐름: 표지·목차 다음 「요약」(핵심 수치 kpis + 결론 블록) → Ⅰ. 현황 → Ⅱ. 문제·원인 → Ⅲ. 대응 방안 → Ⅳ. 향후 계획(steps) 순으로, 내용에 맞게 5~9장. section 은 「Ⅰ. 현황 I 시장 동향」처럼 장 번호·이름과 소제목\n'
+  +'- 메모의 〔기록 N〕(통번역 기록 하나의 시작)이 둘 이상이거나 글상자들이 서로 다른 발표·회의를 담고 있으면, 요약 다음 본문을 발표(기록)별 챕터로 나눈다: section 을 「챕터 1. 왕(王) 대표 I 매크로 시황」처럼 챕터 번호·발표자·주제로 달고, 한 챕터에 1~3장, 챕터끼리 내용을 섞지 않는다. 이때는 Ⅰ~Ⅳ 흐름 대신 챕터 순서(메모에 놓인 순서)를 따르고, 마지막에 종합 시사점·향후 계획 장을 둔다. 〔기록 N〕·〔상자〕 표시 자체는 슬라이드에 쓰지 않는다\n'
   +'- title 은 그 장의 Headline 메시지(결론을 담은 한 문장, 30자 안팎). msg 는 보조 메시지 한 문장(근거·그래서 무엇을 할지)\n'
   +'- 한 장을 꽉 채운다: blocks 를 2~4개(각 블록 items 3~5개, 필요하면 sub 1~2개) 넣고, 수치가 있으면 kpis(2~4개, value 는 「30 억원」처럼 숫자+단위 짧게), 근거 자료가 있으면 visual 을 넣는다. 한 장이 휑하지 않게 하되 글자를 지어내 채우지는 않는다. 글자는 11pt 이상으로 찍히므로 요점 한 줄은 40자 안팎, 한 블록 items 는 5개를 넘기지 않는다\n'
   +'- 위험·이슈·지연을 다루는 블록은 "tone":"risk" 를 붙인다(빨간 제목). implication 은 그 장의 결론·시사점 한 문장\n'
@@ -38953,7 +38965,7 @@ async function makeReport(ev,onStep){
   const items=(boardOf(ev).items||[]).slice().sort((a,b)=>a.y-b.y||a.x-b.x);
   const isTb=i=>/^tbrec:/.test(i.src||'');
   const txtItems=items.map(i=>isTb(i)&&i.type==='text'?{...i,html:String(i.html||'').replace(/<details[\s\S]*?<\/details>/gi,'')}:i).filter(i=>i.type==='text');
-  const memo=dropRecNotes(boardToMd(txtItems).trim());
+  const memo=dropRecNotes(boardToMdMarked(txtItems).md.trim());
   const near=it=>{const t=items.filter(i=>i.type==='text'&&i.y<=it.y).pop();return t?htmlToText(t.html||'').replace(/\s+/g,' ').slice(-80):'';};
   const assets=[];
   items.forEach(i=>{
@@ -40001,7 +40013,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.27.1';
+const APP_VERSION='v2.28';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
