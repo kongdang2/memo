@@ -39357,12 +39357,12 @@ async function exportWord(list,label,onStep){
   const pics=new Map();let pn=0;const ims=[...root.querySelectorAll('img')];
   for(const im of ims){try{const x=await docxImage(im);if(x){pn++;pics.set(im,{...x,id:pn});}}catch(err){console.warn('[내보내기] 그림',err);}onStep('그림 넣는 중… '+(pn)+'/'+ims.length);}
   onStep('워드 만드는 중…');return aDocxBuild(root,pics);}
-async function exportZip(list,label,onStep){
+async function exportZip(list,label,onStep,topics){
   const enc=new TextEncoder();const files=[];const pics=new Map();const used=new Set();
   const picName=p=>{if(pics.has(p))return pics.get(p);let b=exSafe(String(p).split('/').pop()).replace(/\s/g,'_');let n=b,k=1;while(used.has(n))n=(k++)+'_'+b;used.add(n);pics.set(p,n);return n;};
-  const names=new Set();const rows=[['id','날짜','끝날짜','시간','제목','분류','상태','반복','글자수','파일']];
+  const names=new Set();const fileOf=new Map();const rows=[['id','날짜','끝날짜','시간','제목','분류','상태','반복','글자수','파일']];
   const yq=s=>'"'+String(s==null?'':s).replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,' ')+'"';
-  list.forEach(e=>{let base=exSafe((e.date||'')+' '+(e.title||''));let n=base,k=2;while(names.has(n))n=base+' ('+(k++)+')';names.add(n);
+  list.forEach(e=>{let base=exSafe((e.date||'')+' '+(e.title||''));let n=base,k=2;while(names.has(n))n=base+' ('+(k++)+')';names.add(n);fileOf.set(e,n);
     const md=boardToMd(exItems(e)).replace(/\(pms:([^)\s]+)\)/g,(_,p)=>'(../첨부/'+encodeURI(picName(p))+')');
     const links=String(e.links||'').split('\n').map(x=>x.trim()).filter(Boolean);
     const fm=['---','id: '+yq(e.id),'title: '+yq(e.title),'date: '+(e.date||''),e.dateEnd&&e.dateEnd>e.date?'end_date: '+e.dateEnd:'',exTime(e)?'time: '+yq(exTime(e)):'',
@@ -39370,20 +39370,29 @@ async function exportZip(list,label,onStep){
       links.length?'links:\n'+links.map(l=>'  - '+yq(l)).join('\n'):'','tags: [일정'+(e.category?', '+yq(e.category):'')+']','---'].filter(Boolean).join('\n');
     files.push({name:'메모/'+n+'.md',text:fm+'\n\n# '+(e.title||'제목 없음')+'\n\n'+md+'\n'});
     rows.push([e.id,e.date||'',e.dateEnd||'',exTime(e),e.title||'',e.category||'',STATUS_LABEL[e.status]||e.status||'',e.repeat&&e.repeat!=='none'?e.repeat:'',md.length,'메모/'+n+'.md']);});
+  /* 주제 페이지(v2.32.2) — 주제마다 「정리」 글 + 관련 메모 줄. 파일 이름이 주제 이름이라 옵시디언에서 [[이름]] 이 그대로 이어진다 */
+  const tNames=new Set();let nTopic=0;
+  topicIndex(list,topics).forEach(t=>{if(!t.refs.length&&!(t.note&&t.note.html))return;
+    let n=exSafe(t.name),k=2;while(tNames.has(n.toLowerCase()))n=exSafe(t.name)+' ('+(k++)+')';tNames.add(n.toLowerCase());nTopic++;
+    const note=t.note&&t.note.html?htmlToMd(t.note.html).replace(/\(pms:([^)\s]+)\)/g,(_,p)=>'(../첨부/'+encodeURI(picName(p))+')').trim():'';
+    const refs=t.refs.map(r=>'- '+(r.e.date||'')+' [['+fileOf.get(r.e)+'|'+String(r.e.title||'제목 없음').replace(/[\[\]|]/g,' ')+']]\n'+r.lines.map(l=>'  - '+l).join('\n')).join('\n');
+    files.push({name:'주제/'+n+'.md',text:['---','title: '+yq(t.name),'type: 주제',t.note&&t.note.updated?'updated: '+yq(t.note.updated):'','mentions: '+t.refs.length,'---'].filter(Boolean).join('\n')
+      +'\n\n# '+t.name+'\n\n## 정리\n\n'+(note||'(아직 정리 없음)')+'\n\n## 관련 메모 (최근 순)\n\n'+(refs||'(없음)')+'\n'});});
   let i=0;for(const [p,n] of pics){i++;onStep('그림 받는 중… '+i+'/'+pics.size);
     try{const b=await Files.blob(p);if(b)files.push({name:'첨부/'+n,data:new Uint8Array(await b.arrayBuffer())});}catch(err){console.warn('[내보내기] 그림',p,err);}}
   const csv='﻿'+rows.map(r=>r.map(v=>{const s=String(v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\r\n');
   files.push({name:'일정목록.csv',text:csv});
-  files.push({name:'data.json',text:JSON.stringify({exported:new Date().toISOString(),range:label,events:list},null,1)});
+  files.push({name:'data.json',text:JSON.stringify({exported:new Date().toISOString(),range:label,events:list,topics:topics||[]},null,1)});
   files.push({name:'읽어보기.txt',text:['일정 관리 — 메모 자료 묶음 ('+label+', '+list.length+'건)','',
     '· 메모/  일정마다 마크다운(.md) 파일 하나. 맨 위 --- 사이에 날짜·시간·분류·상태 같은 속성이 있습니다.',
+    '· 주제/  [[이름]]·#태그 주제마다 파일 하나('+nTopic+'개). 「정리」 글과 그 주제가 나온 메모 줄을 날짜순으로 모았습니다.',
     '· 첨부/  메모 속 이미지와 그래프 그림. 마크다운이 ../첨부/파일이름 으로 가리킵니다.',
     '· 일정목록.csv  일정 한 줄씩 정리한 표(엑셀로 열림). DB에 넣을 때 쓰세요.',
     '· data.json  앱이 저장한 원본 데이터 그대로(상자 위치·크기 포함).','',
     '옵시디언: 압축을 푼 폴더를 보관함(Vault)으로 열면 그대로 위키가 됩니다.',
     '노션: 가져오기 → Markdown & CSV 에서 메모 폴더나 일정목록.csv 를 고르세요.'].join('\r\n')});
   onStep('묶는 중…');return zipMake(files);}
-function ExportDialog({open,onClose,events,toast}){
+function ExportDialog({open,onClose,events,topics,toast}){
   const {Button,Modal}=window.HDWorkbookDesignSystem_ad60e4;
   const y=todayISO().slice(0,4);
   const [rg,setRg]=React.useState('all');const [from,setFrom]=React.useState(y+'-01-01');const [to,setTo]=React.useState(todayISO());
@@ -39394,7 +39403,7 @@ function ExportDialog({open,onClose,events,toast}){
   const pick=()=>{const [f,t]=range();return (events||[]).filter(e=>e.date>=f&&e.date<=t&&(empty||exHasMemo(e))).slice().sort((a,b)=>(a.date+(a.start||'')).localeCompare(b.date+(b.start||'')));};
   const n=open?pick().length:0;
   const run=async kind=>{const list=pick();if(!list.length){toast&&toast('내보낼 메모가 없습니다');return;}const [,,label]=range();
-    try{setBusy('준비 중…');const blob=kind==='word'?await exportWord(list,label,setBusy):await exportZip(list,label,setBusy);
+    try{setBusy('준비 중…');const blob=kind==='word'?await exportWord(list,label,setBusy):await exportZip(list,label,setBusy,topics);
       const nm='메모 모음 '+label.replace(/[~ ]+/g,'_')+' '+todayISO();const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;
       a.download=nm+(kind==='word'?'.docx':'.zip');document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},2000);
       toast&&toast((kind==='word'?'워드':'자료 묶음')+' 파일을 내려받았습니다 ('+list.length+'건)');}
@@ -39410,7 +39419,7 @@ function ExportDialog({open,onClose,events,toast}){
         <Button disabled={!!busy||!n} onClick={()=>run('word')}>📄 워드 한 파일로</Button>
         <div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',marginTop:-4}}>일정마다 제목·날짜 아래 메모의 글·표·이미지·그래프를 차례로 담습니다. 읽고 보관하기 좋습니다.</div>
         <Button disabled={!!busy||!n} onClick={()=>run('zip')}>🗂 자료 묶음(.zip) — 위키·DB용</Button>
-        <div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',marginTop:-4}}>일정마다 마크다운 파일(날짜·분류 등 속성 포함) + 첨부 그림 + 목록표(CSV) + 원본 데이터(JSON). 옵시디언·노션에 그대로 가져갈 수 있습니다.</div>
+        <div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',marginTop:-4}}>일정마다 마크다운 파일(날짜·분류 등 속성 포함) + 주제 페이지 + 첨부 그림 + 목록표(CSV) + 원본 데이터(JSON). 옵시디언·노션에 그대로 가져갈 수 있습니다.</div>
       </div>
       {busy&&<div style={{color:'var(--text-muted)'}}>⏳ {busy}</div>}
     </div>
@@ -40384,7 +40393,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.32.1';
+const APP_VERSION='v2.32.2';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
@@ -40694,7 +40703,7 @@ function Shell({user,onLogout}){
       </main>
     </div>
     <SettingsModal open={cfgOpen} onClose={()=>setCfg(false)} onToast={toast}/>
-    <ExportDialog open={expOpen} onClose={()=>setExp(false)} events={db.events} toast={toast}/>
+    <ExportDialog open={expOpen} onClose={()=>setExp(false)} events={db.events} topics={db.topics} toast={toast}/>
     <TrashModal open={trashOpen} onClose={()=>setTrash(false)} onRestore={restoreItem} onToast={toast}/>
     <Toast open={!!toastMsg}>{toastMsg}</Toast>
   </div>;
