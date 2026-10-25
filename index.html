@@ -37271,8 +37271,8 @@ const BD_CSS=`.bd-wrap{position:relative;isolation:isolate;border:1px dashed var
 .rn-tb .bs-kinds button,.bs-kbar button{border:1px solid;border-radius:999px;padding:2px 10px;font-size:13px}
 .bs-kbar{position:sticky;bottom:0;z-index:4;display:flex;gap:6px;overflow-x:auto;padding:8px 2px;background:#fafaf9;border-top:1px solid var(--border-default);margin-top:8px}
 .bs-kbar button{flex:none;padding:7px 12px;font-family:inherit;cursor:pointer}
-.bd-wrap.bd-simple{border:none;background:transparent;background-image:none;overflow:visible;display:grid;gap:10px;padding:2px 0}
-.bd-simple>.bd-it{position:relative;left:auto;top:auto;padding:4px 6px;max-width:100%}
+.bd-wrap.bd-simple{border:none;background:transparent;background-image:none;overflow:visible;display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:2px 0}
+.bd-simple>.bd-it{position:relative;left:auto;top:auto;padding:4px 6px;max-width:100%;min-width:0}.bd-simple>.bd-it>.bs-bd{overflow-x:auto}
 .bd-simple>.bs-main .rn-ed.rn-cmp{min-height:150px;font-size:15px;padding:8px 10px 12px}
 .bd-simple>.bs-todo{border-color:#fed7aa;background:#fffbf5}.bd-simple>.bs-todo .rn-ed.rn-cmp{background:transparent}
 .bs-hd{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);padding:2px 4px 4px;min-width:0;min-height:30px}   /* 단추가 있든 없든 같은 높이 — 첫 글자를 쓰는 순간 아래 상자가 밀려 누르던 단추가 빗나가지 않게 */
@@ -37863,9 +37863,9 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
         <Bt t="＋ 이미지" title="이미지 넣기 (Ctrl+V로 붙여넣어도 됩니다)" on={()=>fileIn.current&&fileIn.current.click()}/>
         <Bt t="＋ 그래프" title="그래프 넣기 — 보기 표를 함께 넣고, 표를 고치면 그래프도 바뀝니다" on={addChart}/>
         {onRec&&<Bt t="🎙 녹취" title="메모에 녹취 상자를 띄웁니다. 정지하면 정리본이 그 자리에 들어옵니다" on={onRec}/>}
-        {!mobile&&<Bt t="📥 문서" title="한글(hwp·hwpx)·워드·엑셀·파워포인트·마크다운 파일을 글상자로 불러옵니다" on={()=>mdIn.current&&mdIn.current.click()}/>}
+        {<Bt t="📥 문서" title="한글(hwp·hwpx)·워드·엑셀·파워포인트·마크다운 파일을 글상자로 불러옵니다" on={()=>mdIn.current&&mdIn.current.click()}/>}
         {!mobile&&<Bt t="📤 MD" title="이 메모를 마크다운(.md) 파일로 저장합니다" on={saveMd}/>}
-        {!mobile&&<Bt t="📤 한글" title="이 메모를 한글(.hwpx) 파일로 저장합니다 — 그림은 빠집니다" on={saveHwpx}/>}
+        {<Bt t="📤 한글" title="이 메모를 한글(.hwpx) 파일로 저장합니다 — 그림은 빠집니다" on={saveHwpx}/>}
         {onTerms&&<Bt t="🔤 용어 수정" title="잘못 받아쓴 고유명사·용어를 메모 전체에서 한꺼번에 바꿉니다" on={onTerms}/>}
         {busy&&<span style={{fontSize:12,color:/^⚠/.test(busy)?'var(--color-danger)':'var(--text-muted)',marginLeft:6}}>{busy}</span>}
       </div>
@@ -40889,7 +40889,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.39';
+const APP_VERSION='v2.39.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
