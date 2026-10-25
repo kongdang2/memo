@@ -7,7 +7,8 @@
 <meta name="apple-mobile-web-app-title" content="일정 관리">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180.png">
-<script>if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));</script>
+<script>try{if((matchMedia('(display-mode: standalone)').matches||navigator.standalone)&&!/[?&]app=1/.test(location.search))history.replaceState(history.state,'',location.pathname+'?app=1'+location.hash);}catch(_){}/* 설치한 앱 창 표시 — 알림을 누르면 이 창으로 간다(v2.30.2) */
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));</script>
 <title>일정 관리</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&family=Roboto+Condensed:wght@400;700&display=swap" rel="stylesheet">
 <style>/* 배포 가능한 무료 폰트(OFL). 원본 시스템 폰트(맑은 고딕·Arial Narrow)는 로컬 폴백으로만 유지. */
@@ -40119,7 +40120,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.30.1';
+const APP_VERSION='v2.30.2';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.

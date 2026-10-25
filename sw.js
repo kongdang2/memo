@@ -35,12 +35,13 @@ self.addEventListener('push', e => {
     body: d.body || '', tag: d.tag || 'pms', icon: 'icon-192.png', badge: 'icon-192.png', data: { url: self.registration.scope },
   }));
 });
-// 알림을 누르면 열려 있는 앱으로 가고, 없으면 새로 연다
+// 알림을 누르면 설치한 앱(홈 화면 아이콘) 창으로 간다 — 앱 창은 주소에 ?app=1 이 붙어 있다(v2.30.2)
+// 열린 앱 창이 있으면 그 창을, 없으면 앱 주소를 연다(설치돼 있으면 폰이 브라우저 대신 앱으로 연다)
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const url = (e.notification.data && e.notification.data.url) || self.registration.scope;
+  const url = self.registration.scope + '?app=1';
   e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(ws => {
-    for (const w of ws) if (w.url.startsWith(self.registration.scope) && 'focus' in w) return w.focus();
+    for (const w of ws) if (w.url.startsWith(self.registration.scope) && /[?&]app=1/.test(w.url) && 'focus' in w) return w.focus();
     return self.clients.openWindow(url);
   }));
 });
