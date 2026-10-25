@@ -37476,7 +37476,8 @@ function BdChart({it,items,patch}){
 function BdImg({it}){
   const ref=React.useRef(null);
   React.useEffect(()=>{const im=ref.current;if(im&&it.path)Files.url(it.path).then(u=>{im.src=u;}).catch(()=>{im.alt='⚠ 이미지를 불러오지 못했습니다';});},[it.path]);
-  return <div className="bd-img"><img ref={ref} alt=""/></div>;}
+  /* ar(가로/세로) — 그림을 다 받기 전에도 제 높이를 차지해, 새 상자를 맨 위에 쌓을 때 아래 상자와 겹치지 않게(v2.29.1) */
+  return <div className="bd-img"><img ref={ref} alt="" style={it.ar&&!it.h?{aspectRatio:String(it.ar)}:undefined}/></div>;}
 function MemoBoard({docKey,board,onChange,onTerms,onRec}){
   const items=(board&&board.items)||[];
   const [sel,setSel]=React.useState([]);const [act,setAct]=React.useState(null);const [snap,setSnap]=React.useState(true);
@@ -37531,7 +37532,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
   const addImgs=async files=>{const list=[...files].filter(f=>/^image\//.test(f.type));
     for(const f of list){setBusy('이미지 올리는 중…');try{const r=await Files.put(f.name?f:new File([f],'image.png',{type:f.type}));
       const dim=await new Promise(ok=>{const im=new Image();im.onload=()=>ok([im.naturalWidth,im.naturalHeight]);im.onerror=()=>ok([320,200]);im.src=URL.createObjectURL(f);});
-      add('img',{path:r.path,w:Math.min(420,dim[0])});}catch(x){setBusy('⚠ '+x.message);setTimeout(()=>setBusy(''),4000);return;}}setBusy('');};
+      add('img',{path:r.path,w:Math.min(420,dim[0]),ar:dim[0]/Math.max(1,dim[1])});}catch(x){setBusy('⚠ '+x.message);setTimeout(()=>setBusy(''),4000);return;}}setBusy('');};
   /* 끌기 — 손잡이(옮기기), 모서리(너비), 빈 곳(범위 선택) */
   const live=React.useRef(null);const lastPT=React.useRef('mouse');const [,force]=React.useReducer(x=>x+1,0);
   const commitLive=arr=>{live.current=arr;itemsRef.current=arr;force();};
@@ -37560,8 +37561,9 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
       if(kind!=='marquee'&&moved)commit(live.current||itemsRef.current);live.current=null;force();};
     document.addEventListener('pointermove',mv);document.addEventListener('pointerup',up);document.addEventListener('pointercancel',up);};
   const shown=live.current||items;
+  /* 빈 곳을 눌러도 다음 상자 자리로 기억하지 않는다(v2.29.1) — 선택을 풀려고 누른 자리에 이미지·글상자가 들어가 엉뚱해 보였다. 새 상자는 맨 위, 끌어다 놓은 그림만 놓은 자리 */
   const onWrapDown=e=>{if(e.target!==wrap.current&&!e.target.classList.contains('bd-pad'))return;
-    const b=wrap.current.getBoundingClientRect();last.current={x:e.clientX-b.left+wrap.current.scrollLeft,y:e.clientY-b.top+wrap.current.scrollTop};
+    last.current=null;
     if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();setAct(null);
     if(!e.shiftKey)setSel([]);if(!(e.nativeEvent.sourceCapabilities&&e.nativeEvent.sourceCapabilities.firesTouchEvents)&&lastPT.current!=='touch')startDrag(e,'marquee');wrap.current.focus({preventScroll:true});};
   /* 맞춤 */
@@ -37604,11 +37606,11 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
     if(e.type==='cut')delSel();};
   const onPaste=e=>{if(e.defaultPrevented||editing())return;const cd=e.clipboardData;if(!cd)return;
     const h=cd.getData('text/html')||'';const fs=[...(cd.files||[])].filter(f=>/^image\//.test(f.type));
-    const at=nextPos();
+    const at=last.current||{x:20,y:sn(measureBottom()?measureBottom()+24:20)};   /* 복사한 상자 묶음은 배치를 살려 맨 아래에 */
     const mb=/data-memo-board="([^"]+)"/.exec(h);const mine=BD_CLIP&&cd.getData('text/plain')===BD_CLIP.plain;
     if(mb||mine){e.preventDefault();let pack=mine?BD_CLIP.pack:[];if(mb)try{pack=JSON.parse(decodeURIComponent(escape(atob(mb[1]))));}catch(_){}
       let z=topZ();const news=pack.map(i=>({...i,id:uid(),x:sn(at.x+i.x),y:sn(at.y+i.y),z:z++}));
-      last.current={x:at.x+24,y:at.y+24};commit([...itemsRef.current,...news]);setSel(news.map(i=>i.id));return;}
+      commit([...itemsRef.current,...news]);setSel(news.map(i=>i.id));return;}
     if(fs.length&&!h){e.preventDefault();addImgs(fs);return;}
     const grid=clipGrid(cd);
     if(grid&&(grid.length>1||grid[0].length>1)){e.preventDefault();const cols=Math.max(...grid.map(r=>r.length));
@@ -37642,7 +37644,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
     </div>
     <div ref={wrap} className="bd-wrap" tabIndex={0} onPointerDownCapture={e=>{lastPT.current=e.pointerType;}} onMouseDown={onWrapDown} onKeyDown={onKey} onPaste={onPaste} onCopy={onCopy} onCut={onCopy}
       onDragOver={e=>e.preventDefault()} onDrop={e=>{const fs=e.dataTransfer&&e.dataTransfer.files;if(fs&&fs.length&&!editing()){e.preventDefault();
-        const b=wrap.current.getBoundingClientRect();last.current={x:e.clientX-b.left+wrap.current.scrollLeft,y:e.clientY-b.top+wrap.current.scrollTop};addImgs(fs);}}}
+        const b=wrap.current.getBoundingClientRect();last.current={x:e.clientX-b.left+wrap.current.scrollLeft,y:e.clientY-b.top+wrap.current.scrollTop};addImgs(fs).finally(()=>{last.current=null;});}}}
       style={{height:H,marginTop:8,outline:'none'}}>
       <div className="bd-pad" style={{position:'relative',width:W||'100%',height:H-2}}/>
       {!shown.length&&<div style={{position:'absolute',left:0,right:0,top:120,textAlign:'center',color:'var(--text-label)',fontSize:13,pointerEvents:'none',lineHeight:1.8}}>
@@ -40028,7 +40030,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.29';
+const APP_VERSION='v2.29.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
