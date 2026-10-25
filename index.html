@@ -39226,6 +39226,177 @@ function printHtml(html,title,css){
   const imgs=[...d.images].filter(i=>!i.complete);
   Promise.all(imgs.map(i=>new Promise(r=>{i.onload=i.onerror=r;setTimeout(r,8000);}))).then(()=>{
     f.contentWindow.focus();f.contentWindow.print();setTimeout(()=>f.remove(),60000);});}
+/* ── 배치 그대로 출력(v2.31) — 메모 화면에 놓인 그대로(글상자·표·그래프·이미지 자리와 크기) A4 종이에 옮겨 인쇄·PDF 한다.
+   화면의 메모 보드를 그대로 복사해 쓰고(편집 손잡이·도구줄만 뗀다), 종이 너비에 맞춰 줄인 뒤 상자가 잘리지 않는 곳에서 쪽을 나눈다 ── */
+const LP_MM=96/25.4;
+const LP_CSS=`@page{size:A4 portrait;margin:0}
+html,body{margin:0;background:#fff}
+.lp-pg{box-sizing:border-box;padding:12mm;background:#fff;overflow:hidden;page-break-after:always;break-after:page;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.lp-pg:last-child{page-break-after:auto;break-after:auto}
+.lp-hd{height:12mm;box-sizing:border-box;border-bottom:1.5px solid #1F3A5F;margin-bottom:3mm;display:flex;align-items:flex-end;gap:10px;padding-bottom:2mm;font-family:var(--font-sans,sans-serif)}
+.lp-hd b{font-size:16px;color:#1F3A5F}.lp-hd span{font-size:11.5px;color:#6b7280;margin-left:auto}
+.lp-clip{position:relative;overflow:hidden;display:inline-block;vertical-align:top}   /* 한 덩어리(inline-block) — 인쇄 때 브라우저가 줄이기 전 크기로 쪽을 가르지 않게 */
+.lp-board.bd-wrap{position:absolute;left:0;top:0;border:0!important;border-radius:0;background:none!important;overflow:visible!important;transform-origin:0 0}
+.lp-board .bd-it{box-shadow:none!important;transition:none!important}
+.lp-nob .lp-board .bd-it{border-color:transparent!important}
+.lp-board .rn-ed{min-height:0!important}
+.lp-board .lp-rec{padding:10px;color:#999;font-size:12px}`;
+const LP_PAPER={p:[210,297],l:[297,210]};
+/* 화면의 보드 → {html, items:[{y,b}], minX,maxR,minY,maxB} */
+function lpSnap(wrap){
+  const its=[...wrap.children].filter(n=>n.classList&&n.classList.contains('bd-it')&&n.style.visibility!=='hidden');
+  if(!its.length)return null;
+  const R=its.map(n=>({x:n.offsetLeft,y:n.offsetTop,r:n.offsetLeft+n.offsetWidth,b:n.offsetTop+n.offsetHeight}));
+  const c=document.createElement('div');
+  its.forEach(n=>{const k=n.cloneNode(true);k.classList.remove('on');
+    k.querySelectorAll('.bd-grip,.bd-rs,.bd-ch-tb,.bd-ch-set,.bd-ctx,.rn-tb').forEach(x=>x.remove());
+    k.querySelectorAll('[contenteditable]').forEach(x=>x.removeAttribute('contenteditable'));
+    k.querySelectorAll('.bd-rec').forEach(x=>{const p=document.createElement('div');p.className='lp-rec';p.textContent='(녹취 상자 — 출력하지 않습니다)';x.replaceWith(p);});
+    /* 높이는 화면에서 잰 그대로 — 글꼴 차이로 아래 상자와 겹치지 않게 */
+    k.style.height=n.offsetHeight+'px';k.style.minHeight='';c.appendChild(k);});
+  return {html:c.innerHTML,R,minX:Math.min(...R.map(r=>r.x)),maxR:Math.max(...R.map(r=>r.r)),minY:Math.min(...R.map(r=>r.y)),maxB:Math.max(...R.map(r=>r.b))};}
+/* 쪽 나누기 — 쪽 끝이 상자를 가르면 그 상자 위에서 끊는다(상자가 한 쪽보다 크면 어쩔 수 없이 가른다) */
+function lpPages(S,avail0,avail){
+  const pages=[];let start=S.minY;
+  while(start<S.maxB-1&&pages.length<300){const av=pages.length?avail:avail0;let cut=start+av;
+    if(cut>=S.maxB)cut=S.maxB;
+    else{let mv=true;while(mv){mv=false;for(const r of S.R)if(r.y<cut-1&&r.b>cut+1&&r.y>start+av*0.25){cut=r.y;mv=true;}}}
+    pages.push([start,cut]);
+    const rest=S.R.filter(r=>r.b>cut+1);if(!rest.length)break;start=Math.max(cut,Math.min(...rest.map(r=>Math.max(r.y,cut)))-8);}
+  return pages;}
+function lpHtml(S,o){
+  const [pw,ph]=LP_PAPER[o.orient];const CW=(pw-24)*LP_MM,CH=(ph-24)*LP_MM,HD=15*LP_MM;
+  const W=S.maxR-S.minX;const s=Math.min(1,CW/W);
+  const pages=lpPages(S,(CH-(o.head?HD:0))/s,CH/s);
+  return {n:pages.length,s,html:pages.map(([a,b],i)=>'<div class="lp-pg" style="width:'+pw+'mm;height:'+ph+'mm">'
+    +(i===0&&o.head?'<div class="lp-hd"><b>'+xmlEsc(o.title||'메모')+'</b><span>'+xmlEsc(o.sub||'')+'</span></div>':'')
+    +'<div class="lp-clip" style="width:'+Math.ceil(W*s)+'px;height:'+Math.ceil((b-a)*s)+'px">'
+    +'<div class="bd-wrap lp-board" style="width:'+S.maxR+'px;height:'+S.maxB+'px;transform:scale('+s+') translate('+(-S.minX)+'px,'+(-a)+'px)">'+S.html+'</div></div></div>').join('')};}
+function lpStyles(){return [...document.querySelectorAll('link[rel="stylesheet"]')].map(l=>'<link rel="stylesheet" href="'+xmlEsc(l.href)+'">').join('')
+  +'<style>'+[...document.querySelectorAll('style')].map(s=>s.textContent).join('\n')+'</style>';}
+function lpPrint(body,title,orient){
+  const f=document.createElement('iframe');f.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0';document.body.appendChild(f);
+  const d=f.contentDocument;const css=LP_CSS.replace('A4 portrait','A4 '+(orient==='l'?'landscape':'portrait'));
+  d.open();d.write('<!doctype html><html><head><meta charset="utf-8"><title>'+xmlEsc(title||'메모')+'</title>'+lpStyles()+'<style>'+css+'</style></head><body class="'+document.body.className+'">'+body+'</body></html>');d.close();
+  const go=()=>{const imgs=[...d.images].filter(i=>!i.complete);
+    Promise.all(imgs.map(i=>new Promise(r=>{i.onload=i.onerror=r;setTimeout(r,8000);}))).then(()=>(d.fonts?d.fonts.ready:null)).then(()=>{f.contentWindow.focus();f.contentWindow.print();setTimeout(()=>f.remove(),60000);});};
+  if(d.readyState==='complete')setTimeout(go,300);else f.onload=()=>setTimeout(go,300);}
+function LayoutPrint({host,e,onClose,toast}){
+  const {Button}=window.HDWorkbookDesignSystem_ad60e4;
+  const [S,setS]=React.useState(null);const [msg,setMsg]=React.useState('메모를 옮기는 중…');
+  const [o,setO]=React.useState(()=>{let v={};try{v=JSON.parse(localStorage.getItem('cal.lp')||'{}');}catch(_){}return {orient:v.orient||'p',head:v.head!==false,border:v.border!==false};});
+  React.useEffect(()=>{try{localStorage.setItem('cal.lp',JSON.stringify(o));}catch(_){}},[o]);
+  React.useEffect(()=>{const wrap=host&&host.querySelector('.bd-wrap');if(!wrap){setMsg('메모 보드를 찾지 못했습니다');return;}
+    const imgs=[...wrap.querySelectorAll('img')].filter(i=>!i.complete);
+    Promise.all(imgs.map(i=>new Promise(r=>{i.addEventListener('load',r,{once:true});i.addEventListener('error',r,{once:true});setTimeout(r,6000);})))
+      .then(()=>{const s=lpSnap(wrap);if(!s)setMsg('메모가 비어 있습니다');setS(s);});},[]);
+  React.useEffect(()=>{const k=x=>{if(x.key==='Escape'){x.stopPropagation();onClose();}};window.addEventListener('keydown',k,true);return()=>window.removeEventListener('keydown',k,true);},[]);
+  const sub=[e.date,e.start&&(e.start+(e.end?'~'+e.end:'')),e.category].filter(Boolean).join(' · ');
+  const out=React.useMemo(()=>S?lpHtml(S,{...o,title:e.title,sub}):null,[S,o.orient,o.head]);
+  const [pw]=LP_PAPER[o.orient];const [vw,setVw]=React.useState(window.innerWidth);
+  React.useEffect(()=>{const r=()=>setVw(window.innerWidth);window.addEventListener('resize',r);return()=>window.removeEventListener('resize',r);},[]);
+  const zoom=Math.min(1,(vw-24)/(pw*LP_MM));
+  const name=(e.title||'메모')+' '+(e.date||'');
+  const doPrint=()=>{if(!out){toast&&toast('출력할 내용이 없습니다');return;}lpPrint(o.border?out.html:'<div class="lp-nob">'+out.html+'</div>',name,o.orient);};
+  const tog=(k,v)=><button type="button" onClick={()=>setO(p=>({...p,[k]:v}))}
+    style={{border:'1px solid '+(o[k]===v?'var(--text-body)':'var(--border-strong)'),background:o[k]===v?'var(--text-body)':'#fff',color:o[k]===v?'#fff':'var(--text-body)',borderRadius:14,padding:'3px 11px',fontSize:'var(--fs-sm2)',cursor:'pointer',fontFamily:'inherit'}}>
+    {k==='orient'?(v==='p'?'세로':'가로'):k==='head'?(v?'제목 넣기':'제목 빼기'):(v?'테두리 보이기':'테두리 숨기기')}</button>;
+  return ReactDOM.createPortal(<div className="pv-wrap" style={{position:'fixed',inset:0,zIndex:100000,background:'#e9ebee',display:'flex',flexDirection:'column',fontFamily:'var(--font-sans)'}}>
+    <style>{LP_CSS.replace(/@page\{[^}]*\}\s*html,body\{[^}]*\}/,'')+'.lp-pv .lp-pg{margin:0 auto 14px;box-shadow:0 2px 10px rgba(0,0,0,.12)}'}</style>
+    <div style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center',padding:'10px 16px',background:'#fff',borderBottom:'1px solid var(--border-default)'}}>
+      <strong style={{fontSize:'var(--fs-base)',marginRight:6}}>🖨 배치 그대로 출력</strong>
+      <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>용지</span>{tog('orient','p')}{tog('orient','l')}
+      <span style={{width:1,height:18,background:'var(--border-strong)',margin:'0 4px'}}/>{tog('head',true)}{tog('head',false)}
+      <span style={{width:1,height:18,background:'var(--border-strong)',margin:'0 4px'}}/>{tog('border',true)}{tog('border',false)}
+      <span style={{flex:1}}/>
+      {out&&<span style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>{out.n}쪽{out.s<0.999?' · '+Math.round(out.s*100)+'%로 줄임':''}</span>}
+      <Button size="sm" disabled={!out} onClick={doPrint} title="인쇄 창에서 「PDF로 저장」을 고르면 PDF 파일이 됩니다">🖨 인쇄·PDF</Button>
+      <Button size="sm" variant="ghost" onClick={onClose}>✕ 닫기</Button>
+    </div>
+    <div style={{flex:1,overflow:'auto',padding:'16px 12px'}}>
+      <div style={{maxWidth:pw+'mm',margin:'0 auto 8px',fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>메모 화면에 놓인 자리·크기 그대로 종이에 옮겼습니다. 종이보다 넓으면 줄이고, 상자가 잘리지 않는 곳에서 쪽을 나눕니다. 메모는 바뀌지 않습니다.</div>
+      {out?<div className={'lp-pv'+(o.border?'':' lp-nob')} style={{zoom}} dangerouslySetInnerHTML={{__html:out.html}}/>
+        :<div style={{textAlign:'center',color:'#999',marginTop:60}}>{msg}</div>}
+    </div>
+  </div>,document.body);}
+/* ── 메모 전체 내보내기(v2.31) — 기간 안 일정의 메모를 한꺼번에 저장한다.
+   · 워드: 한 파일에 일정마다 제목·날짜와 메모(글·표·이미지·그래프 그림)를 차례로
+   · 자료 묶음(.zip): 일정마다 마크다운 파일(머리에 날짜·분류 등 속성) + 첨부 그림 + 목록표(CSV) + 원본 데이터(JSON)
+     — 옵시디언·노션 같은 위키나 DB에 그대로 가져갈 수 있는 모양 ── */
+const exHasMemo=e=>(boardOf(e).items||[]).some(i=>i.type==='img'||i.type==='chart'||htmlToText(i.html||'').trim());
+const exTime=e=>e.start?e.start+(e.end?'-'+e.end:''):'';
+const exSafe=s=>String(s||'').replace(/[\\/:*?"<>|#^\[\]]+/g,' ').replace(/\s+/g,' ').trim().slice(0,60)||'제목 없음';
+const exItems=e=>(boardOf(e).items||[]).filter(i=>i.type!=='rec'&&!/^tbwait:/.test(i.src||'')).slice().sort((a,b)=>a.y-b.y||a.x-b.x);
+async function exportWord(list,label,onStep){
+  const root=document.createElement('div');
+  root.innerHTML='<h1>메모 모음</h1><p>'+xmlEsc(label+' · '+list.length+'건 · '+new Date().toLocaleDateString('ko-KR'))+'</p>';
+  list.forEach((e,k)=>{const sec=document.createElement('div');
+    sec.innerHTML='<h2>'+xmlEsc(e.title||'제목 없음')+'</h2><p>'+xmlEsc([e.date+(e.dateEnd&&e.dateEnd>e.date?' ~ '+e.dateEnd:''),exTime(e),e.category,STATUS_LABEL[e.status]].filter(Boolean).join(' · '))+'</p>'
+      +exItems(e).map(i=>i.type==='img'?(i.path?'<p><img data-pms="'+xmlEsc(i.path)+'"></p>':''):i.type==='chart'?(i.pic?'<p><img data-pms="'+xmlEsc(i.pic)+'"></p>'+(i.title?'<p>▲ '+xmlEsc(i.title)+'</p>':''):'')
+        :String(i.html||'').replace(/<\/?details[^>]*>/gi,'').replace(/<summary[^>]*>([\s\S]*?)<\/summary>/gi,'<p><b>$1</b></p>')).join('');
+    root.appendChild(sec);});
+  onStep('그림 넣는 중…');
+  const pics=new Map();let pn=0;const ims=[...root.querySelectorAll('img')];
+  for(const im of ims){try{const x=await docxImage(im);if(x){pn++;pics.set(im,{...x,id:pn});}}catch(err){console.warn('[내보내기] 그림',err);}onStep('그림 넣는 중… '+(pn)+'/'+ims.length);}
+  onStep('워드 만드는 중…');return aDocxBuild(root,pics);}
+async function exportZip(list,label,onStep){
+  const enc=new TextEncoder();const files=[];const pics=new Map();const used=new Set();
+  const picName=p=>{if(pics.has(p))return pics.get(p);let b=exSafe(String(p).split('/').pop()).replace(/\s/g,'_');let n=b,k=1;while(used.has(n))n=(k++)+'_'+b;used.add(n);pics.set(p,n);return n;};
+  const names=new Set();const rows=[['id','날짜','끝날짜','시간','제목','분류','상태','반복','글자수','파일']];
+  const yq=s=>'"'+String(s==null?'':s).replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,' ')+'"';
+  list.forEach(e=>{let base=exSafe((e.date||'')+' '+(e.title||''));let n=base,k=2;while(names.has(n))n=base+' ('+(k++)+')';names.add(n);
+    const md=boardToMd(exItems(e)).replace(/\(pms:([^)\s]+)\)/g,(_,p)=>'(../첨부/'+encodeURI(picName(p))+')');
+    const links=String(e.links||'').split('\n').map(x=>x.trim()).filter(Boolean);
+    const fm=['---','id: '+yq(e.id),'title: '+yq(e.title),'date: '+(e.date||''),e.dateEnd&&e.dateEnd>e.date?'end_date: '+e.dateEnd:'',exTime(e)?'time: '+yq(exTime(e)):'',
+      e.category?'category: '+yq(e.category):'',e.status?'status: '+yq(STATUS_LABEL[e.status]||e.status):'',e.repeat&&e.repeat!=='none'?'repeat: '+e.repeat:'',
+      links.length?'links:\n'+links.map(l=>'  - '+yq(l)).join('\n'):'','tags: [일정'+(e.category?', '+yq(e.category):'')+']','---'].filter(Boolean).join('\n');
+    files.push({name:'메모/'+n+'.md',text:fm+'\n\n# '+(e.title||'제목 없음')+'\n\n'+md+'\n'});
+    rows.push([e.id,e.date||'',e.dateEnd||'',exTime(e),e.title||'',e.category||'',STATUS_LABEL[e.status]||e.status||'',e.repeat&&e.repeat!=='none'?e.repeat:'',md.length,'메모/'+n+'.md']);});
+  let i=0;for(const [p,n] of pics){i++;onStep('그림 받는 중… '+i+'/'+pics.size);
+    try{const b=await Files.blob(p);if(b)files.push({name:'첨부/'+n,data:new Uint8Array(await b.arrayBuffer())});}catch(err){console.warn('[내보내기] 그림',p,err);}}
+  const csv='﻿'+rows.map(r=>r.map(v=>{const s=String(v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\r\n');
+  files.push({name:'일정목록.csv',text:csv});
+  files.push({name:'data.json',text:JSON.stringify({exported:new Date().toISOString(),range:label,events:list},null,1)});
+  files.push({name:'읽어보기.txt',text:['일정 관리 — 메모 자료 묶음 ('+label+', '+list.length+'건)','',
+    '· 메모/  일정마다 마크다운(.md) 파일 하나. 맨 위 --- 사이에 날짜·시간·분류·상태 같은 속성이 있습니다.',
+    '· 첨부/  메모 속 이미지와 그래프 그림. 마크다운이 ../첨부/파일이름 으로 가리킵니다.',
+    '· 일정목록.csv  일정 한 줄씩 정리한 표(엑셀로 열림). DB에 넣을 때 쓰세요.',
+    '· data.json  앱이 저장한 원본 데이터 그대로(상자 위치·크기 포함).','',
+    '옵시디언: 압축을 푼 폴더를 보관함(Vault)으로 열면 그대로 위키가 됩니다.',
+    '노션: 가져오기 → Markdown & CSV 에서 메모 폴더나 일정목록.csv 를 고르세요.'].join('\r\n')});
+  onStep('묶는 중…');return zipMake(files);}
+function ExportDialog({open,onClose,events,toast}){
+  const {Button,Modal}=window.HDWorkbookDesignSystem_ad60e4;
+  const y=todayISO().slice(0,4);
+  const [rg,setRg]=React.useState('all');const [from,setFrom]=React.useState(y+'-01-01');const [to,setTo]=React.useState(todayISO());
+  const [empty,setEmpty]=React.useState(false);const [busy,setBusy]=React.useState('');
+  const range=()=>{const t=todayISO();if(rg==='year')return [y+'-01-01',y+'-12-31','올해'];
+    if(rg==='3m'){const d=new Date();d.setMonth(d.getMonth()-3);const f=d.toISOString().slice(0,10);return [f,t,'최근 3개월'];}
+    if(rg==='pick')return [from,to,from+' ~ '+to];return ['0000','9999','전체'];};
+  const pick=()=>{const [f,t]=range();return (events||[]).filter(e=>e.date>=f&&e.date<=t&&(empty||exHasMemo(e))).slice().sort((a,b)=>(a.date+(a.start||'')).localeCompare(b.date+(b.start||'')));};
+  const n=open?pick().length:0;
+  const run=async kind=>{const list=pick();if(!list.length){toast&&toast('내보낼 메모가 없습니다');return;}const [,,label]=range();
+    try{setBusy('준비 중…');const blob=kind==='word'?await exportWord(list,label,setBusy):await exportZip(list,label,setBusy);
+      const nm='메모 모음 '+label.replace(/[~ ]+/g,'_')+' '+todayISO();const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;
+      a.download=nm+(kind==='word'?'.docx':'.zip');document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},2000);
+      toast&&toast((kind==='word'?'워드':'자료 묶음')+' 파일을 내려받았습니다 ('+list.length+'건)');}
+    catch(err){toast&&toast('⚠ 내보내기 실패 — '+err.message);}setBusy('');};
+  const chip=(k,l)=><Chip key={k} on={rg===k} onClick={()=>setRg(k)}>{l}</Chip>;
+  return <Modal open={open} onClose={busy?()=>{}:onClose} title="📦 메모 내보내기" width={560} footer={<Button variant="gray" disabled={!!busy} onClick={onClose}>닫기</Button>}>
+    <div style={{display:'grid',gap:12,fontSize:'var(--fs-base)'}}>
+      <div style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center'}}><b style={{minWidth:44}}>기간</b>{chip('all','전체')}{chip('year','올해')}{chip('3m','최근 3개월')}{chip('pick','직접 고르기')}</div>
+      {rg==='pick'&&<div style={{display:'flex',gap:6,alignItems:'center',paddingLeft:50}}><input type="date" value={from} onChange={x=>setFrom(x.target.value)}/>~<input type="date" value={to} onChange={x=>setTo(x.target.value)}/></div>}
+      <label style={{display:'flex',gap:6,alignItems:'center',paddingLeft:50,fontSize:'var(--fs-sm2)',color:'var(--text-muted)'}}><input type="checkbox" checked={empty} onChange={x=>setEmpty(x.target.checked)}/>메모가 없는 일정도 넣기</label>
+      <div style={{color:'var(--text-muted)',paddingLeft:50}}>일정 {n}건</div>
+      <div style={{display:'grid',gap:8}}>
+        <Button disabled={!!busy||!n} onClick={()=>run('word')}>📄 워드 한 파일로</Button>
+        <div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',marginTop:-4}}>일정마다 제목·날짜 아래 메모의 글·표·이미지·그래프를 차례로 담습니다. 읽고 보관하기 좋습니다.</div>
+        <Button disabled={!!busy||!n} onClick={()=>run('zip')}>🗂 자료 묶음(.zip) — 위키·DB용</Button>
+        <div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',marginTop:-4}}>일정마다 마크다운 파일(날짜·분류 등 속성 포함) + 첨부 그림 + 목록표(CSV) + 원본 데이터(JSON). 옵시디언·노션에 그대로 가져갈 수 있습니다.</div>
+      </div>
+      {busy&&<div style={{color:'var(--text-muted)'}}>⏳ {busy}</div>}
+    </div>
+  </Modal>;}
 const pvStrip=h=>{const d=document.createElement('div');d.innerHTML=h||'';d.querySelectorAll('img[data-pms]').forEach(im=>im.removeAttribute('src'));return d.innerHTML;};
 function PrintPreview({e,setE,onClose,toast,init}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
@@ -39937,7 +40108,7 @@ function ListView({events,categories,st,set,onOpen,onNotes}){
 /* 속성 패널: 제목 · 기간 · 시간 · 캘린더 · 카테고리(색) · 상태 · 반복 · 비고 */
 function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
-  const [e,setE]=React.useState(ev);const e0=React.useRef(ev);e0.current=e;const [rev,setRev]=React.useState(0);const [pv,setPv]=React.useState('');const [savedAt,setSavedAt]=React.useState('');
+  const [e,setE]=React.useState(ev);const e0=React.useRef(ev);e0.current=e;const [rev,setRev]=React.useState(0);const [lp,setLp]=React.useState(false);const [savedAt,setSavedAt]=React.useState('');
   /* 자동 저장: 입력이 멈추고 1초 뒤 저장. 닫을 때는 기다리지 않고 바로 저장한다.
      제목이 비어 있으면 저장하지 않는다(새 일정을 열었다 그냥 닫은 경우) */
   const last=React.useRef(null);const timer=React.useRef(null);const downAt=React.useRef(false);
@@ -39955,9 +40126,9 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
   const [more,setMore]=React.useState(()=>localStorage.getItem('cal.panelMore')==='1');
   /* 다른 일정을 열거나 창을 닫았다 다시 열면 회의록 화면이 아니라 메모부터 보인다(v2.20) */
   const [terms,setTerms]=React.useState(false);
-  React.useEffect(()=>{setPv('');setTerms(false);},[ev&&ev.id]);
-  /* Ctrl+P — 창에 보이는 부분만 찍히지 않게, 메모 전체를 「원본 그대로」 인쇄 화면으로 연다 */
-  React.useEffect(()=>{if(!ev)return;const k=x=>{if((x.ctrlKey||x.metaKey)&&!x.shiftKey&&!x.altKey&&x.key.toLowerCase()==='p'){x.preventDefault();setPv(v=>v||'raw');}};
+  React.useEffect(()=>{setLp(false);setTerms(false);},[ev&&ev.id]);
+  /* Ctrl+P — 창에 보이는 부분만 찍히지 않게, 메모 전체를 「배치 그대로 출력」 화면으로 연다(v2.31) */
+  React.useEffect(()=>{if(!ev)return;const k=x=>{if((x.ctrlKey||x.metaKey)&&!x.shiftKey&&!x.altKey&&x.key.toLowerCase()==='p'){x.preventDefault();setLp(true);}};
     window.addEventListener('keydown',k);return()=>window.removeEventListener('keydown',k);},[!!ev]);
   const togMore=()=>setMore(v=>{try{localStorage.setItem('cal.panelMore',v?'0':'1');}catch(_){}return !v;});
   /* dir: 'move' 또는 n·s·e·w 조합. 전체 화면에서 끌면 지금 보이는 크기에서 시작한다 */
@@ -40106,10 +40277,9 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
       </div>
       <div className="ev-foot" style={{padding:'10px 14px',borderTop:'1px solid var(--border-default)',display:'flex',alignItems:'center',justifyContent:'flex-end',gap:6,flexWrap:'wrap'}}>
         <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',marginRight:'auto'}}>{!(e.title||'').trim()?'제목을 넣으면 자동 저장됩니다':savedAt?'✓ 자동 저장됨 · '+savedAt:'입력하면 자동 저장됩니다'}</span>
-        <Button size="sm" variant="ghost" onClick={()=>setPv('raw')} title="메모 상자를 위→아래 순서로 세워 인쇄합니다(Ctrl+P)">🖨 인쇄</Button>
-        <Button size="sm" onClick={()=>setPv('meeting')} title="메모를 회의록·AI 인사이트·보고서(PPT)로 정리하고, 인쇄(PDF)·워드·PPT로 내보냅니다. 만든 문서는 「🗂 저장된 문서」에 남습니다">📝 리포트</Button>
+        <Button size="sm" variant="ghost" onClick={()=>setLp(true)} title="메모 화면에 놓인 그대로(글·표·그래프·이미지 자리와 크기) 인쇄·PDF 합니다(Ctrl+P)">🖨 인쇄·PDF</Button>
         <Button variant="primary" onClick={close}>닫기</Button></div>
-      {pv&&<PrintPreview e={e} setE={setE} toast={toast} init={pv} onClose={()=>setPv('')}/>}
+      {lp&&<LayoutPrint host={boxRef.current} e={e} toast={toast} onClose={()=>setLp(false)}/>}
       {terms&&<TermFixDialog toast={toast} onClose={()=>setTerms(false)} text={()=>boardToMd(boardOf(e).items||[])}
         count={l=>(boardOf(e).items||[]).reduce((n,i)=>n+(i.html?termHtml(i.html,l).n:0),0)}
         apply={l=>{let n=0;const b=boardOf(e);const its=(b.items||[]).map(i=>{if(!i.html)return i;const r=termHtml(i.html,l);n+=r.n;return r.n?{...i,html:r.html}:i;});
@@ -40120,7 +40290,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.30.2';
+const APP_VERSION='v2.31';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
@@ -40242,7 +40412,7 @@ const sameJson=(a,b)=>stableJson(a)===stableJson(b);
 function Shell({user,onLogout}){
   const NS=window.HDWorkbookDesignSystem_ad60e4;const {AppHeader,SessionBar,SessionDivider,NavSidebar,Button,Badge,Toast,InfoBar}=NS;
   const [db,setDbRaw]=React.useState(null);
-  const [trashOpen,setTrash]=React.useState(false);const [saved,setSaved]=React.useState(Store.offline?'offline':'');const [pend,setPend]=React.useState(0);const [toastMsg,setToastMsg]=React.useState('');const [cfgOpen,setCfg]=React.useState(false);const [err,setErr]=React.useState('');
+  const [trashOpen,setTrash]=React.useState(false);const [expOpen,setExp]=React.useState(false);const [saved,setSaved]=React.useState(Store.offline?'offline':'');const [pend,setPend]=React.useState(0);const [toastMsg,setToastMsg]=React.useState('');const [cfgOpen,setCfg]=React.useState(false);const [err,setErr]=React.useState('');
   const [calSt,setCalSt]=React.useState({view:'month',sub:'month',anchor:todayISO()});
   const timers=React.useRef({});const mobile=useMobile();const updated=useAppUpdate();
   /* 세션 줄 안의 자리 — 일정 화면이 연월·이동·보기 단추와 검색·새 일정을 여기에 그린다 */
@@ -40411,8 +40581,8 @@ function Shell({user,onLogout}){
   const savedBadge=saved==='offline'?'📴 오프라인 · 이 기기에 임시저장'+(pend?' ('+pend+'건 대기)':''):saved==='saving'?'⏳ 저장 중…':saved==='error'?'⚠ 저장 실패':saved?'✓ 자동저장됨 · '+saved:'✓ 불러옴';
   return <div style={{minHeight:'100vh',display:'flex',flexDirection:'column',background:'#fff'}}>
     <AppHeader mark="📅" title="일정 관리" version={APP_VERSION} tools={mobile
-      ?<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기" onClick={undo}>↶</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기" onClick={redo}>↷</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)}>🗑</Button><Button variant="ghost" size="xs" title="알림 설정" onClick={()=>setCfg(true)}>🔔</Button><Button variant="ghost" size="xs" onClick={onLogout}>나가기</Button></>
-      :<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳ 새로고침</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기 (Ctrl+Z)" onClick={undo}>↶ 되돌리기</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기 (Ctrl+Y)" onClick={redo}>↷ 다시</Button><Button variant="ghost" size="xs" onClick={()=>Store.exportJSON(db)} title="전체 데이터 JSON 백업">💾 백업</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)} title={'지운 항목 보관함('+TRASH_DAYS+'일)'}>🗑 휴지통</Button><Button variant="ghost" size="xs" onClick={()=>setCfg(true)}>🔔 알림</Button><span style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>👤 {user.email}</span><Button variant="ghost" size="xs" onClick={onLogout}>로그아웃</Button></>}/>
+      ?<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기" onClick={undo}>↶</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기" onClick={redo}>↷</Button><Button variant="ghost" size="xs" title="메모 내보내기" onClick={()=>setExp(true)}>📦</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)}>🗑</Button><Button variant="ghost" size="xs" title="알림 설정" onClick={()=>setCfg(true)}>🔔</Button><Button variant="ghost" size="xs" onClick={onLogout}>나가기</Button></>
+      :<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳ 새로고침</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기 (Ctrl+Z)" onClick={undo}>↶ 되돌리기</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기 (Ctrl+Y)" onClick={redo}>↷ 다시</Button><Button variant="ghost" size="xs" onClick={()=>setExp(true)} title="메모를 워드나 위키·DB용 자료 묶음으로 한꺼번에 내보냅니다">📦 내보내기</Button><Button variant="ghost" size="xs" onClick={()=>Store.exportJSON(db)} title="전체 데이터 JSON 백업">💾 백업</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)} title={'지운 항목 보관함('+TRASH_DAYS+'일)'}>🗑 휴지통</Button><Button variant="ghost" size="xs" onClick={()=>setCfg(true)}>🔔 알림</Button><span style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>👤 {user.email}</span><Button variant="ghost" size="xs" onClick={onLogout}>로그아웃</Button></>}/>
     {updated&&<div onClick={hardReload} role="button" style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',
       padding:'8px 14px',background:'var(--wb-ink)',color:'#fff',fontSize:'var(--fs-md)',fontWeight:600,fontFamily:'var(--font-sans)'}}>
       <span style={{fontSize:15}}>🔄</span>새 버전이 올라왔습니다
@@ -40430,6 +40600,7 @@ function Shell({user,onLogout}){
       </main>
     </div>
     <SettingsModal open={cfgOpen} onClose={()=>setCfg(false)} onToast={toast}/>
+    <ExportDialog open={expOpen} onClose={()=>setExp(false)} events={db.events} toast={toast}/>
     <TrashModal open={trashOpen} onClose={()=>setTrash(false)} onRestore={restoreItem} onToast={toast}/>
     <Toast open={!!toastMsg}>{toastMsg}</Toast>
   </div>;
