@@ -39726,6 +39726,8 @@ function topicsIn(text){const out=[];let m;TOPIC_RE.lastIndex=0;const t=String(t
   while((m=TOPIC_RE.exec(t))){const n=(m[1]||m[3]||'').trim().replace(/[-·]+$/,'');if(n)out.push(n);}return out;}
 /* 일정의 메모 → 줄 단위 [{line, topics}] (주제가 있는 줄만) */
 function topicLines(e){const out=[];
+  /* 카테고리도 주제(v2.34) — [[ ]] 없이 그 이름의 주제 페이지에 일정이 모인다. 빈 줄이라 관련 메모 줄로는 안 보인다 */
+  const cat=String(e.category||'').trim();cat&&out.push({line:'',topics:[cat],cat:true});
   topicsIn(e.title).length&&out.push({line:e.title,topics:topicsIn(e.title),title:true});
   (boardOf(e).items||[]).filter(i=>i.html&&i.type!=='rec').slice().sort((a,b)=>a.y-b.y||a.x-b.x).forEach(i=>{
     htmlToText(i.html).split('\n').forEach(l=>{const tp=topicsIn(l);if(tp.length)out.push({line:l.trim(),topics:tp});});});
@@ -39733,7 +39735,7 @@ function topicLines(e){const out=[];
 /* 모든 주제 → {key,name,refs:[{e,lines}],note,last} */
 function topicIndex(events,notes){const map=new Map();
   const get=n=>{const k=topicKey(n);if(!map.has(k))map.set(k,{key:k,name:n,refs:[],note:null,last:''});return map.get(k);};
-  (events||[]).forEach(e=>{const by=new Map();topicLines(e).forEach(x=>x.topics.forEach(n=>{const k=topicKey(n);if(!by.has(k))by.set(k,{n,lines:[]});const b=by.get(k);if(!b.lines.includes(x.line))b.lines.push(x.line);}));
+  (events||[]).forEach(e=>{const by=new Map();topicLines(e).forEach(x=>x.topics.forEach(n=>{const k=topicKey(n);if(!by.has(k))by.set(k,{n,lines:[]});const b=by.get(k);if(x.line&&!b.lines.includes(x.line))b.lines.push(x.line);}));
     by.forEach(({n,lines})=>{const t=get(n);t.refs.push({e,lines});if((e.date||'')>t.last)t.last=e.date||'';});});
   (notes||[]).forEach(nt=>{if(!nt||!nt.title)return;const t=get(nt.title);t.note=nt;t.name=nt.title;const u=String(nt.updated||'').slice(0,10);if(u>t.last)t.last=u;});
   map.forEach(t=>t.refs.sort((a,b)=>String(b.e.date).localeCompare(String(a.e.date))));
@@ -39770,7 +39772,7 @@ function WikiView({db,setDb,topic,setTopic,onOpen,mobile}){
   const page=cur&&<div style={{flex:1,minWidth:0}}>
     {mobile&&<Button variant="ghost" size="xs" onClick={()=>setTopic('')}>◂ 주제 목록</Button>}
     <h2 style={{margin:'4px 0 2px',fontSize:22,color:'#1F3A5F'}}># {cur.name}</h2>
-    <div style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)',marginBottom:10}}>관련 일정 {cur.refs.length}건{cur.last?' · 최근 '+cur.last:''} · 메모에 <code>[[{cur.name}]]</code> 또는 <code>#{cur.name.replace(/\s/g,'_')}</code> 로 걸 수 있습니다</div>
+    <div style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)',marginBottom:10}}>관련 일정 {cur.refs.length}건{cur.last?' · 최근 '+cur.last:''} · 메모에 <code>[[{cur.name}]]</code> 또는 <code>#{cur.name.replace(/\s/g,'_')}</code> 로 걸거나, 일정 카테고리를 「{cur.name}」로 정하면 모입니다</div>
     <div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',fontWeight:600,margin:'8px 0 4px'}}>✎ 정리 <span style={{fontWeight:400}}>— 이 주제에 대해 알아 둘 것(담당자·현황·결정 요약 등)을 자유롭게 적으세요</span></div>
     <div style={{border:'1px solid var(--border-default)',borderRadius:8,padding:'4px 8px',background:'#fff'}}>
       <RichNote docKey={'topic:'+cur.key} html={(cur.note&&cur.note.html)||''} compact placeholder="이 주제의 정리 글" onChange={h=>{if(h!==((cur.note&&cur.note.html)||''))saveNote(h);}}/></div>
@@ -39870,9 +39872,9 @@ function CalendarView({db,setDb,st,set,toast,slots}){
    · 최근 30일 기록만 — 처음 켤 때 옛 기록이 한꺼번에 일정으로 쏟아지지 않게
    · 시간이 있는 일정 중 녹음 시각이 [시작, 끝+1시간] 안이거나 시작과 3시간 이내로 가장 가까운 것.
      반복 일정은 고르지 않는다(제목이 바뀌면 모든 회차가 바뀐다). 없으면 그날 종일 일정이 하나뿐일 때 그 일정, 그것도 아니면 새 일정을 만든다 */
-/* 통번역 기록이 붙은 일정은 가장 이른 기록의 제목과 '통번역' 카테고리를 쓴다 */
+/* 통번역 기록이 붙은 일정은 가장 이른 기록의 제목을 쓴다(카테고리는 v2.34부터 자동으로 넣지 않는다 — 주제로 쓰이므로 사람이 정한다) */
 function tbNamed(e){const l=(e.tbrec||[]).slice().sort((a,b)=>String(a.created).localeCompare(String(b.created)));
-  return l.length?{...e,title:l[0].title||e.title,category:'통번역'}:e;}
+  return l.length?{...e,title:l[0].title||e.title}:e;}
 function autoLinkTbrec(events,recs){
   const seen=new Set();events.forEach(e=>{(e.tbrec||[]).forEach(x=>seen.add(x.id));(e.tbrecOff||[]).forEach(id=>seen.add(id));});
   const cut=Date.now()-30*864e5;let out=events,n=0;
@@ -39886,7 +39888,7 @@ function autoLinkTbrec(events,recs){
     const allDay=same.filter(e=>!e.start);if(!best&&allDay.length===1)best=allDay[0];
     const link={id:r.id,title:r.title,created:r.created};
     if(best)out=out.map(e=>e.id===best.id?tbNamed({...e,tbrec:[...(e.tbrec||[]),link]}):e);
-    else out=[...out,{id:uid(),title:r.title,date:day,dateEnd:'',start:pad2(d.getHours())+':'+pad2(d.getMinutes()),end:'',cal:'work',status:'todo',category:'통번역',repeat:'none',notes:'',tbrec:[link]}];
+    else out=[...out,{id:uid(),title:r.title,date:day,dateEnd:'',start:pad2(d.getHours())+':'+pad2(d.getMinutes()),end:'',cal:'work',status:'todo',category:'',repeat:'none',notes:'',tbrec:[link]}];
     seen.add(r.id);n++;});
   return {events:out,n};
 }
@@ -40460,7 +40462,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.33';
+const APP_VERSION='v2.34';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
