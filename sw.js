@@ -1,4 +1,4 @@
-// 홈 화면 설치 + 오프라인용 서비스 워커(v2.27)
+// 홈 화면 설치 + 오프라인용 서비스 워커(v2.27) + 푸시 알림(v2.30)
 // · 이 앱의 파일: 네트워크 우선, 끊겼을 때만 마지막으로 받은 것
 // · 라이브러리·글꼴(CDN): 받아 둔 것을 먼저 쓰고 뒤에서 새로 받아 둔다 — 오프라인에서도 앱이 뜨게
 const CACHE = 'cal-shell-v2';
@@ -26,4 +26,21 @@ self.addEventListener('fetch', e => {
   }).catch(() => caches.match(req, { ignoreSearch: true })
     .then(r => r || (req.mode === 'navigate' ? caches.match(self.registration.scope).then(x => x || caches.match(self.registration.scope + 'index.html')) : undefined))
     .then(r => r || Response.error())));
+});
+// 푸시 알림(v2.30) — 서버(Edge Function 'pushcron')가 보낸 알림을 띄운다. 앱을 닫아 둬도 온다
+self.addEventListener('push', e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (_) { d = { body: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || '일정 알림', {
+    body: d.body || '', tag: d.tag || 'pms', icon: 'icon-192.png', badge: 'icon-192.png', data: { url: self.registration.scope },
+  }));
+});
+// 알림을 누르면 열려 있는 앱으로 가고, 없으면 새로 연다
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || self.registration.scope;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(ws => {
+    for (const w of ws) if (w.url.startsWith(self.registration.scope) && 'focus' in w) return w.focus();
+    return self.clients.openWindow(url);
+  }));
 });
