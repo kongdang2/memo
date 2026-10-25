@@ -36733,7 +36733,11 @@ function htmlToText(html){
 /* 일정의 메모를 HTML로 (예전 마크다운이면 바꿔서) */
 const noteHtmlOf=e=>e?(e.notesHtml!=null?e.notesHtml:(e.notes?mdToHtml(e.notes):'')):'';
 
-const RN_CSS=`.rn-ed{outline:none;min-height:220px;line-height:1.65;font-size:15px;color:var(--text-body);padding:4px 2px 40px;word-break:break-word}
+const RN_CSS=`.rn-ed [data-kind]{border-radius:6px;padding:1px 8px;margin:3px 0;box-shadow:inset 3px 0 0 var(--kc);background:var(--kb)}
+.rn-ed [data-kind="결정"]{--kc:#1d4ed8;--kb:#eff5ff}.rn-ed [data-kind="할일"]{--kc:#ea580c;--kb:#fff5ec}.rn-ed [data-kind="숫자"]{--kc:#0f766e;--kb:#ecf8f5}
+.rn-ed [data-kind="이슈"]{--kc:#b91c1c;--kb:#fdf1f1}.rn-ed [data-kind="배경"]{--kc:#64748b;--kb:#f3f5f7}
+.rn-ed li[data-kind]{list-style-position:inside}
+.rn-ed{outline:none;min-height:220px;line-height:1.65;font-size:15px;color:var(--text-body);padding:4px 2px 40px;word-break:break-word}
 .rn-ed:empty:before{content:attr(data-ph);color:var(--text-label)}
 .rn-ed h1{font-size:24px;font-weight:700;margin:18px 0 6px}.rn-ed h2{font-size:19px;font-weight:700;margin:14px 0 4px}.rn-ed h3{font-size:16px;font-weight:700;margin:12px 0 2px}.rn-ed h4{font-size:14.5px;font-weight:700;margin:10px 0 2px 14px}
 .rn-ed p{margin:2px 0}.rn-ed ul,.rn-ed ol{margin:2px 0;padding-left:24px}.rn-ed li{margin:1px 0}
@@ -36969,14 +36973,14 @@ function RichNote({docKey,html,onChange,placeholder,tbHost,active,compact}){
   const flushRef=React.useRef(()=>{});
   React.useEffect(()=>attachSheet(ed.current,()=>flushRef.current()),[]);
   /* 다른 일정으로 바뀔 때만 내용을 갈아 끼운다 — 타자 중에는 건드리지 않아 커서가 튀지 않는다 */
-  React.useEffect(()=>{const el=ed.current;if(!el)return;el.innerHTML=rnClean(html||'',false)||'<p><br></p>';loadImgs();setImgSel(null);el.querySelectorAll('table').forEach(t=>sheetCalc(t));
+  React.useEffect(()=>{const el=ed.current;if(!el)return;el.innerHTML=rnClean(html||'',false)||'<p><br></p>';rnMarkKinds(el);loadImgs();setImgSel(null);el.querySelectorAll('table').forEach(t=>sheetCalc(t));
     try{document.execCommand('defaultParagraphSeparator',false,'p');}catch(_){}},[docKey]);
   const loadImgs=()=>{const el=ed.current;if(!el)return;
     el.querySelectorAll('a[data-ev]').forEach(a=>{const x=mentionOf(a.getAttribute('data-ev'));if(x)a.textContent=x;});
     el.querySelectorAll('img[data-pms]:not([src])').forEach(async im=>{
     try{im.src=await Files.url(im.getAttribute('data-pms'));}catch(x){im.alt='⚠ 이미지를 불러오지 못했습니다';}});};
-  const emit=()=>{clearTimeout(t.current);t.current=setTimeout(()=>{const el=ed.current;if(!el)return;const h=rnSerialize(el);onChange(h,htmlToText(h));},250);};
-  const flushNow=()=>{clearTimeout(t.current);const el=ed.current;if(!el)return;const h=rnSerialize(el);onChange(h,htmlToText(h));};
+  const emit=()=>{clearTimeout(t.current);t.current=setTimeout(()=>{const el=ed.current;if(!el)return;rnMarkKinds(el);const h=rnSerialize(el);onChange(h,htmlToText(h));},250);};
+  const flushNow=()=>{clearTimeout(t.current);const el=ed.current;if(!el)return;rnMarkKinds(el);const h=rnSerialize(el);onChange(h,htmlToText(h));};
   flushRef.current=flushNow;
   const exec=(cmd,val)=>{ed.current.focus();restore();try{document.execCommand('styleWithCSS',false,/Color$/.test(cmd));}catch(_){}document.execCommand(cmd,false,val);flushNow();};
   const remember=()=>{const s=window.getSelection();if(s&&s.rangeCount&&ed.current.contains(s.anchorNode))saveSel.current=s.getRangeAt(0).cloneRange();};
@@ -37288,6 +37292,10 @@ const BD_CSS=`.bd-wrap{position:relative;isolation:isolate;border:1px dashed var
 const KIND_BTNS=[['결정','결정','#eff6ff','#1e40af','#bfdbfe'],['할일','할 일','#fff7ed','#9a3412','#fed7aa'],['숫자','숫자','#f0fdfa','#115e59','#99f6e4'],['이슈','이슈','#fef2f2','#991b1b','#fecaca'],['배경','배경','#f5f5f4','#44403c','#d6d3d1']];
 const KIND_HEAD=/^\s*#(결정|할일|숫자|이슈|배경)[\s\u00a0]*/;
 /* 커서가 있는 줄 맨 앞에 #종류 를 붙인다 — 이미 다른 종류가 있으면 바꾸고, 같은 것이면 뗀다. 고친 줄이 있으면 true */
+/* 기록 종류 줄(#결정 등)에 색 띠를 입힌다(v2.38) — 화면 표시용 속성이라 저장할 때는 rnClean 이 뗀다 */
+function rnMarkKinds(el){if(!el)return;el.querySelectorAll('p,li,h1,h2,h3,div:not([data-co])').forEach(b=>{
+  if(b.querySelector('p,li,div,h1,h2,h3,ul,ol,table'))return;const m=KIND_HEAD.exec(b.textContent||'');
+  const k=m?m[1]:'';if((b.getAttribute('data-kind')||'')!==k){if(k)b.setAttribute('data-kind',k);else b.removeAttribute('data-kind');}});}
 function rnLineTag(scope,tag){
   const s=getSelection();if(!s.rangeCount)return false;let n=s.anchorNode;const el=n&&(n.nodeType===1?n:n.parentElement);
   const ed=el&&el.closest('.rn-ed');if(!ed||!scope.contains(ed))return false;
@@ -40064,17 +40072,22 @@ function CalendarView({db,setDb,st,set,toast,slots}){
   /* 일정 창의 주제 꼬리표를 누르면 그 주제 페이지로(v2.32) */
   React.useEffect(()=>{const h=x=>set({edit:null,view:'wiki',topic:x.detail,q:''});window.addEventListener('pms-topic',h);return()=>window.removeEventListener('pms-topic',h);},[]);
   const step=n=>{const d=new Date(anchor+'T00:00:00');if(sub==='week')d.setDate(d.getDate()+7*n);else d.setMonth(d.getMonth()+n);set({anchor:isoDate(d)});};
-  const label=view==='wiki'?'주제':view==='list'?'목록':sub==='week'?weekStart(anchor)+' 주':anchor.slice(0,4)+'년 '+Number(anchor.slice(5,7))+'월';
+  const label=view==='wiki'?'주제':view==='list'?'목록':sub==='week'?(w=>Number(w.slice(5,7))+'월 '+Number(w.slice(8))+'일 주')(weekStart(anchor)):anchor.slice(0,4)+'년 '+Number(anchor.slice(5,7))+'월';
   /* 보기: 월간 · 주간 · 목록 — 위쪽 세션 줄에 둔다 */
   const cur=view==='wiki'?'wiki':view==='list'?'list':sub==='week'?'week':'month';
-  const seg=<span style={{display:'inline-flex',border:'1px solid var(--border-strong)',borderRadius:6,padding:2,gap:2}}>
-    {[['month','월간'],['week','주간'],['list','목록'],['wiki','📚 주제']].map(([k,l])=><button key={k} type="button" onClick={()=>set(k==='list'||k==='wiki'?{view:k}:{view:'month',sub:k})} style={{border:'none',borderRadius:4,padding:'2px 10px',fontSize:'var(--fs-sm2)',fontWeight:cur===k?600:500,background:cur===k?'var(--surface-active)':'transparent',color:cur===k?'var(--text-body)':'var(--text-muted)',cursor:'pointer',fontFamily:'inherit'}}>{l}</button>)}</span>;
-  const nav=view==='month'&&<span style={{display:'inline-flex',alignItems:'center',gap:2}}><Button variant="ghost" size="xs" onClick={()=>step(-1)}>◂</Button><Button variant="ghost" size="xs" onClick={()=>set({anchor:today})}>오늘</Button><Button variant="ghost" size="xs" onClick={()=>step(1)}>▸</Button></span>;
+  const seg=<span className="ct-seg" role="group" aria-label="보기">
+    {[['month','월간'],['week','주간'],['list','목록'],['wiki','주제']].map(([k,l])=><button key={k} type="button" aria-pressed={cur===k} onClick={()=>set(k==='list'||k==='wiki'?{view:k}:{view:'month',sub:k})}>{l}</button>)}</span>;
+  const nav=view==='month'&&<span style={{display:'inline-flex',alignItems:'center',gap:4}}><button type="button" className="ct-nb" aria-label={sub==='week'?'이전 주':'이전 달'} onClick={()=>step(-1)}>‹</button><button type="button" className="ct-nb" onClick={()=>set({anchor:today})}>오늘</button><button type="button" className="ct-nb" aria-label={sub==='week'?'다음 주':'다음 달'} onClick={()=>step(1)}>›</button></span>;
+  /* 「오늘」 칸(v2.38) — PC는 달력 왼쪽, 폰은 달력 위. PC에서 숨기면 기억한다 */
+  const [tpOn,setTpOn]=React.useState(()=>{try{return localStorage.getItem('cal.todayPanel')!=='0';}catch(_){return true;}});
+  const setTp=v=>{setTpOn(v);try{localStorage.setItem('cal.todayPanel',v?'1':'0');}catch(_){}};
+  const todayCnt=spreadDays(expandEvents(events,shiftDay(today,-370),today),today,today).length;
+  const todoCnt=React.useMemo(()=>openTodos(db.events).length,[db.events]);
+  const openQuick=()=>setQuick({topic:view==='wiki'&&st.topic&&st.topic!==WIKI_INBOX?st.topic:''});
   const q=(st.q||'').trim().toLowerCase();
   const hits=q?db.events.filter(e=>[e.title,e.notes,e.boardText,e.links,e.category,e.minutes].some(t=>(t||'').toLowerCase().includes(q)))
     .sort((a,b)=>String(b.date).localeCompare(String(a.date))):[];
-  const search=<input type="search" value={st.q||''} onChange={x=>set({q:x.target.value})} placeholder="🔍 제목·메모 검색"
-    style={{...inputStyle,width:mobile?150:200,padding:'3px 8px',fontSize:'var(--fs-sm2)'}}/>;
+  const search=<input type="search" className="ct-q" value={st.q||''} onChange={x=>set({q:x.target.value})} placeholder="제목·메모 검색" aria-label="제목·메모 검색"/>;
   const body=q
     ? <SearchResults hits={hits} q={q} onOpen={e=>set({edit:e})}/>
     : view==='wiki'
@@ -40084,15 +40097,27 @@ function CalendarView({db,setDb,st,set,toast,slots}){
     : sub==='week'
       ? <WeekGrid events={events} anchor={anchor} today={today} onOpen={e=>set({edit:e})} onNew={openNew} onMove={moveEvent} onDelete={delQuiet} zoom={zoom}/>
       : <MonthGrid events={events} anchor={anchor} today={today} onOpen={e=>set({edit:e})} onNew={openNew} onMove={moveEvent} onDelete={delQuiet} zoom={zoom}/>;
+  const cal=view==='month'&&!q;
+  const panel=cal&&(mobile||tpOn)&&<TodayPanel db={db} setDb={setDb} today={today} onOpen={e=>set({edit:e})} onQuick={openQuick} onInbox={()=>set({view:'wiki',topic:WIKI_INBOX})}
+    onHide={mobile?null:()=>setTp(false)} toast={toast} mobile={mobile}/>;
+  const titleRow=cal&&<div className="ct-title">
+    <h2>{label}</h2>{nav}{zoomSeg}
+    <span style={{flex:1}}/>
+    <button type="button" className="ct-pill" style={{background:'#eef3fa',color:CT_NAVY}} onClick={()=>{if(!mobile)setTp(true);set({anchor:today});}} title="오늘로 가기">오늘 일정 {todayCnt}건</button>
+    {!!todoCnt&&<button type="button" className="ct-pill" style={{background:'#fff3e8',color:'#9a3412'}} onClick={()=>{if(!mobile)setTp(true);}} title="오늘 칸에서 할 일을 봅니다">남은 할 일 {todoCnt}</button>}
+    {!mobile&&!tpOn&&<button type="button" className="ct-nb" onClick={()=>setTp(true)}>오늘 칸 보기</button>}
+  </div>;
   return <>
-    {slots&&slots.mid&&ReactDOM.createPortal(<><SessionDivider/>{nav}
-      <b style={{fontSize:'var(--fs-md)',fontFamily:'var(--font-num)',margin:'0 4px',whiteSpace:'nowrap'}}>{label}</b>{seg}{zoomSeg}</>,slots.mid)}
-    {slots&&slots.right&&ReactDOM.createPortal(<span style={{display:'inline-flex',alignItems:'center',gap:6}}>{search}
-      <button type="button" onClick={()=>setQuick({topic:view==='wiki'&&st.topic&&st.topic!==WIKI_INBOX?st.topic:''})} title="날짜 없이 바로 적는 메모 — 주제를 고르면 그 주제 페이지에, 비우면 「미정리」에 모입니다"
-        style={{border:'1.5px solid #1F3A5F',color:'#1F3A5F',background:'#fff',borderRadius:6,padding:'2px 10px',fontSize:'var(--fs-sm2)',fontWeight:700,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>빠른 메모</button>
-      <Button size="xs" icon="+" onClick={()=>openNew(view==='month'?anchor:today)}>새 일정</Button></span>,slots.right)}
+    <CtCss/>
+    {slots&&slots.mid&&ReactDOM.createPortal(seg,slots.mid)}
+    {slots&&slots.right&&ReactDOM.createPortal(search,slots.right)}
+    {slots&&slots.act&&ReactDOM.createPortal(<span style={{display:'inline-flex',alignItems:'center',gap:8}}>
+      <button type="button" className="ct-btn o" onClick={openQuick} title="날짜 없이 바로 적는 메모 — 주제를 고르면 그 주제 페이지에, 비우면 「미정리」에 모입니다">빠른 메모</button>
+      <button type="button" className="ct-btn s" onClick={()=>openNew(view==='month'?anchor:today)}>＋ 새 일정</button></span>,slots.act)}
     {q&&<div style={{fontSize:'var(--fs-sm2)',color:'var(--text-muted)',margin:'2px 0 8px'}}>검색 결과 {hits.length}건</div>}
-    {body}
+    {cal&&mobile&&<div style={{marginBottom:10}}>{panel}</div>}
+    {titleRow}
+    {cal&&!mobile&&panel?<div style={{display:'flex',gap:16,alignItems:'flex-start'}}>{panel}<div style={{flex:1,minWidth:0}}>{body}</div></div>:body}
     <EventPanel ev={st.edit} categories={categories} onClose={()=>set({edit:null})} onSave={save} onDelete={del} toast={toast}/>
     {quick&&<QuickMemo topic={quick.topic} topics={[...topicIndex(db.events,db.topics).values()].filter(t=>!isKindTopic(t.name)).map(t=>t.name)} onSave={saveQuick} onClose={()=>setQuick(null)}/>}
     {!st.edit&&<MeetPill onOpen={id=>{const x=db.events.find(e=>e.id===id);if(x)set({edit:x});}}/>}
@@ -40183,16 +40208,16 @@ function SearchResults({hits,q,onOpen}){
     </span></div>)}</div>;
 }
 
-function EvChip({e,onClick,compact,draggable,onDragStart,onDragEnd,carrying,fs,touch,pos,wrap}){
+function EvChip({e,onClick,compact,draggable,onDragStart,onDragEnd,carrying,fs,touch,pos,wrap,dot}){
   const head=!pos||pos==='one'||pos==='first';
   /* touch=true(폰)면 HTML5 끌기를 끈다 — 안드로이드에서 길게 누르면 브라우저가 제 끌기를 시작하며
      우리 동작을 취소시켜 버린다. 글자 선택과 스크롤 가로채기도 같은 이유로 막는다 */
   return <div draggable={touch?false:draggable} onDragStart={onDragStart} onDragEnd={onDragEnd} onClick={ev=>{ev.stopPropagation();onClick(e);}} title={(e.category?'['+e.category+'] ':'')+e.title}
     data-ev={draggable?e.id:undefined} data-title={e.title}
-    style={{display:'flex',alignItems:wrap?'flex-start':'center',gap:4,padding:compact?(wrap?'2px 5px':'1px 5px'):'2px 6px',
-      borderRadius:pos==='mid'?0:pos==='first'?'3px 0 0 3px':pos==='last'?'0 3px 3px 0':3,
-      marginRight:pos==='first'||pos==='mid'?-6:0,marginLeft:pos==='last'||pos==='mid'?-6:0,
-      background:evColor(e)+'1f',borderLeft:pos==='mid'||pos==='last'?'none':'2px solid '+evColor(e),fontSize:fs||(compact?11:12),color:e.status==='done'?'var(--text-muted)':'var(--text-body)',cursor:draggable?'grab':'pointer',overflow:'hidden',whiteSpace:wrap?'normal':'nowrap',textOverflow:'ellipsis',
+    style={{display:'flex',alignItems:wrap?'flex-start':'center',gap:dot?5:4,padding:dot?(wrap?'3px 7px':'0 7px'):compact?(wrap?'2px 5px':'1px 5px'):'2px 6px',minHeight:dot&&!wrap?22:undefined,
+      borderRadius:pos==='mid'?0:pos==='first'?(dot?'6px 0 0 6px':'3px 0 0 3px'):pos==='last'?(dot?'0 6px 6px 0':'0 3px 3px 0'):dot?6:3,
+      marginRight:pos==='first'||pos==='mid'?-8:0,marginLeft:pos==='last'||pos==='mid'?-8:0,
+      background:dot&&e.status==='done'?'#f6f7f9':evColor(e)+(dot?'1a':'1f'),borderLeft:dot||pos==='mid'||pos==='last'?'none':'2px solid '+evColor(e),fontSize:fs||(compact?11:12),color:e.status==='done'?'var(--text-muted)':'var(--text-body)',cursor:draggable?'grab':'pointer',overflow:'hidden',whiteSpace:wrap?'normal':'nowrap',textOverflow:'ellipsis',
       opacity:carrying?.35:1,outline:carrying?'1px dashed '+evColor(e):'none',
       touchAction:touch&&draggable?'none':undefined,
       WebkitUserSelect:'none',userSelect:'none',WebkitTouchCallout:'none'}}>
@@ -40201,7 +40226,7 @@ function EvChip({e,onClick,compact,draggable,onDragStart,onDragEnd,carrying,fs,t
     {wrap
       ? <span style={{minWidth:0,flex:1,display:'flex',flexDirection:'column',gap:1}}>
           {head&&(e.category||e.start)&&<span style={{display:'flex',alignItems:'center',gap:4,minWidth:0}}>
-            <CatTag cat={e.category} fs={fs||11}/>
+            {dot?<span title={e.category||''} style={{flex:'none',width:7,height:7,borderRadius:'50%',background:evColor(e)}}/>:<CatTag cat={e.category} fs={fs||11}/>}
             {e.start&&<span style={{fontFamily:'var(--font-num)',color:'var(--text-muted)'}}>{e.start}</span>}
           </span>}
           <span style={{minWidth:0,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',
@@ -40209,8 +40234,8 @@ function EvChip({e,onClick,compact,draggable,onDragStart,onDragEnd,carrying,fs,t
             {(pos==='mid'||pos==='last')?'↳ '+(e.title||''):(e.title||'(제목 없음)')}</span>
         </span>
       : <>
-          {head&&<CatTag cat={e.category} fs={fs||(compact?11:12)}/>}
-          {head&&e.start&&<span style={{fontFamily:'var(--font-num)',color:'var(--text-muted)'}}>{e.start}</span>}
+          {head&&(dot?e.status!=='done'&&<span title={e.category||''} style={{flex:'none',width:7,height:7,borderRadius:'50%',background:evColor(e)}}/>:<CatTag cat={e.category} fs={fs||(compact?11:12)}/>)}
+          {head&&e.start&&<span style={{fontFamily:'var(--font-num)',color:dot?'#4b5563':'var(--text-muted)',fontWeight:dot?700:400}}>{e.start}</span>}
           <span style={{overflow:'hidden',textOverflow:'ellipsis',opacity:pos==='mid'||pos==='last'?.6:1}}>
             {(pos==='mid'||pos==='last')?'↳ '+(e.title||''):(e.title||'(제목 없음)')}</span>
         </>}
@@ -40241,6 +40266,122 @@ function GuideDialog({open,onClose}){
 const GD_CSS='.gd-body img{max-width:100%;border:1px solid #e7e5e4;border-radius:8px}.gd-body .cap{font-size:12px;color:#78716c;margin:0 0 14px}.gd-body h2{color:#1F3A5F}.gd-body table{border-collapse:collapse}.gd-body td,.gd-body th{border:1px solid #e7e5e4;padding:4px 8px}';
 if(!document.getElementById('gd-css')){const st=document.createElement('style');st.id='gd-css';st.textContent=GD_CSS;document.head.appendChild(st);}
 /* 완료 표시(v2.37, hong) — 취소선 대신 초록 체크 */
+/* ── v2.38 디자인 정돈(A안) + 「오늘」 칸(B안), hong 2026-10-25 ── */
+const CT_NAVY='#1F3A5F';
+const CT_CSS=`.ct-top{position:sticky;top:0;z-index:var(--z-header);display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 20px;background:#fff;border-bottom:1px solid #e6e8ec;font-family:var(--font-sans)}
+.ct-brand{display:flex;align-items:baseline;gap:8px;min-width:0}
+.ct-brand b{font-size:18px;color:${CT_NAVY};white-space:nowrap}
+.ct-brand .v{font-size:11px;color:#6b7480}.ct-brand .sv{font-size:12px;color:#6b7480;white-space:nowrap}
+.ct-ib{width:36px;height:36px;border:none;background:transparent;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:#4b5563;font-family:inherit;flex:none}
+.ct-ib:hover:not(:disabled){background:#f2f4f7}.ct-ib:disabled{opacity:.35;cursor:default}
+.ct-more{position:relative}.ct-more>.ct-ib{width:auto;padding:0 10px;gap:4px;font-size:13px}
+.ct-menu{position:absolute;right:0;top:40px;min-width:200px;background:#fff;border:1px solid #e6e8ec;border-radius:10px;box-shadow:0 12px 28px rgba(16,24,40,.14);padding:6px;z-index:calc(var(--z-header) + 1)}
+.ct-menu button{display:flex;width:100%;align-items:center;gap:10px;border:none;background:transparent;border-radius:6px;padding:9px 10px;font-size:14px;color:#1c2430;cursor:pointer;font-family:inherit;text-align:left}
+.ct-menu button:hover{background:#f2f4f7}.ct-menu hr{border:none;border-top:1px solid #eef0f3;margin:4px 2px}.ct-menu .who{padding:6px 10px;font-size:12px;color:#6b7480;overflow:hidden;text-overflow:ellipsis}
+.ct-seg{display:inline-flex;gap:4px;background:#f2f4f7;border-radius:10px;padding:4px}
+.ct-seg button{border:none;background:transparent;border-radius:7px;padding:6px 14px;font-size:14px;color:#4b5563;cursor:pointer;font-family:inherit;white-space:nowrap}
+.ct-seg button[aria-pressed=true]{background:#fff;box-shadow:0 1px 2px rgba(16,24,40,.12);font-weight:700;color:${CT_NAVY}}
+.ct-btn{height:36px;box-sizing:border-box;border-radius:8px;padding:0 14px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap}
+.ct-btn.o{border:1.5px solid ${CT_NAVY};background:#fff;color:${CT_NAVY}}.ct-btn.s{border:none;background:${CT_NAVY};color:#fff}
+.ct-q{height:36px;box-sizing:border-box;border:1px solid #d5d9e0;border-radius:8px;padding:0 12px;font-size:13px;width:210px;font-family:inherit;outline:none}.ct-q:focus{border-color:${CT_NAVY}}
+.ct-title{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:4px 0 12px}
+.ct-title h2{margin:0;font-size:24px;font-weight:700;letter-spacing:-.3px;color:#1c2430;white-space:nowrap}
+.ct-nb{height:32px;min-width:32px;border:1px solid #d5d9e0;background:#fff;border-radius:8px;font-size:14px;color:#1c2430;cursor:pointer;font-family:inherit;padding:0 10px}
+.ct-pill{display:inline-flex;align-items:center;gap:6px;font-size:13px;border-radius:999px;padding:5px 12px;font-weight:500;border:none;cursor:pointer;font-family:inherit;white-space:nowrap}
+.tp{width:290px;flex:none;display:flex;flex-direction:column;gap:12px;font-family:var(--font-sans)}
+.tp-card{background:#fff;border:1px solid #e6e8ec;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:9px}
+.tp-h{font-size:12.5px;font-weight:700;color:#5b6573;display:flex;align-items:center;gap:6px}
+.tp-ev{display:flex;gap:10px;align-items:center;border:none;background:transparent;padding:2px 0;cursor:pointer;font-family:inherit;text-align:left;width:100%;color:#1c2430}
+.tp-ev:hover .t{text-decoration:underline}
+.tp-ev .tm{width:42px;flex:none;font-size:12.5px;font-weight:700;color:#4b5563;font-family:var(--font-num)}
+.tp-ev .bar{width:4px;height:26px;border-radius:2px;flex:none}
+.tp-ev .t{font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.tp-td{display:flex;gap:9px;align-items:flex-start;font-size:14px;line-height:1.45}
+.tp-td input{width:17px;height:17px;margin:2px 0 0;flex:none;accent-color:${CT_NAVY};cursor:pointer}
+.tp-td .src{display:block;font-size:12px;color:#6b7480;cursor:pointer}.tp-td .src:hover{text-decoration:underline}
+.tp-mini{display:flex;gap:10px;font-size:13.5px;border:none;background:transparent;padding:1px 0;cursor:pointer;font-family:inherit;text-align:left;color:#1c2430;width:100%}
+.tp-mini .d{width:62px;flex:none;color:#6b7480}
+.tp-mini .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.tp-x{margin-left:auto;border:none;background:transparent;font-size:12px;color:#6b7480;cursor:pointer;font-family:inherit;padding:2px 4px}
+@media (max-width:860px){.ct-top{padding:8px 10px;gap:8px}.ct-seg button{padding:6px 10px;font-size:13px}.ct-q{width:120px;flex:1;min-width:100px}.ct-title h2{font-size:20px}.tp{width:auto}}`;
+function CtCss(){return <style>{CT_CSS}</style>;}
+/* 맨 위 「더보기」 — 자주 안 쓰는 단추를 한곳에 */
+function MoreMenu({items,who}){
+  const [open,setOpen]=React.useState(false);const ref=React.useRef(null);
+  React.useEffect(()=>{if(!open)return;const f=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false);};const k=e=>{if(e.key==='Escape')setOpen(false);};
+    document.addEventListener('pointerdown',f);document.addEventListener('keydown',k);return()=>{document.removeEventListener('pointerdown',f);document.removeEventListener('keydown',k);};},[open]);
+  return <span className="ct-more" ref={ref}>
+    <button type="button" className="ct-ib" aria-haspopup="menu" aria-expanded={open} onClick={()=>setOpen(o=>!o)} title="새로고침 · 사용법 · 내보내기 · 백업 · 휴지통 · 로그아웃">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg><span className="ct-mt">더보기</span></button>
+    {open&&<div className="ct-menu" role="menu">
+      {who&&<div className="who">{who}</div>}
+      {items.map((it,i)=>it==='-'?<hr key={i}/>:<button key={i} type="button" role="menuitem" title={it.title||''} onClick={()=>{setOpen(false);it.on();}}><span aria-hidden="true" style={{width:20,textAlign:'center'}}>{it.icon}</span>{it.label}</button>)}
+    </div>}
+  </span>;
+}
+const IcoUndo=()=><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M5 3L2 6l3 3"/><path d="M2 6h7a4 4 0 010 8H7"/></svg>;
+const IcoRedo=()=><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M11 3l3 3-3 3"/><path d="M14 6H7a4 4 0 000 8h2"/></svg>;
+const IcoBell=()=><svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M4 11V7a4 4 0 018 0v4l1.5 1.5h-11z"/><path d="M6.5 14h3"/></svg>;
+/* 모든 메모의 「내가 다음에 할 일」 칸에서 아직 안 끝낸 줄 — {e,itemId,k(그 칸의 몇 번째 체크 줄),text} */
+function openTodos(events){const out=[];
+  (events||[]).forEach(e=>{const b=e.board;if(!b||!Array.isArray(b.items))return;
+    b.items.forEach(it=>{if(it.grp!=='todo'||!it.html)return;
+      const doc=new DOMParser().parseFromString('<div>'+it.html+'</div>','text/html');
+      [...doc.querySelectorAll('li[data-checked]')].forEach((li,k)=>{const t=li.textContent.trim();if(t&&li.getAttribute('data-checked')!=='true')out.push({e,itemId:it.id,k,text:t});});});});
+  return out.sort((a,b)=>String(b.e.date||'').localeCompare(String(a.e.date||'')));}
+function todoCheck(e,itemId,k){const b=e.board;return {...e,board:{...b,items:b.items.map(it=>{if(it.id!==itemId)return it;
+  const doc=new DOMParser().parseFromString('<div>'+(it.html||'')+'</div>','text/html');const li=doc.querySelectorAll('li[data-checked]')[k];
+  if(li)li.setAttribute('data-checked','true');return {...it,html:doc.body.firstChild.innerHTML};})}};}
+const DOW_KO=['일','월','화','수','목','금','토'];
+const mdLabel=iso=>Number(iso.slice(5,7))+'월 '+Number(iso.slice(8))+'일';
+/* 「오늘」 칸 — 오늘 일정, 모든 메모의 할 일, 다가오는 일정, 미정리 메모 */
+function TodayPanel({db,setDb,today,onOpen,onQuick,onInbox,onHide,toast,mobile}){
+  const events=(db.events||[]).filter(e=>!e.quick);
+  const todays=spreadDays(expandEvents(events,shiftDay(today,-370),today),today,today).sort((a,b)=>(a.start||'').localeCompare(b.start||''));
+  const todos=React.useMemo(()=>openTodos(db.events),[db.events]);
+  const upRaw=spreadDays(expandEvents(events,shiftDay(today,-370),shiftDay(today,7)),shiftDay(today,1),shiftDay(today,7));
+  const seen=new Set();const ups=upRaw.filter(e=>{const k=e.id+(e.occ?e.date:'');if(seen.has(k))return false;seen.add(k);return true;}).slice(0,5);
+  const inbox=(db.events||[]).filter(e=>e.quick&&!e.category).length;
+  const [more,setMore]=React.useState(false);
+  const [fold,setFold]=React.useState(()=>{try{return mobile&&localStorage.getItem('cal.todayFold')==='1';}catch(_){return false;}});
+  const setF=v=>{setFold(v);try{localStorage.setItem('cal.todayFold',v?'1':'0');}catch(_){}};
+  const nowHM=(()=>{const d=new Date();return pad2(d.getHours())+':'+pad2(d.getMinutes());})();
+  const nextId=(todays.find(e=>e.start&&e.start>=nowHM&&e.status!=='done')||{}).id;
+  const check=t=>{Store.why='할 일 끝냄(오늘 칸)';setDb('events',arr=>arr.map(e=>e.id===t.e.id?todoCheck(e,t.itemId,t.k):e));toast&&toast('✓ 끝낸 할 일로 표시했습니다 · ↶ 로 되돌릴 수 있습니다');};
+  const dd=new Date(today+'T00:00:00');
+  const head=<div className="tp-card" style={{gap:3}}>
+    <div style={{display:'flex',alignItems:'center'}}><span style={{fontSize:13,fontWeight:700,color:'#c2410c'}}>오늘</span>
+      {mobile?<button type="button" className="tp-x" onClick={()=>setF(!fold)} aria-expanded={!fold}>{fold?'펼치기':'접기'}</button>
+        :onHide&&<button type="button" className="tp-x" onClick={onHide} title="오늘 칸을 숨깁니다. 달 제목 옆 「오늘 칸」으로 다시 엽니다">숨기기</button>}</div>
+    <span style={{fontSize:mobile?20:24,fontWeight:700,letterSpacing:-.4,color:'#1c2430'}}>{mdLabel(today)} {DOW_KO[dd.getDay()]}요일</span>
+    <span style={{fontSize:13,color:'#5b6573'}}>일정 {todays.length} · 남은 할 일 {todos.length}{inbox?' · 미정리 메모 '+inbox:''}</span></div>;
+  if(mobile&&fold)return <div className="tp">{head}</div>;
+  const shown=more?todos:todos.slice(0,mobile?3:6);
+  return <aside className="tp" aria-label="오늘">
+    {head}
+    {!(mobile&&!todays.length)&&<div className="tp-card"><span className="tp-h">오늘 일정</span>
+      {!todays.length&&<span style={{fontSize:13,color:'#6b7480'}}>오늘은 일정이 없습니다</span>}
+      {todays.map((e,i)=><button key={e.id+i} type="button" className="tp-ev" onClick={()=>onOpen(e)}>
+        <span className="tm">{e.start||'종일'}</span><span className="bar" style={{background:evColor(e)}}/>
+        {e.status==='done'&&<DoneMark/>}<span className="t" style={{fontWeight:e.id===nextId?700:400,color:e.status==='done'?'#8a929c':undefined}}>{e.title||'(제목 없음)'}</span>
+        {e.id===nextId&&<span style={{flex:'none',fontSize:11,color:'#fff',background:CT_NAVY,borderRadius:4,padding:'1px 6px'}}>다음</span>}</button>)}
+    </div>}
+    {!(mobile&&!todos.length)&&<div className="tp-card"><span className="tp-h" style={{color:'#c2410c'}}>내가 할 일 · {todos.length}<span style={{marginLeft:'auto',fontWeight:400,color:'#6b7480',fontSize:12}}>모든 메모에서 모음</span></span>
+      {!todos.length&&<span style={{fontSize:13,color:'#6b7480'}}>남은 할 일이 없습니다. 메모의 「＋ 할 일 추가」로 적으면 여기 모입니다</span>}
+      {shown.map(t=><label key={t.e.id+t.itemId+t.k} className="tp-td"><input type="checkbox" onChange={()=>check(t)} aria-label={t.text+' 끝냄'}/>
+        <span style={{minWidth:0}}>{t.text}<span className="src" onClick={x=>{x.preventDefault();onOpen(t.e);}}>{t.e.quick?'빠른 메모':(t.e.date?Number(t.e.date.slice(5,7))+'/'+Number(t.e.date.slice(8))+' · ':'')+(t.e.title||'')}</span></span></label>)}
+      {todos.length>shown.length&&<button type="button" className="tp-x" style={{marginLeft:0,alignSelf:'flex-start'}} onClick={()=>setMore(true)}>＋ {todos.length-shown.length}개 더 보기</button>}
+    </div>}
+    {!mobile&&!!ups.length&&<div className="tp-card"><span className="tp-h">다가오는 일정 · 7일</span>
+      {ups.map((e,i)=><button key={e.id+i} type="button" className="tp-mini" onClick={()=>onOpen(e)}>
+        <span className="d">{Number(e._day.slice(8))}일 {DOW_KO[new Date(e._day+'T00:00:00').getDay()]}</span><span className="t">{e.start?e.start+' ':''}{e.title||'(제목 없음)'}</span></button>)}
+    </div>}
+    {!mobile&&<div style={{display:'flex',gap:8}}>
+      <button type="button" className="ct-btn o" style={{flex:1,height:40}} onClick={onQuick}>빠른 메모</button>
+      {!!inbox&&<button type="button" className="ct-btn" style={{flex:1,height:40,border:'1px solid #fed7aa',background:'#fff7ed',color:'#9a3412'}} onClick={onInbox}>미정리 {inbox}</button>}
+    </div>}
+  </aside>;
+}
 function DoneMark({style}){return <span title="완료" aria-label="완료" style={{flex:'none',display:'inline-flex',alignItems:'center',justifyContent:'center',width:13,height:13,borderRadius:'50%',background:'#15803d',color:'#fff',fontSize:9,fontWeight:700,lineHeight:1,...style}}>✓</span>;}
 /* 속성 패널의 한 줄. EventPanel 안에 두면 렌더마다 새 컴포넌트가 되어 입력칸이 재마운트된다(포커스 손실) */
 function PRow({icon,label,children,top}){return <div style={{display:'grid',gridTemplateColumns:'110px 1fr',alignItems:top?'start':'center',minHeight:32,borderBottom:'1px solid var(--border-default)',padding:top?'6px 0':0}}><span style={{fontSize:'var(--fs-base)',color:'var(--text-muted)',paddingTop:top?4:0}}><span style={{marginRight:6}} aria-hidden="true">{icon}</span>{label}</span><span style={{display:'flex',gap:4,flexWrap:'wrap',alignItems:'center'}}>{children}</span></div>;}
@@ -40376,11 +40517,11 @@ function MonthGrid({events,anchor,today,onOpen,onNew,onMove,onDelete,zoom}){
   const [vh,setVh]=React.useState(window.innerHeight);
   React.useEffect(()=>{const f=()=>setVh(window.innerHeight);window.addEventListener('resize',f);return()=>window.removeEventListener('resize',f);},[]);
   /* 데스크톱은 화면 높이를 꽉 채운다(머리줄·세션 줄·요일 줄·안내 줄을 뺀 나머지를 6주로 나눔) */
-  const cellH=mobile?(z>=2?146:z>=1.5?132:110):Math.max(96,Math.floor((vh-170)/6));
-  const fs=mobile?(z>=1.5?12.5:11.5):11;
-  const maxShow=mobile?(z>=2?4:3):3;
+  const cellH=mobile?(z>=2?146:z>=1.5?132:110):Math.max(96,Math.floor((vh-232)/6));
+  const fs=mobile?(z>=1.5?12.5:11.5):12.5;
+  const maxShow=mobile?(z>=2?4:3):Math.max(3,Math.floor((cellH-36)/25));
   const inner={minWidth:mobile&&z>1?(7*cellW)+'px':'auto'};
-  return <div style={{border:'1px solid var(--border-strong)',position:'relative'}}>
+  return <div style={{border:'1px solid #e6e8ec',borderRadius:12,overflow:'hidden',position:'relative'}}>
     <style>{CAL_TOUCH_CSS}</style>
     <CarryTag carry={carry}/>
     <TrashBar show={!!carry} hot={!!(carry&&carry.trash)}/>
@@ -40388,27 +40529,29 @@ function MonthGrid({events,anchor,today,onOpen,onNew,onMove,onDelete,zoom}){
     <div ref={gridRef} data-hscroll={mobile&&z>1?'1':undefined}
       style={{overflowX:mobile&&z>1?'auto':'visible',WebkitOverflowScrolling:'touch'}}>
     <div style={inner}>
-    <div style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',borderBottom:'1.3px solid var(--border-table-head)'}}>{['일','월','화','수','목','금','토'].map((d,i)=><div key={d} style={{padding:'5px 0',textAlign:'center',fontSize:'var(--fs-sm2)',fontWeight:700,color:i===0?'var(--color-danger)':i===6?'var(--color-accent)':'var(--text-body)'}}>{d}</div>)}</div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',borderBottom:'1px solid #e6e8ec',background:'#f8f9fb'}}>{['일','월','화','수','목','금','토'].map((d,i)=><div key={d} style={{padding:'7px 0',textAlign:'center',fontSize:12.5,fontWeight:700,color:i===0?'#c2410c':i===6?'#1d4ed8':'#4b5563'}}>{d}</div>)}</div>
     <div style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))'}}>{days.map((d,i)=>{
       const inM=d.slice(0,7)===ms.slice(0,7);const dow=i%7;const hol=holidayOf(d);
       const es=occ.filter(e=>e._day===d);
       const items=es.length;
-      const dcol=hol||dow===0?'var(--color-danger)':dow===6?'var(--color-accent)':'var(--text-body)';
+      const dcol=hol||dow===0?'#c2410c':dow===6?'#1d4ed8':'#1c2430';const isT=d===today;
+      /* v2.38 — 공휴일은 칸을 칠하지 않고 글자만 빨갛게, 오늘은 남색 동그라미 */
       return <div key={d} data-day={d} onClick={()=>newAt(d)} onDragOver={ev=>{ev.preventDefault();setOver(d);}} onDragLeave={()=>setOver(o=>o===d?null:o)} onDrop={drop(d)}
-        style={{minHeight:cellH,padding:'4px 5px',borderRight:dow<6?'1px solid var(--border-default)':'none',borderBottom:i<35?'1px solid var(--border-default)':'none',
-          background:over===d?'var(--surface-link-cell)':inM?(d===today?'var(--surface-input-cell)':hol?'var(--color-danger-surface)':'#fff'):'var(--surface-hover)',cursor:'pointer',overflow:'hidden'}}>
-        <div style={{display:'flex',alignItems:'baseline',gap:4,marginBottom:3}}>
-          <span style={{fontFamily:'var(--font-num)',fontSize:mobile?(z>=1.5?13:12):12,fontWeight:d===today?700:400,color:inM?dcol:'var(--text-label)'}}>{Number(d.slice(8))}</span>
-          {hol&&inM&&<span style={{fontSize:10,color:'var(--color-danger)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{hol.replace(/^대체공휴일\((.*)\)$/,'$1 대체')}</span>}
-          {d===today&&<span style={{fontSize:10,marginLeft:'auto',color:'var(--color-accent)'}}>오늘</span>}
+        style={{minHeight:cellH,padding:'6px 7px',borderRight:dow<6?'1px solid #eef0f3':'none',borderBottom:i<35?'1px solid #eef0f3':'none',
+          background:over===d?'var(--surface-link-cell)':isT&&inM?'#f4f7fc':'#fff',cursor:'pointer',overflow:'hidden'}}>
+        <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4,minWidth:0}}>
+          <span style={isT?{flex:'none',width:24,height:24,borderRadius:'50%',background:CT_NAVY,color:'#fff',fontSize:13,fontWeight:700,display:'inline-flex',alignItems:'center',justifyContent:'center'}
+            :{flex:'none',fontSize:mobile?(z>=1.5?14:13):14,fontWeight:500,paddingLeft:3,color:inM?dcol:'#b4bac4'}}>{Number(d.slice(8))}</span>
+          {isT&&<span style={{fontSize:12,fontWeight:700,color:CT_NAVY}}>오늘</span>}
+          {hol&&inM&&<span style={{fontSize:11.5,fontWeight:500,color:'#c2410c',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{hol.replace(/^대체공휴일\((.*)\)$/,'$1 대체')}</span>}
         </div>
-        <div style={{display:'flex',flexDirection:'column',gap:2}}>
-          {es.slice(0,maxShow).map((e,j)=><EvChip key={e.id+j} e={e} pos={e._pos} onClick={openEv} compact fs={fs} touch={mobile} wrap={mobile} draggable={e.repeat==='none'&&(e._pos==='one'||e._pos==='first')} carrying={!!carry&&carry.id===e.id}
+        <div style={{display:'flex',flexDirection:'column',gap:3}}>
+          {es.slice(0,maxShow).map((e,j)=><EvChip key={e.id+j} e={e} pos={e._pos} onClick={openEv} compact fs={fs} touch={mobile} wrap={mobile} dot draggable={e.repeat==='none'&&(e._pos==='one'||e._pos==='first')} carrying={!!carry&&carry.id===e.id}
             onDragStart={ev=>{ev.dataTransfer.setData('text/pms-event',e.id);ev.dataTransfer.effectAllowed='move';md.start();}} onDragEnd={md.end}/>)}
-          {items>maxShow&&<span style={{fontSize:10.5,color:'var(--text-label)'}}>+{items-maxShow}</span>}
+          {items>maxShow&&<span style={{fontSize:12,color:'#6b7480',paddingLeft:4}}>+{items-maxShow}개 더</span>}
         </div></div>;})}</div>
     </div></div>
-    <div style={{padding:'6px 8px',fontSize:'var(--fs-sm)',color:'var(--text-label)',borderTop:'1px solid var(--border-default)'}}>{mobile?'일정을 꾹 눌렀다가 끌면 옮기고, 아래 🗑 칸에 놓으면 지웁니다'+(z>1?' · 좌우로 밀어 다른 요일 보기 (1× 는 한 달 전체)':''):'일정을 끌어 다른 날짜로 옮기거나 아래 🗑 칸에 놓아 지웁니다'} · 반복 일정(↻)은 이동 불가</div>
+    <div style={{padding:'6px 10px',fontSize:12,color:'#6b7480',borderTop:'1px solid #eef0f3',background:'#fcfcfd'}}>{mobile?'일정을 꾹 눌렀다가 끌면 옮기고, 아래 🗑 칸에 놓으면 지웁니다'+(z>1?' · 좌우로 밀어 다른 요일 보기 (1× 는 한 달 전체)':''):'일정을 끌어 다른 날짜로 옮기거나 아래 🗑 칸에 놓아 지웁니다'} · 반복 일정(↻)은 이동 불가</div>
   </div>;
 }
 
@@ -40461,18 +40604,18 @@ function WeekGrid({events,anchor,today,onOpen,onNew,onMove,onDelete,zoom}){
     <div style={{display:'grid',gridTemplateColumns:cols,borderBottom:'1.3px solid var(--border-table-head)'}}>
       <div style={{fontSize:10,color:'var(--text-label)',textAlign:'right',paddingRight:6,paddingTop:6}}>종일</div>
       {days.map(d=>{const dt=new Date(d+'T00:00:00');const hol=holidayOf(d);return <div key={d} data-day={d} data-kind="allday" onDragOver={allow('a'+d)} onDragLeave={()=>setOver(o=>o==='a'+d?null:o)} onDrop={dropAllDay(d)}
-        style={{padding:'6px 4px',textAlign:'center',borderLeft:'1px solid var(--border-default)',background:over==='a'+d?'var(--surface-link-cell)':d===today?'var(--surface-input-cell)':hol?'var(--color-danger-surface)':'#fff'}}>
+        style={{padding:'6px 4px',textAlign:'center',borderLeft:'1px solid var(--border-default)',background:over==='a'+d?'var(--surface-link-cell)':d===today?'#f4f7fc':'#fff'}}>
         <div style={{fontSize:'var(--fs-sm)',color:hol||dt.getDay()===0?'var(--color-danger)':dt.getDay()===6?'var(--color-accent)':'var(--text-label)'}}>{['일','월','화','수','목','금','토'][dt.getDay()]}</div>
-        <div style={{fontFamily:'var(--font-num)',fontWeight:700,fontSize:15,color:d===today?'var(--color-accent)':hol?'var(--color-danger)':'var(--text-body)'}}>{dt.getDate()}</div>
+        <div style={d===today?{margin:'2px auto 0',width:28,height:28,borderRadius:'50%',background:CT_NAVY,color:'#fff',fontWeight:700,fontSize:15,display:'flex',alignItems:'center',justifyContent:'center'}:{fontWeight:700,fontSize:15,color:hol||dt.getDay()===0?'#c2410c':'var(--text-body)'}}>{dt.getDate()}</div>
         {hol&&<div style={{fontSize:10,color:'var(--color-danger)'}}>{hol.replace(/^대체공휴일\((.*)\)$/,'$1 대체')}</div>}
         <div style={{display:'flex',flexDirection:'column',gap:2,marginTop:3,minHeight:16}}>
-          {allDay(d).map((e,j)=><EvChip key={e.id+j} e={e} pos={e._pos} onClick={openEv} compact fs={mobile?(z>=1.5?12.5:11.5):11} touch={mobile} wrap={mobile} draggable={e.repeat==='none'&&(e._pos==='one'||e._pos==='first')} carrying={!!carry&&carry.id===e.id} onDragStart={dragStart(e)} onDragEnd={md.end}/>)}
+          {allDay(d).map((e,j)=><EvChip key={e.id+j} e={e} pos={e._pos} onClick={openEv} compact fs={mobile?(z>=1.5?12.5:11.5):12} touch={mobile} wrap={mobile} dot draggable={e.repeat==='none'&&(e._pos==='one'||e._pos==='first')} carrying={!!carry&&carry.id===e.id} onDragStart={dragStart(e)} onDragEnd={md.end}/>)}
           </div></div>;})}</div>
     <div style={{display:'grid',gridTemplateColumns:cols,position:'relative'}}>
       <div>{[...Array(H1-H0)].map((_,i)=><div key={i} style={{height:PX,fontFamily:'var(--font-num)',fontSize:11,color:'var(--text-label)',textAlign:'right',paddingRight:6,borderBottom:'1px solid var(--border-default)',boxSizing:'border-box'}}>{pad2(H0+i)}:00</div>)}</div>
       {days.map(d=><div key={d} data-day={d} data-kind="time" onDragOver={allow('t'+d)} onDragLeave={()=>setOver(o=>o==='t'+d?null:o)} onDrop={dropTime(d)}
         onClick={ev=>{if(quietClick())return;const r=ev.currentTarget.getBoundingClientRect();const h=H0+Math.floor((ev.clientY-r.top)/PX);onNew(d,{start:pad2(h)+':00',end:pad2(h+1)+':00'});}}
-        style={{position:'relative',borderLeft:'1px solid var(--border-default)',background:over==='t'+d?'var(--surface-link-cell)':d===today?'var(--surface-input-cell)':'#fff'}}>
+        style={{position:'relative',borderLeft:'1px solid var(--border-default)',background:over==='t'+d?'var(--surface-link-cell)':d===today?'#f9fbfe':'#fff'}}>
         {[...Array(H1-H0)].map((_,i)=><div key={i} style={{height:PX,borderBottom:'1px solid var(--border-default)',boxSizing:'border-box'}}></div>)}
         {occ.filter(e=>e._day===d&&e.start).map((e,j)=>{const [sh,sm]=e.start.split(':').map(Number);const [eh,em]=(e.end||e.start).split(':').map(Number);const top=((sh-H0)*60+sm)/60*PX;const hgt=Math.max(22,((eh-sh)*60+(em-sm))/60*PX);
           return <div key={e.id+j} draggable={mobile?false:e.repeat==='none'} data-ev={e.repeat==='none'?e.id:undefined} data-title={e.title}
@@ -40723,7 +40866,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.37.1';
+const APP_VERSION='v2.38';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
@@ -40849,7 +40992,7 @@ function Shell({user,onLogout}){
   const [calSt,setCalSt]=React.useState({view:'month',sub:'month',anchor:todayISO()});
   const timers=React.useRef({});const mobile=useMobile();const updated=useAppUpdate();
   /* 세션 줄 안의 자리 — 일정 화면이 연월·이동·보기 단추와 검색·새 일정을 여기에 그린다 */
-  const [slotMid,setSlotMid]=React.useState(null);const [slotRight,setSlotRight]=React.useState(null);
+  const [slotMid,setSlotMid]=React.useState(null);const [slotRight,setSlotRight]=React.useState(null);const [slotAct,setSlotAct]=React.useState(null);
   const [dbForNoti,setDbForNoti]=React.useState(null);
   useNotifications(dbForNoti);usePushPlan(dbForNoti&&dbForNoti.events);const [wikiAsk,wikiRun]=useWikiFolder(dbForNoti,m=>toast(m));
   React.useEffect(()=>{Store.loadAll().then(d=>{setDbRaw(d);
@@ -41013,23 +41156,40 @@ function Shell({user,onLogout}){
   const todayN=expandEvents(db.events,todayISO(),todayISO()).length;
   const savedBadge=saved==='offline'?'📴 오프라인 · 이 기기에 임시저장'+(pend?' ('+pend+'건 대기)':''):saved==='saving'?'⏳ 저장 중…':saved==='error'?'⚠ 저장 실패':saved?'✓ 자동저장됨 · '+saved:'✓ 불러옴';
   return <div style={{minHeight:'100vh',display:'flex',flexDirection:'column',background:'#fff'}}>
-    <AppHeader mark="📅" title="일정 관리" version={APP_VERSION} tools={mobile
-      ?<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기" onClick={undo}>↶</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기" onClick={redo}>↷</Button><Button variant="ghost" size="xs" title="사용법" onClick={()=>setGuide(true)}>📖</Button><Button variant="ghost" size="xs" title="메모 내보내기" onClick={()=>setExp(true)}>📦</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)}>🗑</Button><Button variant="ghost" size="xs" title="알림 설정" onClick={()=>setCfg(true)}>🔔</Button><Button variant="ghost" size="xs" onClick={onLogout}>나가기</Button></>
-      :<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳ 새로고침</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기 (Ctrl+Z)" onClick={undo}>↶ 되돌리기</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기 (Ctrl+Y)" onClick={redo}>↷ 다시</Button><Button variant="ghost" size="xs" onClick={()=>setGuide(true)} title="이 앱 쓰는 법(그림 포함)">📖 사용법</Button><Button variant="ghost" size="xs" onClick={()=>setExp(true)} title="메모를 워드나 위키·DB용 자료 묶음으로 한꺼번에 내보냅니다">📦 내보내기</Button><Button variant="ghost" size="xs" onClick={()=>Store.exportJSON(db)} title="전체 데이터 JSON 백업">💾 백업</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)} title={'지운 항목 보관함('+TRASH_DAYS+'일)'}>🗑 휴지통</Button><Button variant="ghost" size="xs" onClick={()=>setCfg(true)}>🔔 알림</Button><span style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>👤 {user.email}</span><Button variant="ghost" size="xs" onClick={onLogout}>로그아웃</Button></>}/>
+    <CtCss/>
+    {/* v2.38 머리줄 — 자주 쓰는 것만 보이고 나머지는 「더보기」 */}
+    <header className="ct-top">
+      <div className="ct-brand"><b>{mobile?'일정':'일정 관리'}</b>{!mobile&&<span className="v">{APP_VERSION}</span>}
+        <span className="sv" title={savedBadge}>{mobile?(saved==='offline'?'📴'+(pend?' '+pend:''):saved==='saving'?'⏳':saved==='error'?'⚠ 저장 실패':'✓'):savedBadge.replace(/^✓ /,'').replace('자동저장됨','자동 저장됨')}</span>
+        {Store.mode!=='supabase'&&!mobile&&<span className="sv">· 이 기기에만 저장</span>}</div>
+      {!mobile&&<span ref={setSlotMid} style={{display:'contents'}}/>}
+      <span style={{flex:1}}/>
+      {!mobile&&<span ref={setSlotRight} style={{display:'contents'}}/>}
+      <span style={{display:'inline-flex',gap:2}}>
+        <button type="button" className="ct-ib" disabled={!canUndo} onClick={undo} title="되돌리기 (Ctrl+Z)" aria-label="되돌리기"><IcoUndo/></button>
+        <button type="button" className="ct-ib" disabled={!canRedo} onClick={redo} title="다시하기 (Ctrl+Y)" aria-label="다시하기"><IcoRedo/></button>
+        <button type="button" className="ct-ib" onClick={()=>setCfg(true)} title="알림 설정" aria-label="알림 설정"><IcoBell/></button>
+        <MoreMenu who={user.email} items={[
+          {icon:'⟳',label:'새로고침',title:'최신 화면 받아오기',on:hardReload},
+          {icon:'📖',label:'사용법',on:()=>setGuide(true)},
+          {icon:'📦',label:'내보내기',title:'워드·자료 묶음·PC 폴더 저장',on:()=>setExp(true)},
+          {icon:'💾',label:'백업',title:'전체 데이터 JSON 백업',on:()=>Store.exportJSON(db)},
+          {icon:'🗑',label:'휴지통',title:'지운 항목 보관함('+TRASH_DAYS+'일)',on:()=>setTrash(true)},
+          '-',
+          {icon:'↪',label:'로그아웃',on:onLogout}]}/>
+      </span>
+      {!mobile&&<span ref={setSlotAct} style={{display:'contents'}}/>}
+      {mobile&&<div style={{width:'100%',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+        <span ref={setSlotMid} style={{display:'contents'}}/><span ref={setSlotRight} style={{display:'contents'}}/><span ref={setSlotAct} style={{display:'contents'}}/></div>}
+    </header>
     {updated&&<div onClick={hardReload} role="button" style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',
       padding:'8px 14px',background:'var(--wb-ink)',color:'#fff',fontSize:'var(--fs-md)',fontWeight:600,fontFamily:'var(--font-sans)'}}>
       <span style={{fontSize:15}}>🔄</span>새 버전이 올라왔습니다
       <span style={{marginLeft:'auto',border:'1px solid rgba(255,255,255,.55)',borderRadius:6,padding:'3px 12px',fontSize:'var(--fs-sm2)'}}>지금 새로고침</span>
     </div>}
-    <SessionBar right={<span ref={setSlotRight} style={{display:'contents'}}/>} icon="📅" name={mobile?'일정'+(todayN?' · 오늘 '+todayN:''):user.name+' 일정'+(todayN?' · 오늘 '+todayN+'건':'')}>
-      <Badge tone="pill">{mobile?(saved==='offline'?'📴'+(pend?' '+pend:''):saved==='saving'?'⏳':saved==='error'?'⚠':'✓'):savedBadge}</Badge>
-      {!mobile&&<><SessionDivider/>
-      {Store.mode!=='supabase'&&<Badge tone="pill">💾 로컬 저장</Badge>}</>}
-      <span ref={setSlotMid} style={{display:'contents'}}/>
-    </SessionBar>
     <div style={{display:'flex',flexDirection:mobile?'column':'row',alignItems:'stretch',flex:1,minHeight:'calc(100vh - 90px)'}}>
-      <main style={{flex:1,minWidth:0,padding:mobile?'8px 8px calc(16px + env(safe-area-inset-bottom))':'10px 16px 14px'}}>
-        <CalendarView db={db} setDb={setDb} st={calSt} set={merge(setCalSt)} toast={toast} slots={{mid:slotMid,right:slotRight}}/>
+      <main style={{flex:1,minWidth:0,padding:mobile?'10px 8px calc(16px + env(safe-area-inset-bottom))':'14px 20px 16px'}}>
+        <CalendarView db={db} setDb={setDb} st={calSt} set={merge(setCalSt)} toast={toast} slots={{mid:slotMid,right:slotRight,act:slotAct}}/>
       </main>
     </div>
     <SettingsModal open={cfgOpen} onClose={()=>setCfg(false)} onToast={toast}/>
