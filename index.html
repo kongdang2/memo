@@ -37277,6 +37277,12 @@ const BD_CSS=`.bd-wrap{position:relative;isolation:isolate;border:1px dashed var
 .bs-rs{position:absolute;top:10px;bottom:10px;right:-6px;width:12px;cursor:ew-resize;touch-action:none;z-index:2}
 .bs-rs:after{content:'';position:absolute;left:4px;top:50%;height:30px;margin-top:-15px;width:4px;border-radius:2px;background:#e7e5e4}
 .bd-simple>.bd-it:hover .bs-rs:after,.bs-rs:active:after{background:#a8a29e}
+.bs-rv{position:absolute;left:30px;right:30px;bottom:-6px;height:12px;cursor:ns-resize;touch-action:none;z-index:2}
+.bs-rv:after{content:'';position:absolute;top:4px;left:50%;width:30px;margin-left:-15px;height:4px;border-radius:2px;background:#e7e5e4}
+.bs-rc{position:absolute;right:-6px;bottom:-6px;width:14px;height:14px;cursor:nwse-resize;touch-action:none;z-index:3}
+.bs-rc:after{content:'';position:absolute;right:5px;bottom:5px;width:7px;height:7px;border-right:2px solid #d6d3d1;border-bottom:2px solid #d6d3d1}
+.bd-simple>.bd-it:hover .bs-rv:after,.bs-rv:active:after{background:#a8a29e}.bd-simple>.bd-it:hover .bs-rc:after{border-color:#a8a29e}
+.bd-simple>.bs-fixh{display:flex;flex-direction:column}.bs-fixh>.bs-bd{flex:1;min-height:0;overflow:auto}
 .bs-add{border:1px dashed #fdba74;background:transparent;color:#9a3412;border-radius:6px;padding:5px 10px;font-size:13px;cursor:pointer;font-family:inherit;justify-self:start}`;
 /* 기록 종류 단추(v2.36) — 줄 앞에 #결정 같은 표시를 붙인다. [이름, 배경, 글자, 테두리] */
 const KIND_BTNS=[['결정','결정','#eff6ff','#1e40af','#bfdbfe'],['할일','할 일','#fff7ed','#9a3412','#fed7aa'],['숫자','숫자','#f0fdfa','#115e59','#99f6e4'],['이슈','이슈','#fef2f2','#991b1b','#fecaca'],['배경','배경','#f5f5f4','#44403c','#d6d3d1']];
@@ -37797,8 +37803,18 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
     const up=()=>{document.removeEventListener('pointermove',mv);document.removeEventListener('pointerup',up);document.removeEventListener('pointercancel',up);
       const w=el.offsetWidth;patch(id,{sw:w>=full-8?undefined:w});};
     document.addEventListener('pointermove',mv);document.addEventListener('pointerup',up);document.addEventListener('pointercancel',up);};
-  const boxStyle=it=>it.sw?{width:it.sw}:it.type==='img'||it.type==='chart'?{width:it.w+16}:undefined;
-  const rsz=it=><div className="bs-rs" onPointerDown={e=>sizeDrag(e,it.id)} onDoubleClick={()=>patch(it.id,{sw:undefined})} title="끌어서 폭 조절 · 두 번 누르면 원래 폭"/>;
+  /* 높이(v2.37.1, hong) — 아래 가장자리를 끌어 상자 높이를 정한다(sh). 내용이 더 길면 상자 안에서 굴려 본다 */
+  const hDrag=(e,id,both)=>{e.preventDefault();e.stopPropagation();const el=boxOf(id);if(!el||!wrap.current)return;const sx=e.clientX,sy=e.clientY,w0=el.offsetWidth,h0=el.offsetHeight,full=wrap.current.clientWidth;
+    el.classList.add('bs-fixh');
+    const mv=ev=>{el.style.height=Math.max(80,h0+ev.clientY-sy)+'px';if(both)el.style.width=Math.max(220,Math.min(full,w0+ev.clientX-sx))+'px';};
+    const up=()=>{document.removeEventListener('pointermove',mv);document.removeEventListener('pointerup',up);document.removeEventListener('pointercancel',up);
+      const pt={sh:el.offsetHeight};if(both){const w=el.offsetWidth;pt.sw=w>=full-8?undefined:w;}patch(id,pt);};
+    document.addEventListener('pointermove',mv);document.addEventListener('pointerup',up);document.addEventListener('pointercancel',up);};
+  const boxStyle=it=>{const st={};if(it.sw)st.width=it.sw;else if(it.type==='img'||it.type==='chart')st.width=it.w+16;if(it.sh&&!isFold(it))st.height=it.sh;return Object.keys(st).length?st:undefined;};
+  const boxCls=it=>it.sh&&!isFold(it)?' bs-fixh':'';
+  const rsz=it=><>{<div className="bs-rs" onPointerDown={e=>sizeDrag(e,it.id)} onDoubleClick={()=>patch(it.id,{sw:undefined})} title="끌어서 폭 조절 · 두 번 누르면 원래 폭"/>}
+    {!isFold(it)&&<div className="bs-rv" onPointerDown={e=>hDrag(e,it.id)} onDoubleClick={()=>patch(it.id,{sh:undefined})} title="끌어서 높이 조절 · 두 번 누르면 원래 높이"/>}
+    {!isFold(it)&&<div className="bs-rc" onPointerDown={e=>hDrag(e,it.id,true)} onDoubleClick={()=>patch(it.id,{sh:undefined,sw:undefined})} title="끌어서 폭·높이 함께 조절 · 두 번 누르면 원래 크기"/>}</>;
   const foldBtn=it=><button type="button" aria-expanded={!isFold(it)} onClick={()=>patch(it.id,{sfold:!isFold(it)})}>{isFold(it)?'펼치기':'접기'}</button>;
   const labelOf=it=>it.type==='img'?'이미지':it.type==='chart'?'그래프':it.type==='rec'?(it.lab||'녹취'):it.grp==='minutes'?'회의록':/^tbrec:/.test(it.src||'')?'통번역 정리본':it.type==='table'?'표':'글';
   const delOne=id=>{commit(itemsRef.current.filter(i=>i.id!==id));setAct(null);};
@@ -37831,22 +37847,22 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
     <div ref={wrap} className="bd-wrap bd-simple" style={{marginTop:8}} onPaste={onPaste}
       onDragOver={e=>e.preventDefault()} onDrop={e=>{const fs=e.dataTransfer&&e.dataTransfer.files;if(fs&&fs.length&&!editing()){e.preventDefault();
         const md=[...fs].filter(isMdFile);if(md.length)openMd(md);addImgs(fs);}}}>
-      <div key={main.id} data-bd={main.isNew?undefined:main.id} className="bd-it bs-main" onFocus={()=>setAct(main.id)} style={main.isNew?undefined:boxStyle(main)}>
+      <div key={main.id} data-bd={main.isNew?undefined:main.id} className={'bd-it bs-main'+(main.isNew?'':boxCls(main))} onFocus={()=>setAct(main.id)} style={main.isNew?undefined:boxStyle(main)}>
         <div className="bs-hd"><b>메모</b><span className="sum">{!main.isNew&&isFold(main)?sumOf(main):''}</span>{!main.isNew&&foldBtn(main)}</div>
-        {!(isFold(main)&&!main.isNew)&&<RichNote docKey={main.id+'|'+docKey} html={main.html||''} compact tbHost={tbHost} active={act===main.id}
-          placeholder="무슨 일이 있었나요? 적은 뒤 위 단추로 결정·할 일 같은 표시를 붙일 수 있습니다" onChange={mainChange}/>}
+        {!(isFold(main)&&!main.isNew)&&<div className="bs-bd"><RichNote docKey={main.id+'|'+docKey} html={main.html||''} compact tbHost={tbHost} active={act===main.id}
+          placeholder="무슨 일이 있었나요? 적은 뒤 위 단추로 결정·할 일 같은 표시를 붙일 수 있습니다" onChange={mainChange}/></div>}
         {!main.isNew&&rsz(main)}</div>
-      <div key={todo?todo.id:'todo'} data-bd={todo?todo.id:undefined} className="bd-it bs-todo" onFocus={()=>todo&&setAct(todo.id)} style={todo?boxStyle(todo):undefined}>
+      <div key={todo?todo.id:'todo'} data-bd={todo?todo.id:undefined} className={'bd-it bs-todo'+(todo?boxCls(todo):'')} onFocus={()=>todo&&setAct(todo.id)} style={todo?boxStyle(todo):undefined}>
         <div className="bs-hd"><b style={{color:'#9a3412'}}>내가 다음에 할 일</b><span className="sum">{todo?(isFold(todo)?sumOf(todo):'왼쪽 칸을 누르면 끝낸 것으로 표시됩니다'):'적은 줄은 #할일 로 주제 화면에 모입니다'}</span>
           {todo&&foldBtn(todo)}{todo&&<button type="button" onClick={()=>delOne(todo.id)} title="할 일 칸 지우기">지우기</button>}</div>
-        {todo?!isFold(todo)&&body(todo,act===todo.id):<button type="button" className="bs-add" onClick={addTodo}>＋ 할 일 추가</button>}
+        {todo?!isFold(todo)&&<div className="bs-bd">{body(todo,act===todo.id)}</div>:<button type="button" className="bs-add" onClick={addTodo}>＋ 할 일 추가</button>}
         {todo&&rsz(todo)}</div>
       {rest.map(it=>{const fold=isFold(it);
-        return <div key={it.id} data-bd={it.id} className="bd-it" onFocus={()=>setAct(it.id)} style={boxStyle(it)}>
+        return <div key={it.id} data-bd={it.id} className={'bd-it'+boxCls(it)} onFocus={()=>setAct(it.id)} style={boxStyle(it)}>
           <div className="bs-hd"><b>{labelOf(it)}</b><span className="sum">{fold?sumOf(it):''}</span>
             {it.type!=='rec'&&foldBtn(it)}
             {it.type!=='rec'&&<button type="button" onClick={()=>delOne(it.id)} title="이 상자 지우기">지우기</button>}</div>
-          {!fold&&body(it,act===it.id)}{rsz(it)}</div>;})}
+          {!fold&&<div className="bs-bd">{body(it,act===it.id)}</div>}{rsz(it)}</div>;})}
     </div>
     {mobile&&<div className="bs-kbar" onMouseDown={x=>x.preventDefault()}>{kindBtns}</div>}
     <input ref={fileIn} type="file" accept="image/*" multiple style={{display:'none'}} onChange={x=>{addImgs(x.target.files);x.target.value='';}}/>
@@ -39392,7 +39408,7 @@ function lpSnap(wrap){
   const R=its.map(n=>({x:n.offsetLeft,y:n.offsetTop,r:n.offsetLeft+n.offsetWidth,b:n.offsetTop+n.offsetHeight}));
   const c=document.createElement('div');
   its.forEach(n=>{const k=n.cloneNode(true);k.classList.remove('on');
-    k.querySelectorAll('.bd-grip,.bd-rs,.bs-rs,.bd-ch-tb,.bd-ch-set,.bd-ctx,.rn-tb,.bs-hd').forEach(x=>x.remove());
+    k.querySelectorAll('.bd-grip,.bd-rs,.bs-rs,.bs-rv,.bs-rc,.bd-ch-tb,.bd-ch-set,.bd-ctx,.rn-tb,.bs-hd').forEach(x=>x.remove());
     k.querySelectorAll('[contenteditable]').forEach(x=>x.removeAttribute('contenteditable'));
     k.querySelectorAll('.bd-rec').forEach(x=>{const p=document.createElement('div');p.className='lp-rec';p.textContent='(녹취 상자 — 출력하지 않습니다)';x.replaceWith(p);});
     /* 높이는 화면에서 잰 그대로 — 글꼴 차이로 아래 상자와 겹치지 않게 */
@@ -40707,7 +40723,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.37';
+const APP_VERSION='v2.37.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
