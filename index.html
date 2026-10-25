@@ -36761,7 +36761,7 @@ const RN_CSS=`.rn-ed{outline:none;min-height:220px;line-height:1.65;font-size:15
 .rn-ed ul[data-check]{list-style:none;padding-left:4px}
 .rn-ed ul[data-check] li{position:relative;padding-left:26px}
 .rn-ed ul[data-check] li:before{content:'';position:absolute;left:2px;top:5px;width:14px;height:14px;border:1.5px solid #78716c;border-radius:3px;background:#fff;cursor:pointer}
-.rn-ed ul[data-check] li[data-checked="true"]{color:var(--text-label);text-decoration:line-through}
+.rn-ed ul[data-check] li[data-checked="true"]{color:var(--text-label)}   /* 끝낸 줄은 흐리게만 — 취소선 없이(v2.37, hong) */
 .rn-ed ul[data-check] li[data-checked="true"]:before{background:#2563eb;border-color:#2563eb}
 .rn-ed ul[data-check] li[data-checked="true"]:after{content:'';position:absolute;left:7px;top:7px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
 .rn-tb{display:flex;flex-wrap:wrap;gap:2px;align-items:center;padding:4px;border:1px solid var(--border-default);border-radius:6px;background:#fafaf9;position:sticky;top:-18px;z-index:2}
@@ -37258,7 +37258,7 @@ const BD_CSS=`.bd-wrap{position:relative;isolation:isolate;border:1px dashed var
 .bd-ch-set button{font-size:11px;padding:1px 6px;border:1px solid #d6d3d1;border-radius:4px;background:#fff;cursor:pointer;color:#52514e}.bd-ch-set button.on{background:#292524;border-color:#292524;color:#fff}
 .bd-ch-set .sw input[type=color]{width:18px;height:18px;padding:0;border:1px solid #d6d3d1;border-radius:4px;background:none;cursor:pointer}
 .bd-tbh{margin-top:4px}.bd-tbh:empty:before{content:'글상자를 누르면 여기에 글자 서식 도구(제목·굵게·색·목록·표…)가 나옵니다';display:block;font-size:12px;color:var(--text-label);padding:9px 4px}
-.bd-tbh{height:38px;overflow:hidden}.bd-tbh .rn-tb{position:static;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;border:none;background:transparent;padding:3px 0;scrollbar-width:thin}.bd-tbh .rn-tb>*{flex:none}
+.bd-tbh{height:38px;overflow:hidden;min-width:0;max-width:100%}.bd-tbh .rn-tb{position:static;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;border:none;background:transparent;padding:3px 0;scrollbar-width:thin}.bd-tbh .rn-tb>*{flex:none}
 .bd-mq{position:absolute;border:1px solid #78716c;border-radius:4px;background:rgba(120,113,108,.08);pointer-events:none}
 .rn-tb .bs-seg{display:inline-flex;background:#e7e5e4;border-radius:6px;padding:2px;gap:2px;margin-right:4px}
 .rn-tb .bs-seg button{border-radius:4px;padding:3px 10px;color:#57534e}.rn-tb .bs-seg button.on{background:#fff;color:#1F3A5F;font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.12)}
@@ -37271,9 +37271,12 @@ const BD_CSS=`.bd-wrap{position:relative;isolation:isolate;border:1px dashed var
 .bd-simple>.bd-it{position:relative;left:auto;top:auto;padding:4px 6px;max-width:100%}
 .bd-simple>.bs-main .rn-ed.rn-cmp{min-height:150px;font-size:15px;padding:8px 10px 12px}
 .bd-simple>.bs-todo{border-color:#fed7aa;background:#fffbf5}.bd-simple>.bs-todo .rn-ed.rn-cmp{background:transparent}
-.bs-hd{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);padding:2px 4px 4px;min-width:0}
+.bs-hd{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);padding:2px 4px 4px;min-width:0;min-height:30px}   /* 단추가 있든 없든 같은 높이 — 첫 글자를 쓰는 순간 아래 상자가 밀려 누르던 단추가 빗나가지 않게 */
 .bs-hd b{color:var(--text-body);font-weight:600}.bs-hd .sum{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
-.bs-hd button{border:1px solid var(--border-default);background:#fff;border-radius:5px;padding:3px 10px;font-size:12px;cursor:pointer;font-family:inherit;color:var(--text-body);flex:none}
+.bs-hd button{border:1px solid var(--border-default);background:#fff;border-radius:5px;padding:1px 10px;line-height:20px;font-size:12px;cursor:pointer;font-family:inherit;color:var(--text-body);flex:none}
+.bs-rs{position:absolute;top:10px;bottom:10px;right:-6px;width:12px;cursor:ew-resize;touch-action:none;z-index:2}
+.bs-rs:after{content:'';position:absolute;left:4px;top:50%;height:30px;margin-top:-15px;width:4px;border-radius:2px;background:#e7e5e4}
+.bd-simple>.bd-it:hover .bs-rs:after,.bs-rs:active:after{background:#a8a29e}
 .bs-add{border:1px dashed #fdba74;background:transparent;color:#9a3412;border-radius:6px;padding:5px 10px;font-size:13px;cursor:pointer;font-family:inherit;justify-self:start}`;
 /* 기록 종류 단추(v2.36) — 줄 앞에 #결정 같은 표시를 붙인다. [이름, 배경, 글자, 테두리] */
 const KIND_BTNS=[['결정','결정','#eff6ff','#1e40af','#bfdbfe'],['할일','할 일','#fff7ed','#9a3412','#fed7aa'],['숫자','숫자','#f0fdfa','#115e59','#99f6e4'],['이슈','이슈','#fef2f2','#991b1b','#fecaca'],['배경','배경','#f5f5f4','#44403c','#d6d3d1']];
@@ -37610,7 +37613,6 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
      같은 상자들을 보여 주는 방식만 다르다. 정해 두지 않은 메모는 상자가 하나 이하면 간단(새 일정), 여러 개면 자유 배치(이미 배치해 둔 일정) */
   const view=(board&&board.view)||(items.length<=1?'simple':'free');const simple=view==='simple';const viewRef=React.useRef(view);viewRef.current=view;
   const pend=React.useMemo(()=>uid(),[docKey]);   /* 간단 보기에서 아직 없는 본문 글상자의 id — 처음 글자를 쓰면 이 id 로 만든다(커서가 튀지 않게) */
-  const [opened,setOpened]=React.useState({});
   const [sel,setSel]=React.useState([]);const [act,setAct]=React.useState(null);const [snap,setSnap]=React.useState(true);
   const [mq,setMq]=React.useState(null);const [busy,setBusy]=React.useState('');const [tbHost,setTbHost]=React.useState(null);const [bottom,setBottom]=React.useState(0);
   const [ctx,setCtx]=React.useState(null);   /* 오른쪽 클릭 메뉴 {x,y} (v2.20) */
@@ -37787,6 +37789,17 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
     commit([...a,{id:main.id,type:'text',x:20,y:a.length?Math.max(...a.map(i=>i.y))+40:20,w:640,z:topZ(),html:h,...(a.length?{sfix:1}:null)}]);};
   const addTodo=()=>add('text',{grp:'todo',w:420,html:'<ul data-check="1"><li data-checked="false"><br></li></ul>'});
   const foldable=it=>it.grp==='minutes'||/^tbrec:/.test(it.src||'')||(it.type==='text'&&!isPlain(it)&&htmlToText(it.html||'').length>600);
+  /* 접기·폭(v2.37, hong) — 간단 보기에서 상자마다 접어 두고(sfold), 오른쪽 가장자리를 끌어 폭을 줄인다(sw). 자유 배치의 자리·크기와는 따로 기억한다 */
+  const isFold=it=>it.sfold!=null?!!it.sfold:foldable(it);
+  const sumOf=it=>{const tx=htmlToText(it.html||'');const ls=tx.split('\n').filter(l=>l.trim());return ls.length?ls[0].slice(0,80)+(ls.length>1?' · '+ls.length+'줄':''):'';};
+  const sizeDrag=(e,id)=>{e.preventDefault();e.stopPropagation();const el=boxOf(id);if(!el||!wrap.current)return;const sx=e.clientX,w0=el.offsetWidth,full=wrap.current.clientWidth;
+    const mv=ev=>{el.style.width=Math.max(220,Math.min(full,w0+ev.clientX-sx))+'px';};
+    const up=()=>{document.removeEventListener('pointermove',mv);document.removeEventListener('pointerup',up);document.removeEventListener('pointercancel',up);
+      const w=el.offsetWidth;patch(id,{sw:w>=full-8?undefined:w});};
+    document.addEventListener('pointermove',mv);document.addEventListener('pointerup',up);document.addEventListener('pointercancel',up);};
+  const boxStyle=it=>it.sw?{width:it.sw}:it.type==='img'||it.type==='chart'?{width:it.w+16}:undefined;
+  const rsz=it=><div className="bs-rs" onPointerDown={e=>sizeDrag(e,it.id)} onDoubleClick={()=>patch(it.id,{sw:undefined})} title="끌어서 폭 조절 · 두 번 누르면 원래 폭"/>;
+  const foldBtn=it=><button type="button" aria-expanded={!isFold(it)} onClick={()=>patch(it.id,{sfold:!isFold(it)})}>{isFold(it)?'펼치기':'접기'}</button>;
   const labelOf=it=>it.type==='img'?'이미지':it.type==='chart'?'그래프':it.type==='rec'?(it.lab||'녹취'):it.grp==='minutes'?'회의록':/^tbrec:/.test(it.src||'')?'통번역 정리본':it.type==='table'?'표':'글';
   const delOne=id=>{commit(itemsRef.current.filter(i=>i.id!==id));setAct(null);};
   const kindTap=k=>{const sc=wrap.current;if(!sc)return;if(rnLineTag(sc,k))return;
@@ -37818,20 +37831,22 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
     <div ref={wrap} className="bd-wrap bd-simple" style={{marginTop:8}} onPaste={onPaste}
       onDragOver={e=>e.preventDefault()} onDrop={e=>{const fs=e.dataTransfer&&e.dataTransfer.files;if(fs&&fs.length&&!editing()){e.preventDefault();
         const md=[...fs].filter(isMdFile);if(md.length)openMd(md);addImgs(fs);}}}>
-      <div key={main.id} data-bd={main.isNew?undefined:main.id} className="bd-it bs-main" onFocus={()=>setAct(main.id)}>
-        <RichNote docKey={main.id+'|'+docKey} html={main.html||''} compact tbHost={tbHost} active={act===main.id}
-          placeholder="무슨 일이 있었나요? 적은 뒤 위 단추로 결정·할 일 같은 표시를 붙일 수 있습니다" onChange={mainChange}/></div>
-      <div key={todo?todo.id:'todo'} data-bd={todo?todo.id:undefined} className="bd-it bs-todo" onFocus={()=>todo&&setAct(todo.id)}>
-        <div className="bs-hd"><b style={{color:'#9a3412'}}>내가 다음에 할 일</b><span className="sum">{todo?'왼쪽 칸을 누르면 끝낸 것으로 표시됩니다':'적은 줄은 #할일 로 주제 화면에 모입니다'}</span>
-          {todo&&<button type="button" onClick={()=>delOne(todo.id)} title="할 일 칸 지우기">지우기</button>}</div>
-        {todo?body(todo,act===todo.id):<button type="button" className="bs-add" onClick={addTodo}>＋ 할 일 추가</button>}</div>
-      {rest.map(it=>{const plain=isPlain(it);const fold=foldable(it);const open=!fold||opened[it.id];const tx=fold&&!open?htmlToText(it.html||''):'';
-        return <div key={it.id} data-bd={it.id} className="bd-it" onFocus={()=>setAct(it.id)}
-          style={it.type==='img'||it.type==='chart'?{width:it.w+16}:undefined}>
-          {!plain&&<div className="bs-hd"><b>{labelOf(it)}</b><span className="sum">{tx?tx.split('\n').find(l=>l.trim())+' · '+tx.split('\n').length+'줄':''}</span>
-            {fold&&<button type="button" aria-expanded={!!open} onClick={()=>setOpened(o=>({...o,[it.id]:!o[it.id]}))}>{open?'접기':'펼치기'}</button>}
-            {it.type!=='rec'&&<button type="button" onClick={()=>delOne(it.id)} title="이 상자 지우기">지우기</button>}</div>}
-          {open&&body(it,act===it.id)}</div>;})}
+      <div key={main.id} data-bd={main.isNew?undefined:main.id} className="bd-it bs-main" onFocus={()=>setAct(main.id)} style={main.isNew?undefined:boxStyle(main)}>
+        <div className="bs-hd"><b>메모</b><span className="sum">{!main.isNew&&isFold(main)?sumOf(main):''}</span>{!main.isNew&&foldBtn(main)}</div>
+        {!(isFold(main)&&!main.isNew)&&<RichNote docKey={main.id+'|'+docKey} html={main.html||''} compact tbHost={tbHost} active={act===main.id}
+          placeholder="무슨 일이 있었나요? 적은 뒤 위 단추로 결정·할 일 같은 표시를 붙일 수 있습니다" onChange={mainChange}/>}
+        {!main.isNew&&rsz(main)}</div>
+      <div key={todo?todo.id:'todo'} data-bd={todo?todo.id:undefined} className="bd-it bs-todo" onFocus={()=>todo&&setAct(todo.id)} style={todo?boxStyle(todo):undefined}>
+        <div className="bs-hd"><b style={{color:'#9a3412'}}>내가 다음에 할 일</b><span className="sum">{todo?(isFold(todo)?sumOf(todo):'왼쪽 칸을 누르면 끝낸 것으로 표시됩니다'):'적은 줄은 #할일 로 주제 화면에 모입니다'}</span>
+          {todo&&foldBtn(todo)}{todo&&<button type="button" onClick={()=>delOne(todo.id)} title="할 일 칸 지우기">지우기</button>}</div>
+        {todo?!isFold(todo)&&body(todo,act===todo.id):<button type="button" className="bs-add" onClick={addTodo}>＋ 할 일 추가</button>}
+        {todo&&rsz(todo)}</div>
+      {rest.map(it=>{const fold=isFold(it);
+        return <div key={it.id} data-bd={it.id} className="bd-it" onFocus={()=>setAct(it.id)} style={boxStyle(it)}>
+          <div className="bs-hd"><b>{labelOf(it)}</b><span className="sum">{fold?sumOf(it):''}</span>
+            {it.type!=='rec'&&foldBtn(it)}
+            {it.type!=='rec'&&<button type="button" onClick={()=>delOne(it.id)} title="이 상자 지우기">지우기</button>}</div>
+          {!fold&&body(it,act===it.id)}{rsz(it)}</div>;})}
     </div>
     {mobile&&<div className="bs-kbar" onMouseDown={x=>x.preventDefault()}>{kindBtns}</div>}
     <input ref={fileIn} type="file" accept="image/*" multiple style={{display:'none'}} onChange={x=>{addImgs(x.target.files);x.target.value='';}}/>
@@ -39377,7 +39392,7 @@ function lpSnap(wrap){
   const R=its.map(n=>({x:n.offsetLeft,y:n.offsetTop,r:n.offsetLeft+n.offsetWidth,b:n.offsetTop+n.offsetHeight}));
   const c=document.createElement('div');
   its.forEach(n=>{const k=n.cloneNode(true);k.classList.remove('on');
-    k.querySelectorAll('.bd-grip,.bd-rs,.bd-ch-tb,.bd-ch-set,.bd-ctx,.rn-tb,.bs-hd button,.bs-hd .sum').forEach(x=>x.remove());
+    k.querySelectorAll('.bd-grip,.bd-rs,.bs-rs,.bd-ch-tb,.bd-ch-set,.bd-ctx,.rn-tb,.bs-hd').forEach(x=>x.remove());
     k.querySelectorAll('[contenteditable]').forEach(x=>x.removeAttribute('contenteditable'));
     k.querySelectorAll('.bd-rec').forEach(x=>{const p=document.createElement('div');p.className='lp-rec';p.textContent='(녹취 상자 — 출력하지 않습니다)';x.replaceWith(p);});
     /* 높이는 화면에서 잰 그대로 — 글꼴 차이로 아래 상자와 겹치지 않게 */
@@ -40161,10 +40176,11 @@ function EvChip({e,onClick,compact,draggable,onDragStart,onDragEnd,carrying,fs,t
     style={{display:'flex',alignItems:wrap?'flex-start':'center',gap:4,padding:compact?(wrap?'2px 5px':'1px 5px'):'2px 6px',
       borderRadius:pos==='mid'?0:pos==='first'?'3px 0 0 3px':pos==='last'?'0 3px 3px 0':3,
       marginRight:pos==='first'||pos==='mid'?-6:0,marginLeft:pos==='last'||pos==='mid'?-6:0,
-      background:evColor(e)+'1f',borderLeft:pos==='mid'||pos==='last'?'none':'2px solid '+evColor(e),fontSize:fs||(compact?11:12),color:e.status==='done'?'var(--text-label)':'var(--text-body)',textDecoration:e.status==='done'?'line-through':'none',cursor:draggable?'grab':'pointer',overflow:'hidden',whiteSpace:wrap?'normal':'nowrap',textOverflow:'ellipsis',
+      background:evColor(e)+'1f',borderLeft:pos==='mid'||pos==='last'?'none':'2px solid '+evColor(e),fontSize:fs||(compact?11:12),color:e.status==='done'?'var(--text-muted)':'var(--text-body)',cursor:draggable?'grab':'pointer',overflow:'hidden',whiteSpace:wrap?'normal':'nowrap',textOverflow:'ellipsis',
       opacity:carrying?.35:1,outline:carrying?'1px dashed '+evColor(e):'none',
       touchAction:touch&&draggable?'none':undefined,
       WebkitUserSelect:'none',userSelect:'none',WebkitTouchCallout:'none'}}>
+    {e.status==='done'&&pos!=='mid'&&pos!=='last'&&<DoneMark/>}
     {/* 두 줄로 접을 때는 꼬리표·시각을 제목과 같은 흐름에 두어야 둘째 줄이 칸 너비를 다 쓴다 */}
     {wrap
       ? <span style={{minWidth:0,flex:1,display:'flex',flexDirection:'column',gap:1}}>
@@ -40187,6 +40203,29 @@ function EvChip({e,onClick,compact,draggable,onDragStart,onDragEnd,carrying,fs,t
     {e.status==='doing'&&<span style={{color:evColor(e),fontSize:9}}>◐</span>}
     {e.repeat!=='none'&&<span style={{color:'var(--text-label)'}}>↻</span>}</div>;
 }
+/* 사용법(v2.37, hong) — 저장소 guide/guide.md 를 읽어 보여 준다. 그림 줄 ![설명](img/파일) 은 guide/img/ 의 그림 */
+function GuideDialog({open,onClose}){
+  const [html,setHtml]=React.useState('');const [err,setErr]=React.useState('');
+  React.useEffect(()=>{if(!open||html)return;fetch('guide/guide.md?v='+encodeURIComponent(APP_VERSION),{cache:'no-cache'}).then(r=>{if(!r.ok)throw new Error(r.status);return r.text();})
+    .then(md=>{const out=[];let buf=[];const flush=()=>{if(buf.length){out.push(mdToHtml(buf.join('\n')));buf=[];}};
+      md.replace(/\r/g,'').split('\n').forEach(l=>{const m=/^\s*!\[([^\]]*)\]\((img\/[^)\s]+)\)\s*$/.exec(l);
+        if(m){flush();out.push('<p class="pic"><img src="guide/'+escH(m[2])+'" alt="'+escH(m[1])+'" loading="lazy"></p>'+(m[1].trim()?'<p class="cap"><i>▲ '+escH(m[1].trim())+'</i></p>':''));}else buf.push(l);});
+      flush();setHtml(out.join(''));}).catch(x=>setErr('사용법을 불러오지 못했습니다 ('+x.message+') — 새로고침 뒤 다시 열어 주세요'));},[open]);
+  React.useEffect(()=>{if(!open)return;const k=x=>{if(x.key==='Escape')onClose();};document.addEventListener('keydown',k);return()=>document.removeEventListener('keydown',k);},[open]);
+  if(!open)return null;
+  return <div onMouseDown={x=>{if(x.target===x.currentTarget)onClose();}} style={{position:'fixed',inset:0,zIndex:3000,background:'rgba(28,25,23,.32)',display:'flex',justifyContent:'center',alignItems:'flex-start',padding:'4vh 12px'}}>
+    <div role="dialog" aria-label="사용법" style={{width:'min(860px,100%)',maxHeight:'92vh',display:'flex',flexDirection:'column',background:'#fff',borderRadius:12,boxShadow:'0 14px 40px rgba(28,25,23,.25)',fontFamily:'var(--font-sans)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,padding:'12px 18px',borderBottom:'1px solid var(--border-default)'}}><b style={{fontSize:17,color:'#1F3A5F'}}>📖 일정 관리 사용법</b>
+        <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>{APP_VERSION}</span>
+        <a href="guide/guide.md" download="일정관리_사용법.md" style={{marginLeft:'auto',fontSize:'var(--fs-sm2)',color:'#1d4ed8'}}>MD로 받기</a>
+        <button type="button" onClick={onClose} aria-label="닫기" style={{border:'1px solid var(--border-default)',background:'#fff',borderRadius:6,padding:'3px 10px',cursor:'pointer',fontFamily:'inherit'}}>닫기</button></div>
+      <div className="rn-ed gd-body" style={{overflowY:'auto',padding:'10px 24px 30px',minHeight:0}}>
+        {err?<p style={{color:'var(--color-danger)'}}>{err}</p>:html?<div dangerouslySetInnerHTML={{__html:html}}/>:<p style={{color:'var(--text-label)'}}>불러오는 중…</p>}</div>
+    </div></div>;}
+const GD_CSS='.gd-body img{max-width:100%;border:1px solid #e7e5e4;border-radius:8px}.gd-body .cap{font-size:12px;color:#78716c;margin:0 0 14px}.gd-body h2{color:#1F3A5F}.gd-body table{border-collapse:collapse}.gd-body td,.gd-body th{border:1px solid #e7e5e4;padding:4px 8px}';
+if(!document.getElementById('gd-css')){const st=document.createElement('style');st.id='gd-css';st.textContent=GD_CSS;document.head.appendChild(st);}
+/* 완료 표시(v2.37, hong) — 취소선 대신 초록 체크 */
+function DoneMark({style}){return <span title="완료" aria-label="완료" style={{flex:'none',display:'inline-flex',alignItems:'center',justifyContent:'center',width:13,height:13,borderRadius:'50%',background:'#15803d',color:'#fff',fontSize:9,fontWeight:700,lineHeight:1,...style}}>✓</span>;}
 /* 속성 패널의 한 줄. EventPanel 안에 두면 렌더마다 새 컴포넌트가 되어 입력칸이 재마운트된다(포커스 손실) */
 function PRow({icon,label,children,top}){return <div style={{display:'grid',gridTemplateColumns:'110px 1fr',alignItems:top?'start':'center',minHeight:32,borderBottom:'1px solid var(--border-default)',padding:top?'6px 0':0}}><span style={{fontSize:'var(--fs-base)',color:'var(--text-muted)',paddingTop:top?4:0}}><span style={{marginRight:6}} aria-hidden="true">{icon}</span>{label}</span><span style={{display:'flex',gap:4,flexWrap:'wrap',alignItems:'center'}}>{children}</span></div>;}
 /* 표 안에서 바로 고치는 입력칸 — 타이핑 중에는 부모 값이 덮어쓰지 않도록 */
@@ -40423,10 +40462,10 @@ function WeekGrid({events,anchor,today,onOpen,onNew,onMove,onDelete,zoom}){
           return <div key={e.id+j} draggable={mobile?false:e.repeat==='none'} data-ev={e.repeat==='none'?e.id:undefined} data-title={e.title}
             onDragStart={dragStart(e)} onDragEnd={md.end} onClick={ev=>{ev.stopPropagation();openEv(e);}}
             style={{position:'absolute',left:3,right:3,top,height:hgt-2,background:evColor(e)+'26',borderLeft:'3px solid '+evColor(e),borderRadius:3,padding:'2px 5px',fontSize:mobile?12.5:11.5,overflow:'hidden',cursor:e.repeat==='none'?'grab':'pointer',
-              opacity:carry&&carry.id===e.id?.35:1,textDecoration:e.status==='done'?'line-through':'none',
+              opacity:carry&&carry.id===e.id?.35:1,color:e.status==='done'?'var(--text-muted)':undefined,
               touchAction:mobile&&e.repeat==='none'?'none':undefined,
               WebkitUserSelect:'none',userSelect:'none',WebkitTouchCallout:'none'}}>
-            <div style={{fontWeight:600,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',wordBreak:'break-word',lineHeight:1.3}}>{e.title}</div><div style={{fontFamily:'var(--font-num)',color:'var(--text-muted)'}}>{e.start}–{e.end}</div></div>;})}
+            <div style={{fontWeight:600,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',wordBreak:'break-word',lineHeight:1.3}}>{e.status==='done'&&<DoneMark style={{marginRight:4,verticalAlign:-1}}/>}{e.title}</div><div style={{fontFamily:'var(--font-num)',color:'var(--text-muted)'}}>{e.start}–{e.end}</div></div>;})}
       </div>)}
     </div>
     </div>
@@ -40453,7 +40492,7 @@ function ListView({events,categories,st,set,onOpen,onNotes}){
     {key:'category',label:H('카테고리',<select value={f.category} onChange={e=>setF({category:e.target.value})} style={fin}><option value="">전체</option>{categories.map(c=><option key={c} value={c}>{c}</option>)}</select>),width:110,align:'center',
       render:v=>v?<CatTag cat={v} fs={12}/>:<span style={{color:'var(--text-label)'}}>–</span>},
     {key:'title',label:H('제목',txt('title')),align:'left',
-      render:(v,r)=><span onClick={()=>onOpen(r)} style={{cursor:'pointer',fontFamily:'var(--font-sans)',fontWeight:500,textDecoration:r.status==='done'?'line-through':'none',color:r.status==='done'?'var(--text-label)':'var(--text-body)'}}><span style={{display:'inline-block',width:7,height:7,borderRadius:4,background:evColor(r),marginRight:6}}></span>{v||'(제목 없음)'}{r.repeat!=='none'&&<span style={{color:'var(--text-label)',marginLeft:4}}>↻</span>}</span>},
+      render:(v,r)=><span onClick={()=>onOpen(r)} style={{cursor:'pointer',fontFamily:'var(--font-sans)',fontWeight:500,color:r.status==='done'?'var(--text-muted)':'var(--text-body)'}}>{r.status==='done'&&<DoneMark style={{marginRight:6,verticalAlign:-1}}/>}<span style={{display:'inline-block',width:7,height:7,borderRadius:4,background:evColor(r),marginRight:6}}></span>{v||'(제목 없음)'}{r.repeat!=='none'&&<span style={{color:'var(--text-label)',marginLeft:4}}>↻</span>}</span>},
     {key:'date',label:H('날짜',txt('date','YYYY-MM')),width:150,align:'center',
       render:(v,r)=><span style={{fontFamily:'var(--font-num)'}}>{v}
         {isSpan(r)?<span style={{color:'var(--text-muted)'}}> ~ {spanEnd(r).slice(5)} <span style={{fontSize:10}}>({spanDays(r)}일)</span></span>
@@ -40646,7 +40685,9 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
             {refs.map(x=><button key={x.id} type="button" onClick={()=>window.dispatchEvent(new CustomEvent('pms-open',{detail:{id:x.id}}))} title="이 일정을 @멘션한 일정 열기"
               style={{border:'1px solid var(--border-default)',background:'#eff6ff',color:'#1d4ed8',borderRadius:4,padding:'2px 8px',fontSize:'var(--fs-sm)',cursor:'pointer',fontFamily:'inherit'}}>@{x.title} · {x.date}</button>)}</div></PRow>;})()}
         {(()=>{const ts=[...new Map(topicLines(e).flatMap(x=>x.topics).map(n=>[topicKey(n),n])).values()];
-          return ts.length>0&&<PRow icon="📚" label="주제" top><div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+          /* 주제가 없어도 줄은 남긴다(v2.37) — 첫 #태그를 쓰는 순간 줄이 생겨 메모가 밀리고 누르던 단추가 빗나갔다 */
+          return <PRow icon="📚" label="주제" top><div style={{display:'flex',flexWrap:'wrap',gap:6,minHeight:24,alignItems:'center'}}>
+            {!ts.length&&<span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>메모에 [[이름]]이나 #결정 같은 표시를 쓰면 여기에 모입니다</span>}
             {ts.map(n=><TopicChip key={n} name={n} onClick={()=>{Promise.resolve(close()).then(()=>window.dispatchEvent(new CustomEvent('pms-topic',{detail:n})));}}/>)}</div></PRow>;})()}
         <div style={{marginTop:16,fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>📝 메모 <span style={{fontSize:11}}>· 「간단」은 위에서 아래로 차례대로, 「자유 배치」는 상자를 끌어 원하는 곳에 · 엑셀 범위는 Ctrl+V · 글에서 @로 다른 일정 연결</span></div>
         <MemoBoard docKey={e.id+':'+rev} name={e.title} onTerms={()=>setTerms(true)} onRec={startRec} board={boardOf(e)} onChange={(b,txt)=>setE(p=>({...p,board:b,boardText:txt,notes:txt}))}/>
@@ -40666,7 +40707,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.36';
+const APP_VERSION='v2.37';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
@@ -40788,7 +40829,7 @@ const sameJson=(a,b)=>stableJson(a)===stableJson(b);
 function Shell({user,onLogout}){
   const NS=window.HDWorkbookDesignSystem_ad60e4;const {AppHeader,SessionBar,SessionDivider,NavSidebar,Button,Badge,Toast,InfoBar}=NS;
   const [db,setDbRaw]=React.useState(null);
-  const [trashOpen,setTrash]=React.useState(false);const [expOpen,setExp]=React.useState(false);const [saved,setSaved]=React.useState(Store.offline?'offline':'');const [pend,setPend]=React.useState(0);const [toastMsg,setToastMsg]=React.useState('');const [cfgOpen,setCfg]=React.useState(false);const [err,setErr]=React.useState('');
+  const [trashOpen,setTrash]=React.useState(false);const [expOpen,setExp]=React.useState(false);const [guideOpen,setGuide]=React.useState(false);const [saved,setSaved]=React.useState(Store.offline?'offline':'');const [pend,setPend]=React.useState(0);const [toastMsg,setToastMsg]=React.useState('');const [cfgOpen,setCfg]=React.useState(false);const [err,setErr]=React.useState('');
   const [calSt,setCalSt]=React.useState({view:'month',sub:'month',anchor:todayISO()});
   const timers=React.useRef({});const mobile=useMobile();const updated=useAppUpdate();
   /* 세션 줄 안의 자리 — 일정 화면이 연월·이동·보기 단추와 검색·새 일정을 여기에 그린다 */
@@ -40957,8 +40998,8 @@ function Shell({user,onLogout}){
   const savedBadge=saved==='offline'?'📴 오프라인 · 이 기기에 임시저장'+(pend?' ('+pend+'건 대기)':''):saved==='saving'?'⏳ 저장 중…':saved==='error'?'⚠ 저장 실패':saved?'✓ 자동저장됨 · '+saved:'✓ 불러옴';
   return <div style={{minHeight:'100vh',display:'flex',flexDirection:'column',background:'#fff'}}>
     <AppHeader mark="📅" title="일정 관리" version={APP_VERSION} tools={mobile
-      ?<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기" onClick={undo}>↶</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기" onClick={redo}>↷</Button><Button variant="ghost" size="xs" title="메모 내보내기" onClick={()=>setExp(true)}>📦</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)}>🗑</Button><Button variant="ghost" size="xs" title="알림 설정" onClick={()=>setCfg(true)}>🔔</Button><Button variant="ghost" size="xs" onClick={onLogout}>나가기</Button></>
-      :<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳ 새로고침</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기 (Ctrl+Z)" onClick={undo}>↶ 되돌리기</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기 (Ctrl+Y)" onClick={redo}>↷ 다시</Button><Button variant="ghost" size="xs" onClick={()=>setExp(true)} title="메모를 워드나 위키·DB용 자료 묶음으로 한꺼번에 내보냅니다">📦 내보내기</Button><Button variant="ghost" size="xs" onClick={()=>Store.exportJSON(db)} title="전체 데이터 JSON 백업">💾 백업</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)} title={'지운 항목 보관함('+TRASH_DAYS+'일)'}>🗑 휴지통</Button><Button variant="ghost" size="xs" onClick={()=>setCfg(true)}>🔔 알림</Button><span style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>👤 {user.email}</span><Button variant="ghost" size="xs" onClick={onLogout}>로그아웃</Button></>}/>
+      ?<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기" onClick={undo}>↶</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기" onClick={redo}>↷</Button><Button variant="ghost" size="xs" title="사용법" onClick={()=>setGuide(true)}>📖</Button><Button variant="ghost" size="xs" title="메모 내보내기" onClick={()=>setExp(true)}>📦</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)}>🗑</Button><Button variant="ghost" size="xs" title="알림 설정" onClick={()=>setCfg(true)}>🔔</Button><Button variant="ghost" size="xs" onClick={onLogout}>나가기</Button></>
+      :<><Button variant="ghost" size="xs" title="새로고침 (최신 화면 받아오기)" onClick={hardReload}>⟳ 새로고침</Button><Button variant="ghost" size="xs" disabled={!canUndo} title="되돌리기 (Ctrl+Z)" onClick={undo}>↶ 되돌리기</Button><Button variant="ghost" size="xs" disabled={!canRedo} title="다시하기 (Ctrl+Y)" onClick={redo}>↷ 다시</Button><Button variant="ghost" size="xs" onClick={()=>setGuide(true)} title="이 앱 쓰는 법(그림 포함)">📖 사용법</Button><Button variant="ghost" size="xs" onClick={()=>setExp(true)} title="메모를 워드나 위키·DB용 자료 묶음으로 한꺼번에 내보냅니다">📦 내보내기</Button><Button variant="ghost" size="xs" onClick={()=>Store.exportJSON(db)} title="전체 데이터 JSON 백업">💾 백업</Button><Button variant="ghost" size="xs" onClick={()=>setTrash(true)} title={'지운 항목 보관함('+TRASH_DAYS+'일)'}>🗑 휴지통</Button><Button variant="ghost" size="xs" onClick={()=>setCfg(true)}>🔔 알림</Button><span style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>👤 {user.email}</span><Button variant="ghost" size="xs" onClick={onLogout}>로그아웃</Button></>}/>
     {updated&&<div onClick={hardReload} role="button" style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',
       padding:'8px 14px',background:'var(--wb-ink)',color:'#fff',fontSize:'var(--fs-md)',fontWeight:600,fontFamily:'var(--font-sans)'}}>
       <span style={{fontSize:15}}>🔄</span>새 버전이 올라왔습니다
@@ -40976,6 +41017,7 @@ function Shell({user,onLogout}){
       </main>
     </div>
     <SettingsModal open={cfgOpen} onClose={()=>setCfg(false)} onToast={toast}/>
+    <GuideDialog open={guideOpen} onClose={()=>setGuide(false)}/>
     <ExportDialog open={expOpen} onClose={()=>setExp(false)} events={db.events} topics={db.topics} toast={toast} onWikiNow={wikiRun}/>
     {wikiAsk&&<div style={{position:'fixed',left:12,bottom:12,zIndex:60}}><Button size="xs" onClick={wikiRun} title="브라우저가 폴더 쓰기를 다시 허락받아야 합니다">📁 위키 폴더 저장 — 눌러서 허락</Button></div>}
     <TrashModal open={trashOpen} onClose={()=>setTrash(false)} onRestore={restoreItem} onToast={toast}/>
