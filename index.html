@@ -39357,7 +39357,8 @@ async function exportWord(list,label,onStep){
   const pics=new Map();let pn=0;const ims=[...root.querySelectorAll('img')];
   for(const im of ims){try{const x=await docxImage(im);if(x){pn++;pics.set(im,{...x,id:pn});}}catch(err){console.warn('[내보내기] 그림',err);}onStep('그림 넣는 중… '+(pn)+'/'+ims.length);}
   onStep('워드 만드는 중…');return aDocxBuild(root,pics);}
-async function exportZip(list,label,onStep,topics){
+/* 자료 묶음에 들어갈 파일 목록 — zip(exportZip)과 PC 폴더 자동 저장(wikiWrite)이 같이 쓴다. opt.havePic(이름) 이 참이면 그 그림은 받지 않고 {keep:true} 만 남긴다 */
+async function exFiles(list,label,onStep,topics,opt){
   const enc=new TextEncoder();const files=[];const pics=new Map();const used=new Set();
   const picName=p=>{if(pics.has(p))return pics.get(p);let b=exSafe(String(p).split('/').pop()).replace(/\s/g,'_');let n=b,k=1;while(used.has(n))n=(k++)+'_'+b;used.add(n);pics.set(p,n);return n;};
   const names=new Set();const fileOf=new Map();const rows=[['id','날짜','끝날짜','시간','제목','분류','상태','반복','글자수','파일']];
@@ -39379,10 +39380,10 @@ async function exportZip(list,label,onStep,topics){
     files.push({name:'주제/'+n+'.md',text:['---','title: '+yq(t.name),'type: 주제',t.note&&t.note.updated?'updated: '+yq(t.note.updated):'','mentions: '+t.refs.length,'---'].filter(Boolean).join('\n')
       +'\n\n# '+t.name+'\n\n## 정리\n\n'+(note||'(아직 정리 없음)')+'\n\n## 관련 메모 (최근 순)\n\n'+(refs||'(없음)')+'\n'});});
   let i=0;for(const [p,n] of pics){i++;onStep('그림 받는 중… '+i+'/'+pics.size);
-    try{const b=await Files.blob(p);if(b)files.push({name:'첨부/'+n,data:new Uint8Array(await b.arrayBuffer())});}catch(err){console.warn('[내보내기] 그림',p,err);}}
+    try{if(opt&&opt.havePic&&await opt.havePic(n)){files.push({name:'첨부/'+n,keep:true});continue;}const b=await Files.blob(p);if(b)files.push({name:'첨부/'+n,data:new Uint8Array(await b.arrayBuffer())});}catch(err){console.warn('[내보내기] 그림',p,err);}}
   const csv='﻿'+rows.map(r=>r.map(v=>{const s=String(v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\r\n');
   files.push({name:'일정목록.csv',text:csv});
-  files.push({name:'data.json',text:JSON.stringify({exported:new Date().toISOString(),range:label,events:list,topics:topics||[]},null,1)});
+  files.push({name:'data.json',text:JSON.stringify({...(opt&&opt.noStamp?{}:{exported:new Date().toISOString()}),range:label,events:list,topics:topics||[]},null,1)});
   files.push({name:'읽어보기.txt',text:['일정 관리 — 메모 자료 묶음 ('+label+', '+list.length+'건)','',
     '· 메모/  일정마다 마크다운(.md) 파일 하나. 맨 위 --- 사이에 날짜·시간·분류·상태 같은 속성이 있습니다.',
     '· 주제/  [[이름]]·#태그 주제마다 파일 하나('+nTopic+'개). 「정리」 글과 그 주제가 나온 메모 줄을 날짜순으로 모았습니다.',
@@ -39391,8 +39392,73 @@ async function exportZip(list,label,onStep,topics){
     '· data.json  앱이 저장한 원본 데이터 그대로(상자 위치·크기 포함).','',
     '옵시디언: 압축을 푼 폴더를 보관함(Vault)으로 열면 그대로 위키가 됩니다.',
     '노션: 가져오기 → Markdown & CSV 에서 메모 폴더나 일정목록.csv 를 고르세요.'].join('\r\n')});
-  onStep('묶는 중…');return zipMake(files);}
-function ExportDialog({open,onClose,events,topics,toast}){
+  files.push({name:'Claude 안내.md',text:WIKI_GUIDE});
+  return files;}
+async function exportZip(list,label,onStep,topics){const files=await exFiles(list,label,onStep,topics);onStep('묶는 중…');return zipMake(files);}
+const WIKI_GUIDE=['# Claude 안내','','이 폴더는 일정 관리 앱에서 내보낸 내 업무 기록이다. 질문을 받으면 아래 순서로 읽는다.','',
+  '- 주제/*.md — 회사·사람·프로젝트·분류마다 「정리」(현재 상태)와 그 주제가 나온 메모 줄. 먼저 여기서 찾는다.',
+  '- 메모/*.md — 일정마다 원래 메모. 맨 위 --- 사이에 날짜·분류가 있다. 근거가 더 필요할 때 읽는다.',
+  '- 일정목록.csv — 일정 한 줄씩. 기간·건수를 셀 때 쓴다.','',
+  '표기 규칙','','- [[이름]] 은 회사·사람·프로젝트, #태그 는 분류다.','- 줄 맨 앞 #결정 #할일 #숫자 #이슈 #배경 은 그 줄의 성격이다.',
+  '- 같은 대상의 다른 이름은 주제/이름 사전.md 를 따른다(있으면).','',
+  '답하는 법','','- 근거가 된 메모의 날짜와 일정 제목을 붙인다. 예: (2026-10-25 손익추정 검토 회의)','- 메모에 없는 내용은 추측하지 말고 "기록 없음"이라고 한다.',
+  '- 이 폴더는 앱이 주기적으로 덮어쓴다. 메모/·주제/ 파일은 고치지 말고, 새로 만드는 문서는 다른 폴더(예: 보고서/)에 둔다.',''].join('\n');
+
+/* 📁 PC 폴더 자동 저장(v2.33) — 고른 PC 폴더에 자료 묶음과 같은 파일을 주기마다 덮어쓴다(옵시디언 보관함·Claude 지식창고용).
+   폴더 손잡이는 IndexedDB(pms-files 'wikiDir'), 설정은 기기마다 localStorage cal.wiki {every:'day'|'week'|'month'|'off', last, name, n} */
+const WIKI_EVERY={day:1,week:7,month:30};
+const wikiCfg=()=>{try{return JSON.parse(localStorage.getItem('cal.wiki')||'{}')||{};}catch(_){return {};}};
+const wikiSetCfg=o=>{const c={...wikiCfg(),...o};try{localStorage.setItem('cal.wiki',JSON.stringify(c));}catch(_){}return c;};
+const wikiCan=()=>typeof window.showDirectoryPicker==='function';
+const wikiDue=()=>{const c=wikiCfg();const d=WIKI_EVERY[c.every||'week'];if(!d)return false;return !c.last||Date.now()-Date.parse(c.last)>=d*864e5-36e5;};
+async function wikiPick(){const h=await window.showDirectoryPicker({id:'pms-wiki',mode:'readwrite'});await idbPut('wikiDir',h);return wikiSetCfg({on:true,name:h.name||'폴더',every:wikiCfg().every||'week'});}
+/* ask=true 는 단추를 누른 때만 — 브라우저가 허락 창을 띄울 수 있다 */
+async function wikiHandle(ask){const h=await idbGet('wikiDir').catch(()=>null);if(!h||!h.queryPermission)return null;
+  let pm=await h.queryPermission({mode:'readwrite'});if(pm!=='granted'&&ask)pm=await h.requestPermission({mode:'readwrite'});return pm==='granted'?h:null;}
+/* 메모가 있는 일정 전체를 쓴다. 내용이 같은 파일은 건드리지 않고, 앱에서 지운 일정·주제의 .md 는 메모/·주제/ 에서 지운다 → 바뀐 파일 수 */
+async function wikiWrite(h,events,topics,onStep){
+  const list=(events||[]).filter(e=>!e.deleted&&exHasMemo(e)).slice().sort((a,b)=>(a.date+(a.start||'')).localeCompare(b.date+(b.start||'')));
+  const dirs=new Map();const dir=async path=>{if(!path)return h;if(dirs.has(path))return dirs.get(path);let d=h;for(const x of path.split('/'))d=await d.getDirectoryHandle(x,{create:true});dirs.set(path,d);return d;};
+  const has=async(path,name)=>{try{await (await dir(path)).getFileHandle(name);return true;}catch(_){return false;}};
+  const files=await exFiles(list,'전체',onStep||(()=>{}),topics,{havePic:n=>has('첨부',n),noStamp:true});
+  const keep={'메모':new Set(),'주제':new Set()};const enc=new TextEncoder();let n=0;
+  for(const f of files){const k=f.name.lastIndexOf('/');const dp=k<0?'':f.name.slice(0,k),fn=f.name.slice(k+1);if(keep[dp])keep[dp].add(fn);if(f.keep)continue;
+    const fh=await (await dir(dp)).getFileHandle(fn,{create:true});
+    const data=f.text!=null?enc.encode(f.text):f.data;
+    try{const old=new Uint8Array(await (await fh.getFile()).arrayBuffer());if(old.length===data.length&&old.every((x,j)=>x===data[j]))continue;}catch(_){}
+    const w=await fh.createWritable();await w.write(data);await w.close();n++;}
+  for(const [dp,set] of Object.entries(keep)){const d=await dir(dp);const old=[];for await(const [nm,e] of d.entries())if(e.kind==='file'&&/\.md$/i.test(nm)&&!set.has(nm))old.push(nm);
+    for(const nm of old){await d.removeEntry(nm);n++;}}
+  return n;}
+/* 앱을 열어 두면 주기가 됐는지 살펴 저장한다. 브라우저가 다시 허락을 받아야 하면 ask=true → 화면 왼쪽 아래 단추 */
+function useWikiFolder(db,toast){
+  const ref=React.useRef(db);ref.current=db;const busy=React.useRef(false);const [ask,setAsk]=React.useState(false);
+  const run=async(byHand,force)=>{if(busy.current||!ref.current||!wikiCan())return;if(!force&&!wikiDue())return;busy.current=true;
+    try{const h=await wikiHandle(byHand);if(!h){setAsk(!!(await idbGet('wikiDir').catch(()=>null)));return;}setAsk(false);
+      const n=await wikiWrite(h,ref.current.events,ref.current.topics);wikiSetCfg({last:new Date().toISOString(),n});
+      if(byHand||n)toast('📁 위키 폴더 「'+h.name+'」에 저장했습니다'+(n?' (바뀐 파일 '+n+'개)':' (바뀐 것 없음)'));}
+    catch(err){console.warn('[위키 폴더]',err);if(byHand)toast('⚠ 폴더 저장 실패 — '+err.message);}finally{busy.current=false;}};
+  React.useEffect(()=>{if(!db||!wikiCan())return;const t=setTimeout(()=>run(false),8000);const iv=setInterval(()=>run(false),36e5);
+    const on=()=>run(false,true);window.addEventListener('pms-wiki-now',on);return ()=>{clearTimeout(t);clearInterval(iv);window.removeEventListener('pms-wiki-now',on);};},[!!db]);
+  return [ask,()=>run(true,true)];}
+function WikiFolderBox({toast,onNow}){
+  const {Button}=window.HDWorkbookDesignSystem_ad60e4;
+  const [c,setC]=React.useState(wikiCfg);const [busy,setBusy]=React.useState(false);
+  if(!wikiCan())return <div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>📁 PC 폴더 자동 저장은 PC의 크롬·엣지에서만 쓸 수 있습니다.</div>;
+  const pick=async()=>{try{setC(await wikiPick());window.dispatchEvent(new Event('pms-wiki-now'));toast&&toast('📁 폴더를 정했습니다 — 지금 저장합니다');}catch(err){if(err&&err.name!=='AbortError')toast&&toast('⚠ 폴더를 열 수 없습니다 — '+err.message);}};
+  const now=async()=>{setBusy(true);try{await onNow();}finally{setC(wikiCfg());setBusy(false);}};
+  const every=v=>setC(wikiSetCfg({every:v}));
+  return <div style={{display:'grid',gap:6,borderTop:'1px solid var(--border-default)',paddingTop:12}}>
+    <b>📁 PC 폴더 자동 저장 — 옵시디언·Claude 지식창고용</b>
+    <div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>고른 폴더에 위 자료 묶음과 같은 파일(메모/·주제/·첨부/·일정목록.csv·Claude 안내.md)을 주기마다 덮어씁니다. 이 PC에서 앱을 열어 둘 때 저장됩니다.</div>
+    <div style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center'}}>
+      <Button size="xs" variant="gray" onClick={pick}>{c.name?'폴더 바꾸기':'폴더 고르기'}</Button>
+      {c.name&&<span>📂 {c.name}</span>}
+      {c.name&&<>{[['day','매일'],['week','매주'],['month','매월'],['off','끄기']].map(([k,l])=><Chip key={k} on={(c.every||'week')===k} onClick={()=>every(k)}>{l}</Chip>)}
+        <Button size="xs" disabled={busy} onClick={now}>{busy?'저장 중…':'지금 저장'}</Button></>}</div>
+    {c.last&&<div style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)'}}>마지막 저장 {new Date(c.last).toLocaleString('ko-KR')}</div>}
+  </div>;}
+function ExportDialog({open,onClose,events,topics,toast,onWikiNow}){
   const {Button,Modal}=window.HDWorkbookDesignSystem_ad60e4;
   const y=todayISO().slice(0,4);
   const [rg,setRg]=React.useState('all');const [from,setFrom]=React.useState(y+'-01-01');const [to,setTo]=React.useState(todayISO());
@@ -39422,6 +39488,7 @@ function ExportDialog({open,onClose,events,topics,toast}){
         <div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',marginTop:-4}}>일정마다 마크다운 파일(날짜·분류 등 속성 포함) + 주제 페이지 + 첨부 그림 + 목록표(CSV) + 원본 데이터(JSON). 옵시디언·노션에 그대로 가져갈 수 있습니다.</div>
       </div>
       {busy&&<div style={{color:'var(--text-muted)'}}>⏳ {busy}</div>}
+      <WikiFolderBox toast={toast} onNow={onWikiNow}/>
     </div>
   </Modal>;}
 const pvStrip=h=>{const d=document.createElement('div');d.innerHTML=h||'';d.querySelectorAll('img[data-pms]').forEach(im=>im.removeAttribute('src'));return d.innerHTML;};
@@ -40393,7 +40460,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.32.2';
+const APP_VERSION='v2.33';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
@@ -40521,7 +40588,7 @@ function Shell({user,onLogout}){
   /* 세션 줄 안의 자리 — 일정 화면이 연월·이동·보기 단추와 검색·새 일정을 여기에 그린다 */
   const [slotMid,setSlotMid]=React.useState(null);const [slotRight,setSlotRight]=React.useState(null);
   const [dbForNoti,setDbForNoti]=React.useState(null);
-  useNotifications(dbForNoti);usePushPlan(dbForNoti&&dbForNoti.events);
+  useNotifications(dbForNoti);usePushPlan(dbForNoti&&dbForNoti.events);const [wikiAsk,wikiRun]=useWikiFolder(dbForNoti,m=>toast(m));
   React.useEffect(()=>{Store.loadAll().then(d=>{setDbRaw(d);
     if(Store.offline){setSaved('offline');setPend(Store.pendingCount());
       setTimeout(()=>toast(navigator.onLine?'📴 지난번 오프라인에서 고친 내용을 올리는 중…':'📴 오프라인 — 이 기기에 저장된 사본으로 열었습니다'+(Store.offAt?' ('+new Date(Store.offAt).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+' 사본)':'')),400);}
@@ -40703,7 +40770,8 @@ function Shell({user,onLogout}){
       </main>
     </div>
     <SettingsModal open={cfgOpen} onClose={()=>setCfg(false)} onToast={toast}/>
-    <ExportDialog open={expOpen} onClose={()=>setExp(false)} events={db.events} topics={db.topics} toast={toast}/>
+    <ExportDialog open={expOpen} onClose={()=>setExp(false)} events={db.events} topics={db.topics} toast={toast} onWikiNow={wikiRun}/>
+    {wikiAsk&&<div style={{position:'fixed',left:12,bottom:12,zIndex:60}}><Button size="xs" onClick={wikiRun} title="브라우저가 폴더 쓰기를 다시 허락받아야 합니다">📁 위키 폴더 저장 — 눌러서 허락</Button></div>}
     <TrashModal open={trashOpen} onClose={()=>setTrash(false)} onRestore={restoreItem} onToast={toast}/>
     <Toast open={!!toastMsg}>{toastMsg}</Toast>
   </div>;
