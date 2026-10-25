@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" },
+  "dependencies": { "kordoc": "4.24.6", "buffer": "6.0.3", "fflate": "0.8.3", "esbuild": "0.28.2" }
+}
