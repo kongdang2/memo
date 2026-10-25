@@ -37262,6 +37262,7 @@ const BD_CSS=`.bd-wrap{position:relative;isolation:isolate;border:1px dashed var
 const BD_GRID=10;
 /* 붙여넣은 글이 마크다운처럼 보이면(제목·목록·표·인용) 서식으로 바꿔 넣는다. 맨 위 --- 속성 머리는 뗀다 */
 const MD_LIKE=/^(#{1,4} |\s*[-*] |\s*\d+[.)] |\s*\|.*\|\s*$|> )/m;
+const isMdFile=f=>/\.(md|markdown)$/i.test(f.name||'')||f.type==='text/markdown';
 const mdBody=t=>String(t||'').replace(/^\uFEFF/,'').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/,'');
 let BD_CLIP=null;   /* 마지막으로 복사한 상자들 — 브라우저가 붙여넣기 HTML의 표시를 지워도 알아보게 */
 const bdText=items=>(items||[]).filter(i=>i.type!=='img'&&i.type!=='chart'&&i.type!=='rec').slice().sort((a,b)=>a.y-b.y||a.x-b.x).map(i=>htmlToText(i.html||'')).filter(Boolean).join('\n');
@@ -37700,13 +37701,13 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
     e.clipboardData.setData('text/plain',plain);e.clipboardData.setData('text/html',html);e.preventDefault();BD_CLIP={plain,pack};
     if(e.type==='cut')delSel();};
   const onPaste=e=>{if(e.defaultPrevented||editing())return;const cd=e.clipboardData;if(!cd)return;
-    const h=cd.getData('text/html')||'';const fs=[...(cd.files||[])].filter(f=>/^image\//.test(f.type));
+    const h=cd.getData('text/html')||'';const fs=[...(cd.files||[])].filter(f=>/^image\//.test(f.type)||isMdFile(f));
     const at=last.current||{x:20,y:sn(measureBottom()?measureBottom()+24:20)};   /* 복사한 상자 묶음은 배치를 살려 맨 아래에 */
     const mb=/data-memo-board="([^"]+)"/.exec(h);const mine=BD_CLIP&&cd.getData('text/plain')===BD_CLIP.plain;
     if(mb||mine){e.preventDefault();let pack=mine?BD_CLIP.pack:[];if(mb)try{pack=JSON.parse(decodeURIComponent(escape(atob(mb[1]))));}catch(_){}
       let z=topZ();const news=pack.map(i=>({...i,id:uid(),x:sn(at.x+i.x),y:sn(at.y+i.y),z:z++}));
       commit([...itemsRef.current,...news]);setSel(news.map(i=>i.id));return;}
-    if(fs.length&&!h){e.preventDefault();addImgs(fs);return;}
+    if(fs.length&&!h){e.preventDefault();const md=[...fs].filter(isMdFile);if(md.length)openMd(md);addImgs(fs);return;}
     const grid=clipGrid(cd);
     if(grid&&(grid.length>1||grid[0].length>1)){e.preventDefault();const cols=Math.max(...grid.map(r=>r.length));
       add('table',{html:bdGridHtml(grid.map(r=>{const x=r.slice();while(x.length<cols)x.push('');return x;})),w:Math.min(900,Math.max(240,cols*110))});return;}
@@ -37748,7 +37749,9 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
     </div>
     <div ref={wrap} className="bd-wrap" tabIndex={0} onPointerDownCapture={e=>{lastPT.current=e.pointerType;}} onMouseDown={onWrapDown} onKeyDown={onKey} onPaste={onPaste} onCopy={onCopy} onCut={onCopy}
       onDragOver={e=>e.preventDefault()} onDrop={e=>{const fs=e.dataTransfer&&e.dataTransfer.files;if(fs&&fs.length&&!editing()){e.preventDefault();
-        const b=wrap.current.getBoundingClientRect();last.current={x:e.clientX-b.left+wrap.current.scrollLeft,y:e.clientY-b.top+wrap.current.scrollTop};addImgs(fs).finally(()=>{last.current=null;});}}}
+        const b=wrap.current.getBoundingClientRect();last.current={x:e.clientX-b.left+wrap.current.scrollLeft,y:e.clientY-b.top+wrap.current.scrollTop};
+        const md=[...fs].filter(isMdFile);if(md.length)openMd(md);   /* .md 파일도 끌어다 놓으면 글상자로(v2.32.1) */
+        addImgs(fs).finally(()=>{last.current=null;});}}}
       style={{height:H,marginTop:8,outline:'none'}}>
       <div className="bd-pad" style={{position:'relative',width:W||'100%',height:H-2}}/>
       {!shown.length&&<div style={{position:'absolute',left:0,right:0,top:120,textAlign:'center',color:'var(--text-label)',fontSize:13,pointerEvents:'none',lineHeight:1.8}}>
@@ -40381,7 +40384,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.32';
+const APP_VERSION='v2.32.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
