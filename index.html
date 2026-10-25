@@ -40103,9 +40103,10 @@ function CalendarView({db,setDb,st,set,toast,slots}){
   const titleRow=cal&&<div className="ct-title">
     <h2>{label}</h2>{nav}{zoomSeg}
     <span style={{flex:1}}/>
-    <button type="button" className="ct-pill" style={{background:'#eef3fa',color:CT_NAVY}} onClick={()=>{if(!mobile)setTp(true);set({anchor:today});}} title="오늘로 가기">오늘 일정 {todayCnt}건</button>
+    {/* 누를 때마다 「오늘」 칸을 열고 닫는다(v2.38.1, hong) */}
+    <button type="button" className="ct-pill" aria-pressed={!mobile&&tpOn} style={!mobile&&tpOn?{background:CT_NAVY,color:'#fff'}:{background:'#eef3fa',color:CT_NAVY}}
+      onClick={()=>{if(!mobile)setTp(!tpOn);if(anchor.slice(0,7)!==today.slice(0,7))set({anchor:today});}} title={mobile?'오늘로 가기':tpOn?'오늘 칸 닫기':'오늘 칸 열기'}>오늘 일정 {todayCnt}건</button>
     {!!todoCnt&&<button type="button" className="ct-pill" style={{background:'#fff3e8',color:'#9a3412'}} onClick={()=>{if(!mobile)setTp(true);}} title="오늘 칸에서 할 일을 봅니다">남은 할 일 {todoCnt}</button>}
-    {!mobile&&!tpOn&&<button type="button" className="ct-nb" onClick={()=>setTp(true)}>오늘 칸 보기</button>}
   </div>;
   return <>
     <CtCss/>
@@ -40352,7 +40353,7 @@ function TodayPanel({db,setDb,today,onOpen,onQuick,onInbox,onHide,toast,mobile})
   const head=<div className="tp-card" style={{gap:3}}>
     <div style={{display:'flex',alignItems:'center'}}><span style={{fontSize:13,fontWeight:700,color:'#c2410c'}}>오늘</span>
       {mobile?<button type="button" className="tp-x" onClick={()=>setF(!fold)} aria-expanded={!fold}>{fold?'펼치기':'접기'}</button>
-        :onHide&&<button type="button" className="tp-x" onClick={onHide} title="오늘 칸을 숨깁니다. 달 제목 옆 「오늘 칸」으로 다시 엽니다">숨기기</button>}</div>
+        :onHide&&<button type="button" className="tp-x" onClick={onHide} title="오늘 칸을 숨깁니다. 달 제목 옆 「오늘 일정」을 누르면 다시 열립니다">숨기기</button>}</div>
     <span style={{fontSize:mobile?20:24,fontWeight:700,letterSpacing:-.4,color:'#1c2430'}}>{mdLabel(today)} {DOW_KO[dd.getDay()]}요일</span>
     <span style={{fontSize:13,color:'#5b6573'}}>일정 {todays.length} · 남은 할 일 {todos.length}{inbox?' · 미정리 메모 '+inbox:''}</span></div>;
   if(mobile&&fold)return <div className="tp">{head}</div>;
@@ -40866,7 +40867,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.38';
+const APP_VERSION='v2.38.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
