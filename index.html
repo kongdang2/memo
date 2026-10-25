@@ -37311,6 +37311,15 @@ const BD_GRID=10;
 /* 붙여넣은 글이 마크다운처럼 보이면(제목·목록·표·인용) 서식으로 바꿔 넣는다. 맨 위 --- 속성 머리는 뗀다 */
 const MD_LIKE=/^(#{1,4} |\s*[-*] |\s*\d+[.)] |\s*\|.*\|\s*$|> )/m;
 const isMdFile=f=>/\.(md|markdown)$/i.test(f.name||'')||f.type==='text/markdown';
+/* 문서 변환(v2.39) — 코독(kordoc, MIT)을 처음 쓸 때만 내려받아 한글·워드·엑셀·파워포인트를 마크다운으로, 마크다운을 한글(HWPX)로 바꾼다. 파일은 이 PC 안에서만 변환된다 */
+const isDocFile=f=>/\.(hwp|hwpx|docx|xlsx|xls|pptx)$/i.test(f.name||'');
+const DOC_ACCEPT='.md,.markdown,.txt,.hwp,.hwpx,.docx,.xlsx,.xls,.pptx,text/markdown,text/plain';
+let KD_P=null;
+const kordoc=()=>KD_P||(KD_P=new Function('u','return import(u)')(new URL('vendor/kordoc/kordoc.js',location.href).href).catch(e=>{KD_P=null;throw e;}));
+const docToMd=async f=>{const r=await (await kordoc()).parse(await f.arrayBuffer());if(!r||!r.success)throw new Error((r&&r.error)||'변환 실패');
+  const md=String(r.markdown||'').replace(/!\[[^\]]*\]\([^)\s]*\)[ \t]*\n?/g,'').replace(/<\/?(u|sup|sub|span)[^>]*>/gi,'').replace(/\n{3,}/g,'\n\n');
+  return {md,images:(r.images||[]).filter(i=>i&&i.data&&/^image\//.test(i.mimeType||'')).map(i=>new File([i.data],i.filename||'image',{type:i.mimeType}))};};
+const saveBlob=(blob,fname)=>{const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=fname;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},1500);};
 const mdBody=t=>String(t||'').replace(/^\uFEFF/,'').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/,'');
 let BD_CLIP=null;   /* 마지막으로 복사한 상자들 — 브라우저가 붙여넣기 HTML의 표시를 지워도 알아보게 */
 const bdText=items=>(items||[]).filter(i=>i.type!=='img'&&i.type!=='chart'&&i.type!=='rec').slice().sort((a,b)=>a.y-b.y||a.x-b.x).map(i=>htmlToText(i.html||'')).filter(Boolean).join('\n');
@@ -37763,13 +37772,13 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
     e.clipboardData.setData('text/plain',plain);e.clipboardData.setData('text/html',html);e.preventDefault();BD_CLIP={plain,pack};
     if(e.type==='cut')delSel();};
   const onPaste=e=>{if(e.defaultPrevented||editing())return;const cd=e.clipboardData;if(!cd)return;
-    const h=cd.getData('text/html')||'';const fs=[...(cd.files||[])].filter(f=>/^image\//.test(f.type)||isMdFile(f));
+    const h=cd.getData('text/html')||'';const fs=[...(cd.files||[])].filter(f=>/^image\//.test(f.type)||isMdFile(f)||isDocFile(f));
     const at=last.current||{x:20,y:sn(measureBottom()?measureBottom()+24:20)};   /* 복사한 상자 묶음은 배치를 살려 맨 아래에 */
     const mb=/data-memo-board="([^"]+)"/.exec(h);const mine=BD_CLIP&&cd.getData('text/plain')===BD_CLIP.plain;
     if(mb||mine){e.preventDefault();let pack=mine?BD_CLIP.pack:[];if(mb)try{pack=JSON.parse(decodeURIComponent(escape(atob(mb[1]))));}catch(_){}
       let z=topZ();const news=pack.map(i=>({...i,id:uid(),x:sn(at.x+i.x),y:sn(at.y+i.y),z:z++}));
       commit([...itemsRef.current,...news]);setSel(news.map(i=>i.id));return;}
-    if(fs.length&&!h){e.preventDefault();const md=[...fs].filter(isMdFile);if(md.length)openMd(md);addImgs(fs);return;}
+    if(fs.length&&!h){e.preventDefault();const md=[...fs].filter(f=>isMdFile(f)||isDocFile(f));if(md.length)openMd(md);addImgs(fs);return;}
     const grid=clipGrid(cd);
     if(grid&&(grid.length>1||grid[0].length>1)){e.preventDefault();const cols=Math.max(...grid.map(r=>r.length));
       add('table',{html:bdGridHtml(grid.map(r=>{const x=r.slice();while(x.length<cols)x.push('');return x;})),w:Math.min(900,Math.max(240,cols*110))});return;}
@@ -37777,11 +37786,21 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
     const t=cd.getData('text/plain');if(t&&t.trim()&&MD_LIKE.test(t)){e.preventDefault();add('text',{html:mdToHtml(mdBody(t)),w:640});return;}
     if(t&&t.trim()){e.preventDefault();add('text',{html:'<p>'+escH(t).replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>')+'</p>'});}};
   /* 마크다운 읽기·쓰기(v2.32) — .md 파일을 글상자로 불러오고, 메모를 .md 로 저장한다(그림은 pms: 주소로 남아 다시 불러오면 그대로 보인다) */
-  const openMd=async files=>{for(const f of [...files]){try{const t=await f.text();if(!t.trim())continue;
+  const openMd=async files=>{for(const f of [...files]){try{
+      if(isDocFile(f)){setBusy('⏳ '+f.name+' 바꾸는 중…');const {md,images}=await docToMd(f);   /* 한글·워드·엑셀·파워포인트(v2.39) */
+        if(md.trim())add('text',{html:mdToHtml(md),w:640});if(images.length)await addImgs(images);
+        setBusy(md.trim()||images.length?'':'⚠ '+f.name+' 에서 읽을 내용이 없습니다');continue;}
+      const t=await f.text();if(!t.trim())continue;
       add('text',{html:mdToHtml(mdBody(t)),w:640});}catch(x){setBusy('⚠ '+f.name+' 를 읽지 못했습니다');}}};
+  const fileBase=()=>String(name||'메모').replace(/[\\/:*?"<>|]+/g,' ').trim().slice(0,80)||'메모';
   const saveMd=()=>{const md=boardToMd(itemsRef.current);if(!md.trim()){setBusy('⚠ 저장할 메모가 없습니다');setTimeout(()=>setBusy(''),2500);return;}
-    const u=URL.createObjectURL(new Blob([(name?'# '+name+'\n\n':'')+md+'\n'],{type:'text/markdown;charset=utf-8'}));const a=document.createElement('a');a.href=u;
-    a.download=String(name||'메모').replace(/[\\/:*?"<>|]+/g,' ').trim().slice(0,80)+'.md';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},1500);};
+    saveBlob(new Blob([(name?'# '+name+'\n\n':'')+md+'\n'],{type:'text/markdown;charset=utf-8'}),fileBase()+'.md');};
+  const saveHwpx=async()=>{const md=boardToMd(itemsRef.current).replace(/!\[[^\]]*\]\(pms:[^)]*\)[ \t]*\n?/g,'');   /* 한글(HWPX)로 저장(v2.39) — 그림은 아직 빠진다 */
+    if(!md.trim()){setBusy('⚠ 저장할 메모가 없습니다');setTimeout(()=>setBusy(''),2500);return;}
+    setBusy('⏳ 한글 파일 만드는 중…');
+    try{const buf=await (await kordoc()).markdownToHwpx((name?'# '+name+'\n\n':'')+md+'\n');
+      saveBlob(new Blob([buf],{type:'application/hwp+zip'}),fileBase()+'.hwpx');setBusy('');}
+    catch(x){setBusy('⚠ 한글 파일을 만들지 못했습니다');}};
   const H=Math.max(420,bottom+160,...shown.map(i=>i.stk?0:i.y+80));const W=Math.max(0,...shown.map(i=>i.x+i.w+40));
   const Bt=({t,on,title,dis})=><button type="button" title={title} disabled={dis} onMouseDown={x=>x.preventDefault()} onClick={on} style={dis?{opacity:.35,cursor:'default'}:undefined}>{t}</button>;
   const many=sel.length>1;const actIt=shown.find(i=>i.id===act&&i.type!=='img');
@@ -37844,8 +37863,9 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
         <Bt t="＋ 이미지" title="이미지 넣기 (Ctrl+V로 붙여넣어도 됩니다)" on={()=>fileIn.current&&fileIn.current.click()}/>
         <Bt t="＋ 그래프" title="그래프 넣기 — 보기 표를 함께 넣고, 표를 고치면 그래프도 바뀝니다" on={addChart}/>
         {onRec&&<Bt t="🎙 녹취" title="메모에 녹취 상자를 띄웁니다. 정지하면 정리본이 그 자리에 들어옵니다" on={onRec}/>}
-        {!mobile&&<Bt t="📥 MD" title="마크다운(.md) 파일을 글상자로 불러옵니다" on={()=>mdIn.current&&mdIn.current.click()}/>}
+        {!mobile&&<Bt t="📥 문서" title="한글(hwp·hwpx)·워드·엑셀·파워포인트·마크다운 파일을 글상자로 불러옵니다" on={()=>mdIn.current&&mdIn.current.click()}/>}
         {!mobile&&<Bt t="📤 MD" title="이 메모를 마크다운(.md) 파일로 저장합니다" on={saveMd}/>}
+        {!mobile&&<Bt t="📤 한글" title="이 메모를 한글(.hwpx) 파일로 저장합니다 — 그림은 빠집니다" on={saveHwpx}/>}
         {onTerms&&<Bt t="🔤 용어 수정" title="잘못 받아쓴 고유명사·용어를 메모 전체에서 한꺼번에 바꿉니다" on={onTerms}/>}
         {busy&&<span style={{fontSize:12,color:/^⚠/.test(busy)?'var(--color-danger)':'var(--text-muted)',marginLeft:6}}>{busy}</span>}
       </div>
@@ -37854,7 +37874,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
     </div>
     <div ref={wrap} className="bd-wrap bd-simple" style={{marginTop:8}} onPaste={onPaste}
       onDragOver={e=>e.preventDefault()} onDrop={e=>{const fs=e.dataTransfer&&e.dataTransfer.files;if(fs&&fs.length&&!editing()){e.preventDefault();
-        const md=[...fs].filter(isMdFile);if(md.length)openMd(md);addImgs(fs);}}}>
+        const md=[...fs].filter(f=>isMdFile(f)||isDocFile(f));if(md.length)openMd(md);addImgs(fs);}}}>
       <div key={main.id} data-bd={main.isNew?undefined:main.id} className={'bd-it bs-main'+(main.isNew?'':boxCls(main))} onFocus={()=>setAct(main.id)} style={main.isNew?undefined:boxStyle(main)}>
         <div className="bs-hd"><b>메모</b><span className="sum">{!main.isNew&&isFold(main)?sumOf(main):''}</span>{!main.isNew&&foldBtn(main)}</div>
         {!(isFold(main)&&!main.isNew)&&<div className="bs-bd"><RichNote docKey={main.id+'|'+docKey} html={main.html||''} compact tbHost={tbHost} active={act===main.id}
@@ -37874,7 +37894,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
     </div>
     {mobile&&<div className="bs-kbar" onMouseDown={x=>x.preventDefault()}>{kindBtns}</div>}
     <input ref={fileIn} type="file" accept="image/*" multiple style={{display:'none'}} onChange={x=>{addImgs(x.target.files);x.target.value='';}}/>
-    <input ref={mdIn} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" multiple style={{display:'none'}} onChange={x=>{openMd(x.target.files);x.target.value='';}}/>
+    <input ref={mdIn} type="file" accept={DOC_ACCEPT} multiple style={{display:'none'}} onChange={x=>{openMd(x.target.files);x.target.value='';}}/>
   </div>;
   return <div>
     <div className="rn-tb" style={{position:'sticky',top:-18,zIndex:3,flexDirection:'column',alignItems:'stretch',gap:0}}>
@@ -37882,8 +37902,9 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
         {seg}<Bt t="＋ 글상자" title="글상자 넣기" on={()=>add('text')}/><Bt t="＋ 표" title="표 넣기 (스프레드시트처럼 편집)" on={()=>add('table')}/>
         <Bt t="＋ 이미지" title="이미지 넣기 (Ctrl+V로 붙여넣어도 됩니다)" on={()=>fileIn.current&&fileIn.current.click()}/>
         <Bt t="＋ 그래프" title="고른 표로 그래프 그리기 (표가 없으면 보기 표를 함께 넣습니다) · 표를 고치면 그래프도 바뀝니다" on={addChart}/>
-        <Bt t="📥 MD" title="마크다운(.md) 파일을 글상자로 불러옵니다 — 여러 개 골라도 됩니다. 마크다운 글을 빈 곳에 붙여넣어도 서식이 살아납니다" on={()=>mdIn.current&&mdIn.current.click()}/>
+        <Bt t="📥 문서" title="한글(hwp·hwpx)·워드·엑셀·파워포인트·마크다운 파일을 글상자로 불러옵니다 — 여러 개 골라도 되고, 끌어다 놓아도 됩니다. 마크다운 글을 빈 곳에 붙여넣어도 서식이 살아납니다" on={()=>mdIn.current&&mdIn.current.click()}/>
         <Bt t="📤 MD" title="이 메모를 마크다운(.md) 파일로 저장합니다" on={saveMd}/>
+        <Bt t="📤 한글" title="이 메모를 한글(.hwpx) 파일로 저장합니다 — 그림은 빠집니다" on={saveHwpx}/>
         {onRec&&<Bt t="🎙 녹취" title="메모에 녹취 상자를 띄웁니다(한국어 받아쓰기 · 영어/일본어/중국어 통역). 그 안에서 녹음하고, 정지하면 정리본이 그 자리에 들어옵니다" on={onRec}/>}
         <span className="sep"/>
         <Bt t="⇤" title="왼쪽 맞춤 (2개 이상 선택)" dis={!many} on={()=>align('left')}/><Bt t="↔" title="가운데 맞춤" dis={!many} on={()=>align('center')}/><Bt t="⇥" title="오른쪽 맞춤" dis={!many} on={()=>align('right')}/>
@@ -37903,7 +37924,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
     <div ref={wrap} className="bd-wrap" tabIndex={0} onPointerDownCapture={e=>{lastPT.current=e.pointerType;}} onMouseDown={onWrapDown} onKeyDown={onKey} onPaste={onPaste} onCopy={onCopy} onCut={onCopy}
       onDragOver={e=>e.preventDefault()} onDrop={e=>{const fs=e.dataTransfer&&e.dataTransfer.files;if(fs&&fs.length&&!editing()){e.preventDefault();
         const b=wrap.current.getBoundingClientRect();last.current={x:e.clientX-b.left+wrap.current.scrollLeft,y:e.clientY-b.top+wrap.current.scrollTop};
-        const md=[...fs].filter(isMdFile);if(md.length)openMd(md);   /* .md 파일도 끌어다 놓으면 글상자로(v2.32.1) */
+        const md=[...fs].filter(f=>isMdFile(f)||isDocFile(f));if(md.length)openMd(md);   /* .md 파일도 끌어다 놓으면 글상자로(v2.32.1) */
         addImgs(fs).finally(()=>{last.current=null;});}}}
       style={{height:H,marginTop:8,outline:'none'}}>
       <div className="bd-pad" style={{position:'relative',width:W||'100%',height:H-2}}/>
@@ -37937,7 +37958,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
       </div>}
     </div>
     <input ref={fileIn} type="file" accept="image/*" multiple style={{display:'none'}} onChange={x=>{addImgs(x.target.files);x.target.value='';}}/>
-    <input ref={mdIn} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" multiple style={{display:'none'}} onChange={x=>{openMd(x.target.files);x.target.value='';}}/>
+    <input ref={mdIn} type="file" accept={DOC_ACCEPT} multiple style={{display:'none'}} onChange={x=>{openMd(x.target.files);x.target.value='';}}/>
   </div>;
 }
 
@@ -40868,7 +40889,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.38.2';
+const APP_VERSION='v2.39';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
