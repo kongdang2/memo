@@ -35746,11 +35746,12 @@ function seedData(){
       {id:uid(),title:'북한산 등산',date:d(5),start:'07:00',end:'12:00',cal:'personal',status:'todo',category:'취미',repeat:'none',notes:'우이령 코스'},
       {id:uid(),title:'카드 결제일',date:y+'-'+m+'-25',start:'',end:'',cal:'personal',status:'todo',category:'생활',repeat:'monthly',notes:''},
       {id:uid(),title:'8월 차이분석 보고서',date:d(-2),start:'',end:'',cal:'work',status:'done',category:'손익추정',repeat:'none',notes:''}
-    ]
+    ],
+    topics:[]
   };
 }
 
-const KINDS=['events'];
+const KINDS=['events','topics'];   /* topics — 주제(위키) 페이지의 정리 글(v2.32) */
 /* 구버전 데이터 보정: 노트 folder→scope, 일정 category·기간, 계정 라벨 정리 */
 function migrateDb(db){
   if(Array.isArray(db.notes))db.notes=db.notes.map(n=>n.scope?n:{...n,scope:(n.folder==='개인'||n.folder==='personal')?'personal':'work'});
@@ -36639,7 +36640,7 @@ function mdInline(t){
     .replace(/~~([^~]+)~~/g,'<s>$1</s>')
     .replace(/\[([^\]]+)\]\(pms:[^)]+\)/g,'$1 (통번역 앱)')
     .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2">$1</a>')
-    .replace(/\[\[([^\]]+)\]\]/g,'$1');
+    ;   /* [[이름]] 은 그대로 둔다 — 주제(위키) 페이지 연결 표시(v2.32) */
 }
 function mdToHtml(md){
   const L=String(md||'').replace(/\r/g,'').split('\n');const out=[];let i=0;
@@ -37259,6 +37260,9 @@ const BD_CSS=`.bd-wrap{position:relative;isolation:isolate;border:1px dashed var
 .bd-tbh{height:38px;overflow:hidden}.bd-tbh .rn-tb{position:static;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;border:none;background:transparent;padding:3px 0;scrollbar-width:thin}.bd-tbh .rn-tb>*{flex:none}
 .bd-mq{position:absolute;border:1px solid #78716c;border-radius:4px;background:rgba(120,113,108,.08);pointer-events:none}`;
 const BD_GRID=10;
+/* 붙여넣은 글이 마크다운처럼 보이면(제목·목록·표·인용) 서식으로 바꿔 넣는다. 맨 위 --- 속성 머리는 뗀다 */
+const MD_LIKE=/^(#{1,4} |\s*[-*] |\s*\d+[.)] |\s*\|.*\|\s*$|> )/m;
+const mdBody=t=>String(t||'').replace(/^\uFEFF/,'').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/,'');
 let BD_CLIP=null;   /* 마지막으로 복사한 상자들 — 브라우저가 붙여넣기 HTML의 표시를 지워도 알아보게 */
 const bdText=items=>(items||[]).filter(i=>i.type!=='img'&&i.type!=='chart'&&i.type!=='rec').slice().sort((a,b)=>a.y-b.y||a.x-b.x).map(i=>htmlToText(i.html||'')).filter(Boolean).join('\n');
 const bdGridHtml=(g,head)=>'<table><tbody>'+g.map((r,i)=>'<tr>'+r.map(v=>{const t=head&&i===0?'th':'td';return '<'+t+'>'+(v?escH(v).replace(/\n/g,'<br>'):'<br>')+'</'+t+'>';}).join('')+'</tr>').join('')+'</tbody></table>';
@@ -37568,7 +37572,7 @@ function BdImg({it}){
   React.useEffect(()=>{const im=ref.current;if(im&&it.path)Files.url(it.path).then(u=>{im.src=u;}).catch(()=>{im.alt='⚠ 이미지를 불러오지 못했습니다';});},[it.path]);
   /* ar(가로/세로) — 그림을 다 받기 전에도 제 높이를 차지해, 새 상자를 맨 위에 쌓을 때 아래 상자와 겹치지 않게(v2.29.1) */
   return <div className="bd-img"><img ref={ref} alt="" style={it.ar&&!it.h?{aspectRatio:String(it.ar)}:undefined}/></div>;}
-function MemoBoard({docKey,board,onChange,onTerms,onRec}){
+function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
   const items=(board&&board.items)||[];
   const [sel,setSel]=React.useState([]);const [act,setAct]=React.useState(null);const [snap,setSnap]=React.useState(true);
   const [mq,setMq]=React.useState(null);const [busy,setBusy]=React.useState('');const [tbHost,setTbHost]=React.useState(null);const [bottom,setBottom]=React.useState(0);
@@ -37576,7 +37580,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
   React.useEffect(()=>{if(!ctx)return;const off=x=>{if(!(x.target.closest&&x.target.closest('.bd-ctx')))setCtx(null);};const k=x=>{if(x.key==='Escape')setCtx(null);};
     document.addEventListener('mousedown',off,true);document.addEventListener('keydown',k,true);window.addEventListener('blur',()=>setCtx(null),{once:true});
     return()=>{document.removeEventListener('mousedown',off,true);document.removeEventListener('keydown',k,true);};},[ctx]);
-  const wrap=React.useRef(null);const fileIn=React.useRef(null);const last=React.useRef(null);
+  const wrap=React.useRef(null);const fileIn=React.useRef(null);const mdIn=React.useRef(null);const last=React.useRef(null);
   const itemsRef=React.useRef(items);itemsRef.current=items;const boardRef=React.useRef(board);boardRef.current=board;
   React.useEffect(()=>{if(!document.getElementById('bd-css')){const s=document.createElement('style');s.id='bd-css';s.textContent=BD_CSS+SHEET_CSS;document.head.appendChild(s);}
     if(!document.getElementById('rn-css')){const s=document.createElement('style');s.id='rn-css';s.textContent=RN_CSS+SHEET_CSS;document.head.appendChild(s);}},[]);
@@ -37640,8 +37644,9 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
       else if(rz)commitLive(base.map(i=>{if(i.id!==id)return i;const d=rz.d;
         let w=rz.w,h=rz.h;if(d.includes('e'))w=rz.w+dx;if(d.includes('w'))w=rz.w-dx;if(d.includes('s'))h=rz.h+dy;if(d.includes('n'))h=rz.h-dy;
         w=Math.max(60,sn(w));h=Math.max(rz.minH,sn(h));
-        if(rz.img&&d.length===2)h=Math.max(30,Math.round(w*rz.h/rz.w));
-        const o={...i,w};if(rz.img?d.length===2||/[ns]/.test(d):/[ns]/.test(d))o.h=h;
+        /* 이미지는 어느 손잡이로 늘려도 가로세로 비율을 지킨다(v2.32) — 위·아래 손잡이는 너비도, 좌·우 손잡이는 높이도 함께 */
+        if(rz.img){if(d==='n'||d==='s')w=Math.max(60,Math.round(h*rz.w/rz.h));h=Math.max(30,Math.round(w*rz.h/rz.w));}
+        const o={...i,w};if(rz.img||/[ns]/.test(d))o.h=h;
         if(d.includes('w'))o.x=Math.max(0,rz.x+rz.w-w);if(d.includes('n'))o.y=Math.max(0,rz.y+rz.h-h);return o;}));
       else{const x0=sx-box.left+wrap.current.scrollLeft,y0=sy-box.top+wrap.current.scrollTop;const x1=x0+dx,y1=y0+dy;
         const r={x:Math.min(x0,x1),y:Math.min(y0,y1),w:Math.abs(dx),h:Math.abs(dy)};setMq(r);
@@ -37706,7 +37711,14 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
     if(grid&&(grid.length>1||grid[0].length>1)){e.preventDefault();const cols=Math.max(...grid.map(r=>r.length));
       add('table',{html:bdGridHtml(grid.map(r=>{const x=r.slice();while(x.length<cols)x.push('');return x;})),w:Math.min(900,Math.max(240,cols*110))});return;}
     if(h){e.preventDefault();add('text',{html:rnClean(h,false)});return;}
-    const t=cd.getData('text/plain');if(t&&t.trim()){e.preventDefault();add('text',{html:'<p>'+escH(t).replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>')+'</p>'});}};
+    const t=cd.getData('text/plain');if(t&&t.trim()&&MD_LIKE.test(t)){e.preventDefault();add('text',{html:mdToHtml(mdBody(t)),w:640});return;}
+    if(t&&t.trim()){e.preventDefault();add('text',{html:'<p>'+escH(t).replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>')+'</p>'});}};
+  /* 마크다운 읽기·쓰기(v2.32) — .md 파일을 글상자로 불러오고, 메모를 .md 로 저장한다(그림은 pms: 주소로 남아 다시 불러오면 그대로 보인다) */
+  const openMd=async files=>{for(const f of [...files]){try{const t=await f.text();if(!t.trim())continue;
+      add('text',{html:mdToHtml(mdBody(t)),w:640});}catch(x){setBusy('⚠ '+f.name+' 를 읽지 못했습니다');}}};
+  const saveMd=()=>{const md=boardToMd(itemsRef.current);if(!md.trim()){setBusy('⚠ 저장할 메모가 없습니다');setTimeout(()=>setBusy(''),2500);return;}
+    const u=URL.createObjectURL(new Blob([(name?'# '+name+'\n\n':'')+md+'\n'],{type:'text/markdown;charset=utf-8'}));const a=document.createElement('a');a.href=u;
+    a.download=String(name||'메모').replace(/[\\/:*?"<>|]+/g,' ').trim().slice(0,80)+'.md';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},1500);};
   const H=Math.max(420,bottom+160,...shown.map(i=>i.stk?0:i.y+80));const W=Math.max(0,...shown.map(i=>i.x+i.w+40));
   const Bt=({t,on,title,dis})=><button type="button" title={title} disabled={dis} onMouseDown={x=>x.preventDefault()} onClick={on} style={dis?{opacity:.35,cursor:'default'}:undefined}>{t}</button>;
   const many=sel.length>1;const actIt=shown.find(i=>i.id===act&&i.type!=='img');
@@ -37716,6 +37728,8 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
         <Bt t="＋ 글상자" title="글상자 넣기" on={()=>add('text')}/><Bt t="＋ 표" title="표 넣기 (스프레드시트처럼 편집)" on={()=>add('table')}/>
         <Bt t="＋ 이미지" title="이미지 넣기 (Ctrl+V로 붙여넣어도 됩니다)" on={()=>fileIn.current&&fileIn.current.click()}/>
         <Bt t="＋ 그래프" title="고른 표로 그래프 그리기 (표가 없으면 보기 표를 함께 넣습니다) · 표를 고치면 그래프도 바뀝니다" on={addChart}/>
+        <Bt t="📥 MD" title="마크다운(.md) 파일을 글상자로 불러옵니다 — 여러 개 골라도 됩니다. 마크다운 글을 빈 곳에 붙여넣어도 서식이 살아납니다" on={()=>mdIn.current&&mdIn.current.click()}/>
+        <Bt t="📤 MD" title="이 메모를 마크다운(.md) 파일로 저장합니다" on={saveMd}/>
         {onRec&&<Bt t="🎙 녹취" title="메모에 녹취 상자를 띄웁니다(한국어 받아쓰기 · 영어/일본어/중국어 통역). 그 안에서 녹음하고, 정지하면 정리본이 그 자리에 들어옵니다" on={onRec}/>}
         <span className="sep"/>
         <Bt t="⇤" title="왼쪽 맞춤 (2개 이상 선택)" dis={!many} on={()=>align('left')}/><Bt t="↔" title="가운데 맞춤" dis={!many} on={()=>align('center')}/><Bt t="⇥" title="오른쪽 맞춤" dis={!many} on={()=>align('right')}/>
@@ -37771,6 +37785,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
       </div>}
     </div>
     <input ref={fileIn} type="file" accept="image/*" multiple style={{display:'none'}} onChange={x=>{addImgs(x.target.files);x.target.value='';}}/>
+    <input ref={mdIn} type="file" accept=".md,.markdown,.txt,text/markdown,text/plain" multiple style={{display:'none'}} onChange={x=>{openMd(x.target.files);x.target.value='';}}/>
   </div>;
 }
 
@@ -39553,9 +39568,6 @@ function LinkRows({e,setE,toast,links}){
         <div style={{fontSize:11,color:'var(--text-muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{(m&&m.s)||host}{m&&m.t?' · '+l.replace(/^https?:\/\/(www\.)?/,'').slice(0,50):''}{m&&m.x?' · 제목 못 읽음':''}{m&&m.d&&open[l]?<><br/>{m.d}</>:''}</div></a>
       {m&&m.d&&<button type="button" onClick={()=>setOpen(o=>({...o,[l]:!o[l]}))} title="설명 보기" style={{border:'none',background:'transparent',cursor:'pointer',color:'var(--text-muted)',padding:0}}>{open[l]?'▾':'▸'}</button>}
       {(!m||m.x)&&Store.mode==='supabase'&&<button type="button" onClick={()=>fetchMeta([l],true)} title="제목 읽어 오기" style={{border:'none',background:'transparent',cursor:'pointer',color:'var(--text-muted)',padding:0}}>↻</button>}
-      {busy&&cur===l?<span style={{fontSize:'var(--fs-sm2)',color:'var(--text-muted)',whiteSpace:'nowrap'}}>⏳ {busy}</span>
-        :<Button size="xs" variant="ghost" disabled={!!busy} onClick={()=>digest(l)}
-          title="이 링크의 내용을 회의록처럼 정리하고 장면 캡처·사진을 넣어 아래 메모에 붙입니다(유튜브는 제미나이가 영상을 직접 보고, 정리는 Claude)">{isYt(l)?'▶ 영상 정리':'📄 글 정리'}</Button>}
     </div>;})}
     {err&&<span style={{fontSize:'var(--fs-sm)',color:'var(--color-danger)'}}>⚠ {err}</span>}
   </div>;}
@@ -39626,6 +39638,78 @@ const evColor=e=>catColor(e&&e.category)||'#4E82AE';
 const weekStart=iso=>{const d=new Date(iso+'T00:00:00');return shiftDay(iso,-d.getDay());};
 
 
+/* ── 📚 주제(위키) 페이지(v2.32) — 메모에 [[이름]] 이나 #태그 를 쓰면 그 주제 페이지에 관련 메모 줄이 날짜순으로 모인다.
+   주제마다 「정리」 글(위키 본문)을 따로 쓸 수 있다 — db.topics {id,title(=주제 이름),html,updated} ── */
+const TOPIC_RE=/\[\[([^\[\]\n|]{1,40})(?:\|[^\]\n]*)?\]\]|(^|[\s(（,·])#([가-힣A-Za-z][0-9A-Za-z가-힣_\-·]{0,29})/g;
+const topicKey=s=>String(s||'').trim().replace(/\s+/g,' ').toLowerCase();
+/* 글 한 덩어리에서 주제 이름들 */
+function topicsIn(text){const out=[];let m;TOPIC_RE.lastIndex=0;const t=String(text||'');
+  while((m=TOPIC_RE.exec(t))){const n=(m[1]||m[3]||'').trim().replace(/[-·]+$/,'');if(n)out.push(n);}return out;}
+/* 일정의 메모 → 줄 단위 [{line, topics}] (주제가 있는 줄만) */
+function topicLines(e){const out=[];
+  topicsIn(e.title).length&&out.push({line:e.title,topics:topicsIn(e.title),title:true});
+  (boardOf(e).items||[]).filter(i=>i.html&&i.type!=='rec').slice().sort((a,b)=>a.y-b.y||a.x-b.x).forEach(i=>{
+    htmlToText(i.html).split('\n').forEach(l=>{const tp=topicsIn(l);if(tp.length)out.push({line:l.trim(),topics:tp});});});
+  return out;}
+/* 모든 주제 → {key,name,refs:[{e,lines}],note,last} */
+function topicIndex(events,notes){const map=new Map();
+  const get=n=>{const k=topicKey(n);if(!map.has(k))map.set(k,{key:k,name:n,refs:[],note:null,last:''});return map.get(k);};
+  (events||[]).forEach(e=>{const by=new Map();topicLines(e).forEach(x=>x.topics.forEach(n=>{const k=topicKey(n);if(!by.has(k))by.set(k,{n,lines:[]});const b=by.get(k);if(!b.lines.includes(x.line))b.lines.push(x.line);}));
+    by.forEach(({n,lines})=>{const t=get(n);t.refs.push({e,lines});if((e.date||'')>t.last)t.last=e.date||'';});});
+  (notes||[]).forEach(nt=>{if(!nt||!nt.title)return;const t=get(nt.title);t.note=nt;t.name=nt.title;const u=String(nt.updated||'').slice(0,10);if(u>t.last)t.last=u;});
+  map.forEach(t=>t.refs.sort((a,b)=>String(b.e.date).localeCompare(String(a.e.date))));
+  return map;}
+function topicMark(line,name){const k=topicKey(name);const parts=[];let last=0,m;TOPIC_RE.lastIndex=0;
+  while((m=TOPIC_RE.exec(line))){const n=(m[1]||m[3]||'').trim().replace(/[-·]+$/,'');const s=m.index+(m[2]||'').length;
+    parts.push(line.slice(last,s));parts.push(<mark key={s} style={{background:topicKey(n)===k?'#fde68a':'#eef2ff',color:topicKey(n)===k?'inherit':'#3730a3',borderRadius:3,padding:'0 2px'}}>{line.slice(s,m.index+m[0].length)}</mark>);last=m.index+m[0].length;}
+  parts.push(line.slice(last));return parts;}
+function TopicChip({name,n,on,onClick}){return <button type="button" onClick={onClick}
+  style={{border:'1px solid '+(on?'#1d4ed8':'var(--border-default)'),background:on?'#1d4ed8':'#eff6ff',color:on?'#fff':'#1d4ed8',borderRadius:12,padding:'2px 9px',fontSize:'var(--fs-sm)',cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>
+  # {name}{n!=null?<span style={{opacity:.7,marginLeft:4}}>{n}</span>:null}</button>;}
+function WikiView({db,setDb,topic,setTopic,onOpen,mobile}){
+  const {Button}=window.HDWorkbookDesignSystem_ad60e4;
+  const idx=React.useMemo(()=>topicIndex(db.events,db.topics),[db.events,db.topics]);
+  const [q,setQ]=React.useState('');
+  const list=[...idx.values()].filter(t=>!q.trim()||t.key.includes(topicKey(q))).sort((a,b)=>String(b.last).localeCompare(String(a.last))||a.name.localeCompare(b.name));
+  const cur=topic?idx.get(topicKey(topic))||{key:topicKey(topic),name:topic,refs:[],note:null}:null;
+  const saveNote=html=>setDb('topics',arr=>{const k=topicKey(cur.name);const old=(arr||[]).find(x=>topicKey(x.title)===k);
+    if(old)return arr.map(x=>x===old?{...x,html,updated:nowStamp()}:x);return [...(arr||[]),{id:uid(),title:cur.name,html,updated:nowStamp()}];});
+  const addNew=()=>{const n=q.trim().replace(/^#|^\[\[|\]\]$/g,'').trim();if(!n)return;setTopic(n);setQ('');};
+  const co=cur?(()=>{const m=new Map();cur.refs.forEach(r=>topicLines(r.e).forEach(x=>x.topics.forEach(n=>{const k=topicKey(n);if(k!==cur.key)m.set(k,{name:n,c:((m.get(k)||{}).c||0)+1});})));
+    return [...m.values()].sort((a,b)=>b.c-a.c).slice(0,12);})():[];
+  const side=<div style={{width:mobile?'100%':240,flex:'none',borderRight:mobile?'none':'1px solid var(--border-default)',paddingRight:mobile?0:12}}>
+    <div style={{display:'flex',gap:6,marginBottom:8}}>
+      <input type="search" value={q} onChange={x=>setQ(x.target.value)} onKeyDown={x=>{if(x.key==='Enter'&&q.trim()&&!list.some(t=>t.key===topicKey(q)))addNew();}} placeholder="주제 찾기 · 새 주제 이름"
+        style={{...inputStyle,flex:1,padding:'4px 8px',fontSize:'var(--fs-sm2)'}}/>
+      {q.trim()&&!list.some(t=>t.key===topicKey(q))&&<Button size="xs" onClick={addNew}>＋ 만들기</Button>}</div>
+    {!list.length&&<div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',lineHeight:1.7,padding:'6px 2px'}}>아직 주제가 없습니다.<br/>메모에 <b>[[거래처 이름]]</b>이나 <b>#태그</b>를 쓰면 여기에 주제가 생기고, 그 줄이 주제 페이지에 모입니다.</div>}
+    <div style={{display:'grid',gap:1}}>{list.map(t=><button key={t.key} type="button" onClick={()=>setTopic(t.name)}
+      style={{display:'flex',alignItems:'center',gap:6,border:'none',textAlign:'left',padding:'6px 8px',borderRadius:6,cursor:'pointer',fontFamily:'inherit',fontSize:'var(--fs-base)',
+        background:cur&&cur.key===t.key?'var(--surface-active)':'transparent',color:'var(--text-body)'}}>
+      <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}># {t.name}</span>
+      <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',fontFamily:'var(--font-num)'}}>{t.refs.length||''}{t.note?' ✎':''}</span></button>)}</div></div>;
+  const page=cur&&<div style={{flex:1,minWidth:0}}>
+    {mobile&&<Button variant="ghost" size="xs" onClick={()=>setTopic('')}>◂ 주제 목록</Button>}
+    <h2 style={{margin:'4px 0 2px',fontSize:22,color:'#1F3A5F'}}># {cur.name}</h2>
+    <div style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)',marginBottom:10}}>관련 일정 {cur.refs.length}건{cur.last?' · 최근 '+cur.last:''} · 메모에 <code>[[{cur.name}]]</code> 또는 <code>#{cur.name.replace(/\s/g,'_')}</code> 로 걸 수 있습니다</div>
+    <div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',fontWeight:600,margin:'8px 0 4px'}}>✎ 정리 <span style={{fontWeight:400}}>— 이 주제에 대해 알아 둘 것(담당자·현황·결정 요약 등)을 자유롭게 적으세요</span></div>
+    <div style={{border:'1px solid var(--border-default)',borderRadius:8,padding:'4px 8px',background:'#fff'}}>
+      <RichNote docKey={'topic:'+cur.key} html={(cur.note&&cur.note.html)||''} compact placeholder="이 주제의 정리 글" onChange={h=>{if(h!==((cur.note&&cur.note.html)||''))saveNote(h);}}/></div>
+    {co.length>0&&<div style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center',margin:'12px 0 4px'}}><span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>같이 나온 주제</span>
+      {co.map(c=><TopicChip key={c.name} name={c.name} n={c.c} onClick={()=>setTopic(c.name)}/>)}</div>}
+    <div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',fontWeight:600,margin:'16px 0 6px'}}>🗓 관련 메모 (최근 순)</div>
+    {!cur.refs.length&&<div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>아직 이 주제를 건 메모가 없습니다.</div>}
+    <div style={{display:'grid',gap:8}}>{cur.refs.map(r=><div key={r.e.id} style={{border:'1px solid var(--border-default)',borderRadius:8,padding:'8px 12px',background:'#fff'}}>
+      <div style={{display:'flex',gap:8,alignItems:'baseline',flexWrap:'wrap'}}>
+        <span style={{fontFamily:'var(--font-num)',fontSize:'var(--fs-sm2)',color:'var(--text-muted)'}}>{r.e.date}{r.e.start?' '+r.e.start:''}</span>
+        <button type="button" onClick={()=>onOpen(r.e)} style={{border:'none',background:'none',padding:0,cursor:'pointer',fontFamily:'inherit',fontWeight:600,fontSize:'var(--fs-base)',color:'#1d4ed8',textAlign:'left'}} title="이 일정 열기">{r.e.title||'제목 없음'}</button>
+        {r.e.category&&<CatTag cat={r.e.category}/>}</div>
+      <ul style={{margin:'6px 0 0',paddingLeft:18,fontSize:'var(--fs-base)',lineHeight:1.6}}>{r.lines.map((l,i)=><li key={i}>{topicMark(l,cur.name)}</li>)}</ul></div>)}</div></div>;
+  return <div style={{display:'flex',flexDirection:mobile?'column':'row',gap:16,alignItems:'flex-start',padding:'4px 0'}}>
+    {(!mobile||!cur)&&side}
+    {cur?page:!mobile&&<div style={{flex:1,color:'var(--text-label)',fontSize:'var(--fs-base)',lineHeight:1.8,padding:'20px 8px'}}>
+      왼쪽에서 주제를 고르세요.<br/>메모 아무 곳에나 <b>[[대한유화]]</b>, <b>[[EP 확대]]</b>처럼 이름을 대괄호 두 겹으로 감싸거나 <b>#판가협상</b>처럼 태그를 붙이면, 그 줄이 해당 주제 페이지에 날짜순으로 모입니다.</div>}
+  </div>;}
 function CalendarView({db,setDb,st,set,toast,slots}){
   window.pmsEvents=()=>db.events||[];
   /* @멘션 꼬리표를 누르면 그 일정(또는 그 날짜)을 연다 */
@@ -39668,12 +39752,14 @@ function CalendarView({db,setDb,st,set,toast,slots}){
   const moveEvent=(id,patch)=>{const e=db.events.find(x=>x.id===id);if(!e)return;
     if(Object.keys(patch).every(k=>e[k]===patch[k]))return;
     save({...e,...patch});toast('『'+(e.title||'제목 없음')+'』 → '+(patch.date||e.date)+(patch.start?' '+patch.start:patch.start===''?' 종일':''));};
+  /* 일정 창의 주제 꼬리표를 누르면 그 주제 페이지로(v2.32) */
+  React.useEffect(()=>{const h=x=>set({edit:null,view:'wiki',topic:x.detail,q:''});window.addEventListener('pms-topic',h);return()=>window.removeEventListener('pms-topic',h);},[]);
   const step=n=>{const d=new Date(anchor+'T00:00:00');if(sub==='week')d.setDate(d.getDate()+7*n);else d.setMonth(d.getMonth()+n);set({anchor:isoDate(d)});};
-  const label=view==='list'?'목록':sub==='week'?weekStart(anchor)+' 주':anchor.slice(0,4)+'년 '+Number(anchor.slice(5,7))+'월';
+  const label=view==='wiki'?'주제':view==='list'?'목록':sub==='week'?weekStart(anchor)+' 주':anchor.slice(0,4)+'년 '+Number(anchor.slice(5,7))+'월';
   /* 보기: 월간 · 주간 · 목록 — 위쪽 세션 줄에 둔다 */
-  const cur=view==='list'?'list':sub==='week'?'week':'month';
+  const cur=view==='wiki'?'wiki':view==='list'?'list':sub==='week'?'week':'month';
   const seg=<span style={{display:'inline-flex',border:'1px solid var(--border-strong)',borderRadius:6,padding:2,gap:2}}>
-    {[['month','월간'],['week','주간'],['list','목록']].map(([k,l])=><button key={k} type="button" onClick={()=>set(k==='list'?{view:'list'}:{view:'month',sub:k})} style={{border:'none',borderRadius:4,padding:'2px 10px',fontSize:'var(--fs-sm2)',fontWeight:cur===k?600:500,background:cur===k?'var(--surface-active)':'transparent',color:cur===k?'var(--text-body)':'var(--text-muted)',cursor:'pointer',fontFamily:'inherit'}}>{l}</button>)}</span>;
+    {[['month','월간'],['week','주간'],['list','목록'],['wiki','📚 주제']].map(([k,l])=><button key={k} type="button" onClick={()=>set(k==='list'||k==='wiki'?{view:k}:{view:'month',sub:k})} style={{border:'none',borderRadius:4,padding:'2px 10px',fontSize:'var(--fs-sm2)',fontWeight:cur===k?600:500,background:cur===k?'var(--surface-active)':'transparent',color:cur===k?'var(--text-body)':'var(--text-muted)',cursor:'pointer',fontFamily:'inherit'}}>{l}</button>)}</span>;
   const nav=view==='month'&&<span style={{display:'inline-flex',alignItems:'center',gap:2}}><Button variant="ghost" size="xs" onClick={()=>step(-1)}>◂</Button><Button variant="ghost" size="xs" onClick={()=>set({anchor:today})}>오늘</Button><Button variant="ghost" size="xs" onClick={()=>step(1)}>▸</Button></span>;
   const q=(st.q||'').trim().toLowerCase();
   const hits=q?db.events.filter(e=>[e.title,e.notes,e.boardText,e.links,e.category,e.minutes].some(t=>(t||'').toLowerCase().includes(q)))
@@ -39682,6 +39768,8 @@ function CalendarView({db,setDb,st,set,toast,slots}){
     style={{...inputStyle,width:mobile?150:200,padding:'3px 8px',fontSize:'var(--fs-sm2)'}}/>;
   const body=q
     ? <SearchResults hits={hits} q={q} onOpen={e=>set({edit:e})}/>
+    : view==='wiki'
+    ? <WikiView db={db} setDb={setDb} topic={st.topic||''} setTopic={t=>set({topic:t})} onOpen={e=>set({edit:e})} mobile={mobile}/>
     : view==='list'
     ? <ListView events={events} categories={categories} st={st} set={set} onOpen={e=>set({edit:e})} onNotes={(e,notes)=>save({...e,notes})}/>
     : sub==='week'
@@ -40272,8 +40360,11 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
           return refs.length>0&&<PRow icon="↩" label="언급한 곳" top><div style={{display:'flex',flexWrap:'wrap',gap:6}}>
             {refs.map(x=><button key={x.id} type="button" onClick={()=>window.dispatchEvent(new CustomEvent('pms-open',{detail:{id:x.id}}))} title="이 일정을 @멘션한 일정 열기"
               style={{border:'1px solid var(--border-default)',background:'#eff6ff',color:'#1d4ed8',borderRadius:4,padding:'2px 8px',fontSize:'var(--fs-sm)',cursor:'pointer',fontFamily:'inherit'}}>@{x.title} · {x.date}</button>)}</div></PRow>;})()}
+        {(()=>{const ts=[...new Map(topicLines(e).flatMap(x=>x.topics).map(n=>[topicKey(n),n])).values()];
+          return ts.length>0&&<PRow icon="📚" label="주제" top><div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+            {ts.map(n=><TopicChip key={n} name={n} onClick={()=>{Promise.resolve(close()).then(()=>window.dispatchEvent(new CustomEvent('pms-topic',{detail:n})));}}/>)}</div></PRow>;})()}
         <div style={{marginTop:16,fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>📝 메모 <span style={{fontSize:11}}>· 글상자·표·이미지를 끌어 자유롭게 배치 · 엑셀 범위는 빈 곳에 Ctrl+V · 글에서 @로 다른 일정 연결</span></div>
-        <MemoBoard docKey={e.id+':'+rev} onTerms={()=>setTerms(true)} onRec={startRec} board={boardOf(e)} onChange={(b,txt)=>setE(p=>({...p,board:b,boardText:txt,notes:txt}))}/>
+        <MemoBoard docKey={e.id+':'+rev} name={e.title} onTerms={()=>setTerms(true)} onRec={startRec} board={boardOf(e)} onChange={(b,txt)=>setE(p=>({...p,board:b,boardText:txt,notes:txt}))}/>
       </div>
       <div className="ev-foot" style={{padding:'10px 14px',borderTop:'1px solid var(--border-default)',display:'flex',alignItems:'center',justifyContent:'flex-end',gap:6,flexWrap:'wrap'}}>
         <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',marginRight:'auto'}}>{!(e.title||'').trim()?'제목을 넣으면 자동 저장됩니다':savedAt?'✓ 자동 저장됨 · '+savedAt:'입력하면 자동 저장됩니다'}</span>
@@ -40290,7 +40381,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.31';
+const APP_VERSION='v2.32';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
@@ -40382,9 +40473,9 @@ function useNotifications(db,goto){
 function usePushPlan(events){
   React.useEffect(()=>{if(!events||!Push.on)return;const t=setTimeout(()=>Push.plan(events),5000);return()=>clearTimeout(t);},[events]);
 }
-const KINDS_COUNT=d=>({events:(d.events||[]).length});
+const KINDS_COUNT=d=>({events:(d.events||[]).length,topics:(d.topics||[]).length});
 const UNDO_MAX=30;
-const KIND_LABEL={events:'일정'};
+const KIND_LABEL={events:'일정',topics:'주제'};
 function CalApp(){
   const [user,setUser]=React.useState(undefined);
   React.useEffect(()=>{Store.init().then(u=>setUser(u||null));},[]);
