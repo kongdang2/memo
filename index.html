@@ -36263,10 +36263,11 @@ const Notify={
 /* ── 푸시 알림(v2.30) — 앱을 닫아도 휴대폰·PC로 오는 알림 ──
    이 기기를 구독(push_sub)해 두고, 앞으로 3주 동안 알릴 것(push_plan)을 앱이 계산해 올린다.
    서버의 Edge Function 'pushcron' 이 1분마다 시각이 된 것을 보낸다(서비스 워커 sw.js 가 받아 띄운다).
-   공개 키만 여기 둔다 — 짝이 되는 비밀 키는 Supabase Secrets(VAPID_PRIVATE_KEY)에만 있다 */
-const PUSH_PUBLIC_KEY='BP29RvIwGeEaxbRfsHpWxSwzJar7ZMlYKT3NUKdOu4pX_bqSaTa4V50C2LWO3dWaxKMU450IIJo5Pg1ftOhqq1Y';
+   알림 서명 키는 서버 함수가 만들어 갖고 있고, 앱은 공개 키만 받아 온다(v2.30.1) */
 const PUSH_DAYS=21;
 const PUSH_CRON_SQL=`-- 1분마다 푸시 알림 보내기(pushcron) — 한 번만 실행
+create table if not exists push_vapid (id int primary key, pub text not null, priv text not null);
+alter table push_vapid enable row level security;
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
 select cron.unschedule('pms-push') where exists (select 1 from cron.job where jobname='pms-push');
@@ -36280,6 +36281,9 @@ const b64uBytes=s=>{const b=atob(s.replace(/-/g,'+').replace(/_/g,'/')+'==='.sli
 const Push={
   supported(){return 'serviceWorker' in navigator&&'PushManager' in window&&typeof Notification!=='undefined';},
   get on(){try{return localStorage.getItem('cal.push')==='1';}catch(_){return false;}},
+  async key(){const u=(Store.cfg.supabaseUrl||'').replace(/\/$/,'');if(!u)throw new Error('클라우드 주소가 없습니다');
+    let r;try{r=await fetch(u+'/functions/v1/pushcron?key=1');}catch(_){throw new Error('알림 서버(pushcron)에 닿지 못했습니다');}
+    const j=await r.json().catch(()=>({}));if(!r.ok||!j.key)throw new Error('알림 서버가 아직 준비되지 않았습니다'+(j.error?' — '+j.error:''));return j.key;},
   async reg(){if(!this.supported())throw new Error('이 브라우저는 푸시 알림을 지원하지 않습니다(아이폰은 홈 화면에 추가한 앱에서만 됩니다)');
     return await Promise.race([navigator.serviceWorker.ready,new Promise((_,no)=>setTimeout(()=>no(new Error('서비스 워커가 준비되지 않았습니다 — https 주소로 열었는지 확인하세요')),8000))]);},
   async current(){try{return await (await this.reg()).pushManager.getSubscription();}catch(_){return null;}},
@@ -36288,7 +36292,7 @@ const Push={
     if(Store.mode!=='supabase'||!Store.user)throw new Error('푸시 알림은 클라우드에 로그인해야 쓸 수 있습니다');
     await Notify.ask();const r=await this.reg();
     let sub=await r.pushManager.getSubscription();
-    const key=b64uBytes(PUSH_PUBLIC_KEY);
+    const key=b64uBytes(await this.key());
     if(sub){const k=sub.options&&sub.options.applicationServerKey;if(k&&new Uint8Array(k).join()!==key.join()){await sub.unsubscribe();sub=null;}}
     if(!sub)sub=await r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
     const {error}=await Store.sb.from('pms_items').upsert({user_id:Store.user.id,kind:'push_sub',item_id:this.rowId(sub),
@@ -40115,7 +40119,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.30';
+const APP_VERSION='v2.30.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
