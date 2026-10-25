@@ -37122,9 +37122,9 @@ function RichNote({docKey,html,onChange,placeholder,tbHost,active,compact}){
    · 방향키로 1px(Shift 10px) 옮기기, 격자(10px) 맞춤
    저장: 일정의 board = {items:[{id,type:'text'|'table'|'img',x,y,w,h?,z,html|path,grp?}],merged} + boardText(검색용)
    옛 문서 메모(notesHtml)·회의록(minutes)은 처음 열 때 보드의 글상자로 옮겨 보인다(boardOf) */
-const BD_CSS=`.bd-wrap{position:relative;border:1px dashed var(--border-strong);border-radius:6px;background:#fff;
+const BD_CSS=`.bd-wrap{position:relative;isolation:isolate;border:1px dashed var(--border-strong);border-radius:6px;background:#fff;
   background-image:radial-gradient(#e7e5e4 1px,transparent 1px);background-size:20px 20px;overflow-x:auto;overflow-y:hidden}
-.bd-it{position:absolute;box-sizing:border-box;border:1px solid #ecebe8;border-radius:10px;background:#fff;padding:2px;
+.bd-it{position:absolute;box-sizing:border-box;scroll-margin-top:130px;border:1px solid #ecebe8;border-radius:10px;background:#fff;padding:2px;
   box-shadow:0 1px 2px rgba(28,25,23,.05);transition:box-shadow .15s,border-color .15s}
 .bd-it:hover{border-color:#e2e0dc;box-shadow:0 4px 14px rgba(28,25,23,.08)}
 .bd-it.on{border-color:#57534e;box-shadow:0 8px 22px rgba(28,25,23,.12)}
@@ -37210,7 +37210,7 @@ const boardToMdMarked=items=>{const s=(items||[]).slice().sort((a,b)=>a.y-b.y||a
     if(tb&&tb!==last){k++;out.push('〔기록 '+k+'〕');}else if(!tb&&i.type==='text'&&i.grp!=='minutes')out.push('〔상자〕');
     last=tb;out.push(md);});
   return {md:out.join('\n\n'),n:k};};
-/* 새 상자들을 보드 맨 아래에 차례로 쌓는다 — 실제 높이는 화면에 그린 뒤 MemoBoard 가 재서 맞춘다(stk) */
+/* 새 상자들을 보드 맨 위에 차례로 쌓는다(v2.29 — 전에는 맨 아래) — 실제 높이는 화면에 그린 뒤 MemoBoard 가 재서 맞춘다(stk) */
 const bdAppend=(board,news)=>{const items=(board&&board.items)||[];const tag='s'+Date.now().toString(36);
   return {...(board||{}),items:[...items,...news.map((n,k)=>({id:uid(),x:20,y:100000+k*10,w:680,z:0,type:'text',...n,stk:tag,ord:k}))]};};
 /* 🎙 녹취 상자(src 'tbwait:…')는 통번역이 그 뒤에 내보낸 정리본(tbrec)이 들어오면 지운다 — seen 은 녹취를 시작할 때 이미 있던 통번역 상자들 */
@@ -37498,25 +37498,28 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
   /* 화면에 그린 실제 크기로 맨 아래 위치를 잰다 */
   const measureBottom=except=>{let m=0;if(!wrap.current)return 0;
     wrap.current.querySelectorAll('[data-bd]').forEach(el=>{if(except&&except.has(el.getAttribute('data-bd')))return;m=Math.max(m,el.offsetTop+el.offsetHeight);});return m;};
-  /* 새로 넣은 묶음(stk) — 실제 높이를 재서 위에서부터 차례로 쌓는다 */
+  /* 새로 넣은 묶음(stk) — 실제 높이를 재서 보드 맨 위에 차례로 쌓고, 원래 있던 상자들은 그만큼 아래로 내린다(v2.29, hong — 새로 넣은 것을 바로 보게) */
   React.useEffect(()=>{
     const groups=[...new Set(items.filter(i=>i.stk).map(i=>i.stk))];
     if(!groups.length){setBottom(measureBottom());return;}
     /* v2.27.1: 묶음이 여러 개(통번역에서 여러 건을 한꺼번에 보냄)면 앞 묶음 바로 밑에 이어 쌓는다 — 아직 자리 잡지 않은 상자(맨 위에 숨어 있음)는 바닥 계산에서 뺀다 */
     const t=requestAnimationFrame(()=>{let arr=itemsRef.current.slice();
-      const pend=new Set(arr.filter(i=>i.stk).map(i=>i.id));let bot=measureBottom(pend);
-      groups.forEach(g=>{let y=sn(bot+(bot?30:20));
-        arr.filter(i=>i.stk===g).sort((a,b)=>(a.ord||0)-(b.ord||0)).forEach(i=>{const el=boxOf(i.id);const h=el?el.offsetHeight:120;
-          arr=arr.map(x=>x.id===i.id?(()=>{const {stk,ord,...rest}=x;return {...rest,y};})():x);y=sn(y+h+16);});
-        bot=y-16;});
-      commit(arr);});
+      const pend=new Set(arr.filter(i=>i.stk).map(i=>i.id));const at=new Map();let y=20;
+      groups.forEach(g=>{arr.filter(i=>i.stk===g).sort((a,b)=>(a.ord||0)-(b.ord||0)).forEach(i=>{const el=boxOf(i.id);const h=el?el.offsetHeight:120;
+          at.set(i.id,y);y=sn(y+h+16);});y=sn(y+14);});
+      const old=arr.filter(i=>!pend.has(i.id));const top0=old.length?Math.min(...old.map(i=>i.y)):Infinity;
+      const shift=Math.max(0,sn(y+16-top0));
+      arr=arr.map(x=>{if(at.has(x.id)){const {stk,ord,...rest}=x;return {...rest,y:at.get(x.id)};}return shift?{...x,y:x.y+shift}:x;});
+      commit(arr);
+      const first=[...at.keys()][0];requestAnimationFrame(()=>{const el=boxOf(first);el&&el.scrollIntoView&&el.scrollIntoView({block:'start',behavior:'smooth'});});});
     return ()=>cancelAnimationFrame(t);});
-  const nextPos=()=>{if(last.current)return last.current;return {x:20,y:sn(measureBottom()?measureBottom()+24:20)};};
+  /* 보드를 눌러 자리를 고르지 않았으면 맨 위에 넣는다(stk — 아래 상자들은 내려감) */
+  const nextPos=()=>{if(last.current)return last.current;return {x:20,y:20,top:true};};
   const add=(type,extra)=>{const p=nextPos();const it={id:uid(),type,x:sn(p.x),y:sn(p.y),w:type==='table'?420:type==='img'?320:type==='chart'?480:360,z:topZ(),
-      html:type==='table'?rnTable(3,3).replace('<p><br></p>',''):type==='text'?'':undefined,...extra};
+      html:type==='table'?rnTable(3,3).replace('<p><br></p>',''):type==='text'?'':undefined,...(p.top&&!(extra&&'y' in extra)?{stk:'s'+Date.now().toString(36),ord:0}:null),...extra};
     /* 보이는 폭 안에 들어오게 — 오른쪽 끝을 눌러 붙여도 잘리지 않는다 */
     const cw=wrap.current?wrap.current.clientWidth:800;if(it.w>cw-20)it.w=Math.max(160,cw-40);if(it.x+it.w>cw-10)it.x=Math.max(0,sn(cw-10-it.w));
-    last.current={x:p.x+24,y:p.y+24};commit([...itemsRef.current,it]);setSel([it.id]);
+    if(!p.top)last.current={x:p.x+24,y:p.y+24};commit([...itemsRef.current,it]);setSel([it.id]);
     if(type!=='img'&&type!=='chart')setTimeout(()=>{const el=boxOf(it.id);const ed=el&&el.querySelector('.rn-ed');if(ed){ed.focus();const c=ed.querySelector('th,td')||ed.querySelector('p')||ed;
       const r=document.createRange();r.selectNodeContents(c);r.collapse(true);const s=getSelection();s.removeAllRanges();s.addRange(r);setAct(it.id);}},60);
     return it;};
@@ -37524,7 +37527,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec}){
   const addChart=()=>{let t=itemsRef.current.find(i=>i.id===act&&i.type==='table')||itemsRef.current.find(i=>sel.includes(i.id)&&i.type==='table');
     if(!t)t=add('table',{html:bdGridHtml([['구분','2025','2026'],['매출','120','150'],['영업이익','30','45']],true)});
     const cw=wrap.current?wrap.current.clientWidth:800;const right=t.x+t.w+20+480<=cw-10;
-    add('chart',{src:t.id,kind:'bar',x:right?t.x+t.w+20:t.x,y:right?t.y:t.y+(boxOf(t.id)?boxOf(t.id).offsetHeight:140)+24});};
+    add('chart',{src:t.id,kind:'bar',...(t.stk?{x:t.x,stk:t.stk,ord:1}:{x:right?t.x+t.w+20:t.x,y:right?t.y:t.y+(boxOf(t.id)?boxOf(t.id).offsetHeight:140)+24})});};
   const addImgs=async files=>{const list=[...files].filter(f=>/^image\//.test(f.type));
     for(const f of list){setBusy('이미지 올리는 중…');try{const r=await Files.put(f.name?f:new File([f],'image.png',{type:f.type}));
       const dim=await new Promise(ok=>{const im=new Image();im.onload=()=>ok([im.naturalWidth,im.naturalHeight]);im.onerror=()=>ok([320,200]);im.src=URL.createObjectURL(f);});
@@ -40025,7 +40028,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.28.1';
+const APP_VERSION='v2.29';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
