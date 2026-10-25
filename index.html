@@ -37312,13 +37312,26 @@ const BD_GRID=10;
 const MD_LIKE=/^(#{1,4} |\s*[-*] |\s*\d+[.)] |\s*\|.*\|\s*$|> )/m;
 const isMdFile=f=>/\.(md|markdown)$/i.test(f.name||'')||f.type==='text/markdown';
 /* 문서 변환(v2.39) — 코독(kordoc, MIT)을 처음 쓸 때만 내려받아 한글·워드·엑셀·파워포인트를 마크다운으로, 마크다운을 한글(HWPX)로 바꾼다. 파일은 이 PC 안에서만 변환된다 */
-const isDocFile=f=>/\.(hwp|hwpx|docx|xlsx|xls|pptx)$/i.test(f.name||'');
-const DOC_ACCEPT='.md,.markdown,.txt,.hwp,.hwpx,.docx,.xlsx,.xls,.pptx,text/markdown,text/plain';
+const isDocFile=f=>/\.(hwp|hwpx|docx|xlsx|xls|pptx|pdf)$/i.test(f.name||'');
+/* 이름이 아니라 파일 머리로도 알아본다(v2.39.2) — 휴대폰 파일 고르기는 확장자 없는 이름을 줄 때가 있다 */
+const docSniff=async f=>{try{const b=new Uint8Array(await f.slice(0,5).arrayBuffer());
+  if(b[0]===0x50&&b[1]===0x4B)return 'zip';if(b[0]===0xD0&&b[1]===0xCF&&b[2]===0x11&&b[3]===0xE0)return 'ole';
+  if(String.fromCharCode(...b)==='%PDF-')return 'pdf';}catch(_){}return '';};
+/* 코독이 병합 셀 표를 HTML 로 내놓는다 — 표 태그·colspan·rowspan·줄바꿈만 남기고 나머지는 글자로 */
+const kdTable=h=>{const d=new DOMParser().parseFromString(h,'text/html');const t=d.querySelector('table');if(!t)return '';
+  return '<table><tbody>'+[...t.rows].map(r=>'<tr>'+[...r.cells].map(c=>{const tg=c.tagName==='TH'?'th':'td';let a='';
+    const cs=+c.getAttribute('colspan')||1,rs=+c.getAttribute('rowspan')||1;if(cs>1)a+=' colspan="'+cs+'"';if(rs>1)a+=' rowspan="'+rs+'"';
+    c.querySelectorAll('br').forEach(x=>x.replaceWith('\n'));
+    return '<'+tg+a+'>'+(escH(c.textContent.trim()).replace(/\n/g,'<br>')||'<br>')+'</'+tg+'>';}).join('')+'</tr>').join('')+'</tbody></table>';};
+const kdHtml=md=>String(md).split(/(<table[\s\S]*?<\/table>)/i).map((x,i)=>i%2?kdTable(x):(x.trim()?mdToHtml(x):'')).join('');
+const DOC_ACCEPT='.md,.markdown,.txt,.hwp,.hwpx,.docx,.xlsx,.xls,.pptx,.pdf,text/markdown,text/plain';
 let KD_P=null;
 const kordoc=()=>KD_P||(KD_P=new Function('u','return import(u)')(new URL('vendor/kordoc/kordoc.js',location.href).href).catch(e=>{KD_P=null;throw e;}));
-const docToMd=async f=>{const r=await (await kordoc()).parse(await f.arrayBuffer());if(!r||!r.success)throw new Error((r&&r.error)||'변환 실패');
+const docToMd=async f=>{const r=await (await kordoc()).parse(await f.arrayBuffer());
+  if(!r||!r.success){const old=/\.(doc|ppt)$/i.test(f.name||'')||/FileHeader/.test((r&&r.error)||'');
+    throw new Error(old?'옛 워드(.doc)·파워포인트(.ppt) 형식은 읽지 못합니다. 워드·파워포인트에서 .docx·.pptx로 저장한 뒤 넣어 주세요':'읽지 못했습니다');}
   const md=String(r.markdown||'').replace(/!\[[^\]]*\]\([^)\s]*\)[ \t]*\n?/g,'').replace(/<\/?(u|sup|sub|span)[^>]*>/gi,'').replace(/\n{3,}/g,'\n\n');
-  return {md,images:(r.images||[]).filter(i=>i&&i.data&&/^image\//.test(i.mimeType||'')).map(i=>new File([i.data],i.filename||'image',{type:i.mimeType}))};};
+  return {md,html:kdHtml(md),images:(r.images||[]).filter(i=>i&&i.data&&/^image\//.test(i.mimeType||'')).map(i=>new File([i.data],i.filename||'image',{type:i.mimeType}))};};
 const saveBlob=(blob,fname)=>{const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=fname;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},1500);};
 const mdBody=t=>String(t||'').replace(/^\uFEFF/,'').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/,'');
 let BD_CLIP=null;   /* 마지막으로 복사한 상자들 — 브라우저가 붙여넣기 HTML의 표시를 지워도 알아보게 */
@@ -37787,11 +37800,13 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
     if(t&&t.trim()){e.preventDefault();add('text',{html:'<p>'+escH(t).replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>')+'</p>'});}};
   /* 마크다운 읽기·쓰기(v2.32) — .md 파일을 글상자로 불러오고, 메모를 .md 로 저장한다(그림은 pms: 주소로 남아 다시 불러오면 그대로 보인다) */
   const openMd=async files=>{for(const f of [...files]){try{
-      if(isDocFile(f)){setBusy('⏳ '+f.name+' 바꾸는 중…');const {md,images}=await docToMd(f);   /* 한글·워드·엑셀·파워포인트(v2.39) */
-        if(md.trim())add('text',{html:mdToHtml(md),w:640});if(images.length)await addImgs(images);
+      const sn=await docSniff(f);
+      if(isDocFile(f)||sn){setBusy('⏳ '+f.name+' 바꾸는 중…');const {md,html,images}=await docToMd(f);   /* 한글·워드·엑셀·파워포인트·PDF(v2.39) */
+        if(md.trim())add('text',{html,w:640});if(images.length)await addImgs(images);
         setBusy(md.trim()||images.length?'':'⚠ '+f.name+' 에서 읽을 내용이 없습니다');continue;}
+      if(!isMdFile(f)&&!/\.txt$/i.test(f.name||'')&&!/^text\//.test(f.type||'')){setBusy('⚠ '+f.name+' 은(는) 불러올 수 없는 형식입니다');continue;}
       const t=await f.text();if(!t.trim())continue;
-      add('text',{html:mdToHtml(mdBody(t)),w:640});}catch(x){setBusy('⚠ '+f.name+' 를 읽지 못했습니다');}}};
+      add('text',{html:mdToHtml(mdBody(t)),w:640});}catch(x){setBusy('⚠ '+f.name+' — '+(x&&x.message&&/형식/.test(x.message)?x.message:'읽지 못했습니다'));}}};
   const fileBase=()=>String(name||'메모').replace(/[\\/:*?"<>|]+/g,' ').trim().slice(0,80)||'메모';
   const saveMd=()=>{const md=boardToMd(itemsRef.current);if(!md.trim()){setBusy('⚠ 저장할 메모가 없습니다');setTimeout(()=>setBusy(''),2500);return;}
     saveBlob(new Blob([(name?'# '+name+'\n\n':'')+md+'\n'],{type:'text/markdown;charset=utf-8'}),fileBase()+'.md');};
@@ -37799,7 +37814,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
     if(!md.trim()){setBusy('⚠ 저장할 메모가 없습니다');setTimeout(()=>setBusy(''),2500);return;}
     setBusy('⏳ 한글 파일 만드는 중…');
     try{const buf=await (await kordoc()).markdownToHwpx((name?'# '+name+'\n\n':'')+md+'\n');
-      saveBlob(new Blob([buf],{type:'application/hwp+zip'}),fileBase()+'.hwpx');setBusy('');}
+      saveBlob(new Blob([buf],{type:'application/octet-stream'}),fileBase()+'.hwpx');   /* zip 꼴 형식이라 하면 삼성 인터넷이 .docx 를 덧붙였다 */setBusy('');}
     catch(x){setBusy('⚠ 한글 파일을 만들지 못했습니다');}};
   const H=Math.max(420,bottom+160,...shown.map(i=>i.stk?0:i.y+80));const W=Math.max(0,...shown.map(i=>i.x+i.w+40));
   const Bt=({t,on,title,dis})=><button type="button" title={title} disabled={dis} onMouseDown={x=>x.preventDefault()} onClick={on} style={dis?{opacity:.35,cursor:'default'}:undefined}>{t}</button>;
@@ -37863,7 +37878,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
         <Bt t="＋ 이미지" title="이미지 넣기 (Ctrl+V로 붙여넣어도 됩니다)" on={()=>fileIn.current&&fileIn.current.click()}/>
         <Bt t="＋ 그래프" title="그래프 넣기 — 보기 표를 함께 넣고, 표를 고치면 그래프도 바뀝니다" on={addChart}/>
         {onRec&&<Bt t="🎙 녹취" title="메모에 녹취 상자를 띄웁니다. 정지하면 정리본이 그 자리에 들어옵니다" on={onRec}/>}
-        {<Bt t="📥 문서" title="한글(hwp·hwpx)·워드·엑셀·파워포인트·마크다운 파일을 글상자로 불러옵니다" on={()=>mdIn.current&&mdIn.current.click()}/>}
+        {<Bt t="📥 문서" title="한글(hwp·hwpx)·워드·엑셀·파워포인트·PDF·마크다운 파일을 글상자로 불러옵니다" on={()=>mdIn.current&&mdIn.current.click()}/>}
         {!mobile&&<Bt t="📤 MD" title="이 메모를 마크다운(.md) 파일로 저장합니다" on={saveMd}/>}
         {<Bt t="📤 한글" title="이 메모를 한글(.hwpx) 파일로 저장합니다 — 그림은 빠집니다" on={saveHwpx}/>}
         {onTerms&&<Bt t="🔤 용어 수정" title="잘못 받아쓴 고유명사·용어를 메모 전체에서 한꺼번에 바꿉니다" on={onTerms}/>}
@@ -37902,7 +37917,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
         {seg}<Bt t="＋ 글상자" title="글상자 넣기" on={()=>add('text')}/><Bt t="＋ 표" title="표 넣기 (스프레드시트처럼 편집)" on={()=>add('table')}/>
         <Bt t="＋ 이미지" title="이미지 넣기 (Ctrl+V로 붙여넣어도 됩니다)" on={()=>fileIn.current&&fileIn.current.click()}/>
         <Bt t="＋ 그래프" title="고른 표로 그래프 그리기 (표가 없으면 보기 표를 함께 넣습니다) · 표를 고치면 그래프도 바뀝니다" on={addChart}/>
-        <Bt t="📥 문서" title="한글(hwp·hwpx)·워드·엑셀·파워포인트·마크다운 파일을 글상자로 불러옵니다 — 여러 개 골라도 되고, 끌어다 놓아도 됩니다. 마크다운 글을 빈 곳에 붙여넣어도 서식이 살아납니다" on={()=>mdIn.current&&mdIn.current.click()}/>
+        <Bt t="📥 문서" title="한글(hwp·hwpx)·워드·엑셀·파워포인트·PDF·마크다운 파일을 글상자로 불러옵니다 — 여러 개 골라도 되고, 끌어다 놓아도 됩니다. 마크다운 글을 빈 곳에 붙여넣어도 서식이 살아납니다" on={()=>mdIn.current&&mdIn.current.click()}/>
         <Bt t="📤 MD" title="이 메모를 마크다운(.md) 파일로 저장합니다" on={saveMd}/>
         <Bt t="📤 한글" title="이 메모를 한글(.hwpx) 파일로 저장합니다 — 그림은 빠집니다" on={saveHwpx}/>
         {onRec&&<Bt t="🎙 녹취" title="메모에 녹취 상자를 띄웁니다(한국어 받아쓰기 · 영어/일본어/중국어 통역). 그 안에서 녹음하고, 정지하면 정리본이 그 자리에 들어옵니다" on={onRec}/>}
@@ -40889,7 +40904,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.39.1';
+const APP_VERSION='v2.39.2';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
