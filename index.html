@@ -35773,7 +35773,7 @@ function explainSbError(e){
   if(code==='PGRST205'||/Could not find the table|relation .* does not exist/i.test(msg))return '테이블 pms_collections 가 없습니다 — SQL Editor에서 테이블 생성 SQL을 실행하세요';
   if(code==='42501'||/row-level security|permission denied/i.test(msg))return '권한 오류(RLS) — SQL의 create policy 부분이 실행됐는지 확인하세요';
   if(/Email not confirmed/i.test(msg))return '가입 확인 메일을 아직 열지 않았습니다 — 받은편지함의 Confirm 링크를 누른 뒤 로그인하세요';
-  if(/Invalid login credentials/i.test(msg))return '이메일 또는 비밀번호가 틀렸습니다 (처음이면 "계정 만들기")';
+  if(/Invalid login credentials/i.test(msg))return '이메일 또는 비밀번호가 틀렸습니다';
   if(/User already registered/i.test(msg))return '이미 가입된 이메일입니다 — 로그인하세요';
   if(/Password should be/i.test(msg))return '비밀번호는 6자 이상이어야 합니다';
   if(/rate limit/i.test(msg))return '요청이 너무 잦습니다 — 잠시 후 다시 시도하세요';
@@ -39724,13 +39724,22 @@ const topicKey=s=>String(s||'').trim().replace(/\s+/g,' ').toLowerCase();
 /* 글 한 덩어리에서 주제 이름들 */
 function topicsIn(text){const out=[];let m;TOPIC_RE.lastIndex=0;const t=String(text||'');
   while((m=TOPIC_RE.exec(t))){const n=(m[1]||m[3]||'').trim().replace(/[-·]+$/,'');if(n)out.push(n);}return out;}
+/* 기록 종류 태그(v2.35) — 대상(회사·사람·프로젝트)이 아니라 줄의 성격. 목록에서 따로 묶고 # 를 붙여 보인다 */
+const TOPIC_KINDS=['결정','할일','숫자','이슈','배경'];
+const isKindTopic=n=>TOPIC_KINDS.includes(topicKey(n));
+const topicLabel=n=>isKindTopic(n)?'#'+n:n;
+/* 주제 표기를 빼면 남는 글이 없는 줄(「#할일」만 쓴 빈 양식) */
+const topicEmpty=l=>!String(l||'').replace(TOPIC_RE,' ').replace(/[\s\-–—:：·,.()（）\/·•]+/g,'');
 /* 일정의 메모 → 줄 단위 [{line, topics}] (주제가 있는 줄만) */
 function topicLines(e){const out=[];
   /* 카테고리도 주제(v2.34) — [[ ]] 없이 그 이름의 주제 페이지에 일정이 모인다. 빈 줄이라 관련 메모 줄로는 안 보인다 */
   const cat=String(e.category||'').trim();cat&&out.push({line:'',topics:[cat],cat:true});
   topicsIn(e.title).length&&out.push({line:e.title,topics:topicsIn(e.title),title:true});
   (boardOf(e).items||[]).filter(i=>i.html&&i.type!=='rec').slice().sort((a,b)=>a.y-b.y||a.x-b.x).forEach(i=>{
-    htmlToText(i.html).split('\n').forEach(l=>{const tp=topicsIn(l);if(tp.length)out.push({line:l.trim(),topics:tp});});});
+    htmlToText(i.html).split('\n').forEach(l=>{let tp=topicsIn(l);if(!tp.length||topicEmpty(l))return;
+      /* 카테고리가 있으면 #결정·#할일 같은 기록 종류 줄은 그 카테고리 주제에도 모인다(v2.35) — 줄마다 회사 이름을 다시 쓰지 않아도 되게 */
+      if(cat&&tp.some(isKindTopic)&&!tp.some(n=>topicKey(n)===topicKey(cat)))tp=[...tp,cat];
+      out.push({line:l.trim(),topics:tp});});});
   return out;}
 /* 모든 주제 → {key,name,refs:[{e,lines}],note,last} */
 function topicIndex(events,notes){const map=new Map();
@@ -39746,7 +39755,7 @@ function topicMark(line,name){const k=topicKey(name);const parts=[];let last=0,m
   parts.push(line.slice(last));return parts;}
 function TopicChip({name,n,on,onClick}){return <button type="button" onClick={onClick}
   style={{border:'1px solid '+(on?'#1d4ed8':'var(--border-default)'),background:on?'#1d4ed8':'#eff6ff',color:on?'#fff':'#1d4ed8',borderRadius:12,padding:'2px 9px',fontSize:'var(--fs-sm)',cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>
-  # {name}{n!=null?<span style={{opacity:.7,marginLeft:4}}>{n}</span>:null}</button>;}
+  {topicLabel(name)}{n!=null?<span style={{opacity:.7,marginLeft:4}}>{n}</span>:null}</button>;}
 function WikiView({db,setDb,topic,setTopic,onOpen,mobile}){
   const {Button}=window.HDWorkbookDesignSystem_ad60e4;
   const idx=React.useMemo(()=>topicIndex(db.events,db.topics),[db.events,db.topics]);
@@ -39764,14 +39773,16 @@ function WikiView({db,setDb,topic,setTopic,onOpen,mobile}){
         style={{...inputStyle,flex:1,padding:'4px 8px',fontSize:'var(--fs-sm2)'}}/>
       {q.trim()&&!list.some(t=>t.key===topicKey(q))&&<Button size="xs" onClick={addNew}>＋ 만들기</Button>}</div>
     {!list.length&&<div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',lineHeight:1.7,padding:'6px 2px'}}>아직 주제가 없습니다.<br/>메모에 <b>[[거래처 이름]]</b>이나 <b>#태그</b>를 쓰면 여기에 주제가 생기고, 그 줄이 주제 페이지에 모입니다.</div>}
-    <div style={{display:'grid',gap:1}}>{list.map(t=><button key={t.key} type="button" onClick={()=>setTopic(t.name)}
+    {[['대상·주제',list.filter(t=>!isKindTopic(t.name))],['기록 종류',list.filter(t=>isKindTopic(t.name))]].filter(([,ls])=>ls.length).map(([hd,ls])=><React.Fragment key={hd}>
+    <div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',fontWeight:600,margin:'10px 8px 2px'}}>{hd}</div>
+    <div style={{display:'grid',gap:1}}>{ls.map(t=><button key={t.key} type="button" onClick={()=>setTopic(t.name)}
       style={{display:'flex',alignItems:'center',gap:6,border:'none',textAlign:'left',padding:'6px 8px',borderRadius:6,cursor:'pointer',fontFamily:'inherit',fontSize:'var(--fs-base)',
         background:cur&&cur.key===t.key?'var(--surface-active)':'transparent',color:'var(--text-body)'}}>
-      <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}># {t.name}</span>
-      <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',fontFamily:'var(--font-num)'}}>{t.refs.length||''}{t.note?' ✎':''}</span></button>)}</div></div>;
+      <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{topicLabel(t.name)}</span>
+      <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',fontFamily:'var(--font-num)'}}>{t.refs.length||''}{t.note?' ✎':''}</span></button>)}</div></React.Fragment>)}</div>;
   const page=cur&&<div style={{flex:1,minWidth:0}}>
     {mobile&&<Button variant="ghost" size="xs" onClick={()=>setTopic('')}>◂ 주제 목록</Button>}
-    <h2 style={{margin:'4px 0 2px',fontSize:22,color:'#1F3A5F'}}># {cur.name}</h2>
+    <h2 style={{margin:'4px 0 2px',fontSize:22,color:'#1F3A5F'}}>{topicLabel(cur.name)}</h2>
     <div style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)',marginBottom:10}}>관련 일정 {cur.refs.length}건{cur.last?' · 최근 '+cur.last:''} · 메모에 <code>[[{cur.name}]]</code> 또는 <code>#{cur.name.replace(/\s/g,'_')}</code> 로 걸거나, 일정 카테고리를 「{cur.name}」로 정하면 모입니다</div>
     <div style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',fontWeight:600,margin:'8px 0 4px'}}>✎ 정리 <span style={{fontWeight:400}}>— 이 주제에 대해 알아 둘 것(담당자·현황·결정 요약 등)을 자유롭게 적으세요</span></div>
     <div style={{border:'1px solid var(--border-default)',borderRadius:8,padding:'4px 8px',background:'#fff'}}>
@@ -40462,7 +40473,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.34';
+const APP_VERSION='v2.35';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
