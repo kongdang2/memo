@@ -37261,6 +37261,10 @@ const BD_CSS=`.bd-wrap{position:relative;isolation:isolate;border:1px dashed var
 .bd-ch-set input.s{width:50px}.bd-ch-set select{width:auto}
 .bd-ch-set button{font-size:11px;padding:1px 6px;border:1px solid #d6d3d1;border-radius:4px;background:#fff;cursor:pointer;color:#52514e}.bd-ch-set button.on{background:#292524;border-color:#292524;color:#fff}
 .bd-ch-set .sw input[type=color]{width:18px;height:18px;padding:0;border:1px solid #d6d3d1;border-radius:4px;background:none;cursor:pointer}
+.bd-exw{position:relative;display:inline-flex}.bd-exo{position:fixed;inset:0;z-index:40}
+.bd-exm{position:absolute;top:calc(100% + 4px);left:0;z-index:41;min-width:190px;background:var(--surface-card,#fff);border:1px solid var(--border-default);border-radius:10px;box-shadow:0 8px 24px rgba(16,24,40,.14);padding:4px;display:flex;flex-direction:column}
+.rn-tb .bd-exm button{display:flex;flex-direction:column;align-items:flex-start;text-align:left;padding:8px 10px;border-radius:7px;font-size:13.5px;white-space:nowrap}
+.rn-tb .bd-exm button:hover{background:var(--surface-hover,#f3f4f6)}.bd-exm small{font-size:11.5px;color:var(--text-muted)}
 .bd-tbh{margin-top:4px}.bd-tbh:empty:before{content:'글상자를 누르면 여기에 글자 서식 도구(제목·굵게·색·목록·표…)가 나옵니다';display:block;font-size:12px;color:var(--text-label);padding:9px 4px}
 .bd-tbh{height:38px;overflow:hidden;min-width:0;max-width:100%}.bd-tbh .rn-tb{position:static;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;border:none;background:transparent;padding:3px 0;scrollbar-width:thin}.bd-tbh .rn-tb>*{flex:none}
 .bd-mq{position:absolute;border:1px solid #78716c;border-radius:4px;background:rgba(120,113,108,.08);pointer-events:none}
@@ -37643,7 +37647,7 @@ function BdImg({it}){
   React.useEffect(()=>{const im=ref.current;if(im&&it.path)Files.url(it.path).then(u=>{im.src=u;}).catch(()=>{im.alt='⚠ 이미지를 불러오지 못했습니다';});},[it.path]);
   /* ar(가로/세로) — 그림을 다 받기 전에도 제 높이를 차지해, 새 상자를 맨 위에 쌓을 때 아래 상자와 겹치지 않게(v2.29.1) */
   return <div className="bd-img"><img ref={ref} alt="" style={it.ar&&!it.h?{aspectRatio:String(it.ar)}:undefined}/></div>;}
-function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
+function MemoBoard({docKey,board,onChange,onTerms,onRec,onPrint,name}){
   const items=(board&&board.items)||[];const mobile=useMobile();
   /* 보기 방식(v2.36, hong) — 「간단」: 위에서 아래로 차례대로 쓰고 읽는다 · 「자유 배치」: 상자를 끌어 원하는 곳에 놓는다.
      같은 상자들을 보여 주는 방식만 다르다. 정해 두지 않은 메모는 상자가 하나 이하면 간단(새 일정), 여러 개면 자유 배치(이미 배치해 둔 일정) */
@@ -37818,6 +37822,19 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
     catch(x){setBusy('⚠ 한글 파일을 만들지 못했습니다');}};
   const H=Math.max(420,bottom+160,...shown.map(i=>i.stk?0:i.y+80));const W=Math.max(0,...shown.map(i=>i.x+i.w+40));
   const Bt=({t,on,title,dis})=><button type="button" title={title} disabled={dis} onMouseDown={x=>x.preventDefault()} onClick={on} style={dis?{opacity:.35,cursor:'default'}:undefined}>{t}</button>;
+  /* 📤 내보내기(v2.39.3) — 한글·워드·PDF·마크다운을 한 단추에서 고른다 */
+  const saveWord=async()=>{const its=itemsRef.current||[];if(!its.some(i=>i.type==='img'||i.type==='chart'||htmlToText(i.html||'').trim())){setBusy('⚠ 저장할 메모가 없습니다');setTimeout(()=>setBusy(''),2500);return;}
+    try{setBusy('⏳ 워드 만드는 중…');saveBlob(await memoWord(name,its,t=>setBusy('⏳ '+t)),fileBase()+'.docx');setBusy('');}
+    catch(x){console.warn('[워드]',x);setBusy('⚠ 워드 파일을 만들지 못했습니다');}};
+  const [exOpen,setExOpen]=React.useState(false);
+  const exGo=f=>()=>{setExOpen(false);f();};
+  const exMenu=<span className="bd-exw"><Bt t="📤 내보내기" title="이 메모를 한글·워드·PDF·마크다운 파일로 내보냅니다" on={()=>setExOpen(v=>!v)}/>
+    {exOpen&&<><div className="bd-exo" onMouseDown={()=>setExOpen(false)}/><div className="bd-exm" role="menu">
+      <button type="button" onMouseDown={x=>x.preventDefault()} onClick={exGo(saveHwpx)}>한글 (.hwpx)<small>그림은 빠집니다</small></button>
+      <button type="button" onMouseDown={x=>x.preventDefault()} onClick={exGo(saveWord)}>워드 (.docx)<small>그림·표 포함</small></button>
+      {onPrint&&<button type="button" onMouseDown={x=>x.preventDefault()} onClick={exGo(onPrint)}>PDF<small>인쇄 화면에서 「PDF로 저장」</small></button>}
+      <button type="button" onMouseDown={x=>x.preventDefault()} onClick={exGo(saveMd)}>마크다운 (.md)</button>
+    </div></>}</span>;
   const many=sel.length>1;const actIt=shown.find(i=>i.id===act&&i.type!=='img');
   const body=(it,active)=>it.type==='img'?<BdImg it={it}/>
     :it.type==='rec'?<div className="bd-rec" style={{height:(it.h||460)-6}}><iframe src={it.url} allow="microphone; autoplay; clipboard-write" title="녹취 (통번역)"/></div>
@@ -37879,8 +37896,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
         <Bt t="＋ 그래프" title="그래프 넣기 — 보기 표를 함께 넣고, 표를 고치면 그래프도 바뀝니다" on={addChart}/>
         {onRec&&<Bt t="🎙 녹취" title="메모에 녹취 상자를 띄웁니다. 정지하면 정리본이 그 자리에 들어옵니다" on={onRec}/>}
         {<Bt t="📥 문서" title="한글(hwp·hwpx)·워드·엑셀·파워포인트·PDF·마크다운 파일을 글상자로 불러옵니다" on={()=>mdIn.current&&mdIn.current.click()}/>}
-        {!mobile&&<Bt t="📤 MD" title="이 메모를 마크다운(.md) 파일로 저장합니다" on={saveMd}/>}
-        {<Bt t="📤 한글" title="이 메모를 한글(.hwpx) 파일로 저장합니다 — 그림은 빠집니다" on={saveHwpx}/>}
+        {exMenu}
         {onTerms&&<Bt t="🔤 용어 수정" title="잘못 받아쓴 고유명사·용어를 메모 전체에서 한꺼번에 바꿉니다" on={onTerms}/>}
         {busy&&<span style={{fontSize:12,color:/^⚠/.test(busy)?'var(--color-danger)':'var(--text-muted)',marginLeft:6}}>{busy}</span>}
       </div>
@@ -37918,8 +37934,7 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,name}){
         <Bt t="＋ 이미지" title="이미지 넣기 (Ctrl+V로 붙여넣어도 됩니다)" on={()=>fileIn.current&&fileIn.current.click()}/>
         <Bt t="＋ 그래프" title="고른 표로 그래프 그리기 (표가 없으면 보기 표를 함께 넣습니다) · 표를 고치면 그래프도 바뀝니다" on={addChart}/>
         <Bt t="📥 문서" title="한글(hwp·hwpx)·워드·엑셀·파워포인트·PDF·마크다운 파일을 글상자로 불러옵니다 — 여러 개 골라도 되고, 끌어다 놓아도 됩니다. 마크다운 글을 빈 곳에 붙여넣어도 서식이 살아납니다" on={()=>mdIn.current&&mdIn.current.click()}/>
-        <Bt t="📤 MD" title="이 메모를 마크다운(.md) 파일로 저장합니다" on={saveMd}/>
-        <Bt t="📤 한글" title="이 메모를 한글(.hwpx) 파일로 저장합니다 — 그림은 빠집니다" on={saveHwpx}/>
+        {exMenu}
         {onRec&&<Bt t="🎙 녹취" title="메모에 녹취 상자를 띄웁니다(한국어 받아쓰기 · 영어/일본어/중국어 통역). 그 안에서 녹음하고, 정지하면 정리본이 그 자리에 들어옵니다" on={onRec}/>}
         <span className="sep"/>
         <Bt t="⇤" title="왼쪽 맞춤 (2개 이상 선택)" dis={!many} on={()=>align('left')}/><Bt t="↔" title="가운데 맞춤" dis={!many} on={()=>align('center')}/><Bt t="⇥" title="오른쪽 맞춤" dis={!many} on={()=>align('right')}/>
@@ -39532,17 +39547,24 @@ const exHasMemo=e=>(boardOf(e).items||[]).some(i=>i.type==='img'||i.type==='char
 const exTime=e=>e.start?e.start+(e.end?'-'+e.end:''):'';
 const exSafe=s=>String(s||'').replace(/[\\/:*?"<>|#^\[\]]+/g,' ').replace(/\s+/g,' ').trim().slice(0,60)||'제목 없음';
 const exItems=e=>(boardOf(e).items||[]).filter(i=>i.type!=='rec'&&!/^tbwait:/.test(i.src||'')).slice().sort((a,b)=>a.y-b.y||a.x-b.x);
+const exItemsHtml=its=>its.map(i=>i.type==='img'?(i.path?'<p><img data-pms="'+xmlEsc(i.path)+'"></p>':''):i.type==='chart'?(i.pic?'<p><img data-pms="'+xmlEsc(i.pic)+'"></p>'+(i.title?'<p>▲ '+xmlEsc(i.title)+'</p>':''):'')
+  :String(i.html||'').replace(/<\/?details[^>]*>/gi,'').replace(/<summary[^>]*>([\s\S]*?)<\/summary>/gi,'<p><b>$1</b></p>')).join('');
+async function docxPics(root,onStep){const pics=new Map();let pn=0;const ims=[...root.querySelectorAll('img')];
+  for(const im of ims){try{const x=await docxImage(im);if(x){pn++;pics.set(im,{...x,id:pn});}}catch(err){console.warn('[워드] 그림',err);}onStep('그림 넣는 중… '+pn+'/'+ims.length);}
+  return pics;}
+/* 메모 하나를 워드로(v2.39.3) — 메모 도구줄 📤 내보내기 */
+async function memoWord(title,items,onStep){const root=document.createElement('div');
+  const its=(items||[]).filter(i=>i.type!=='rec'&&!/^tbwait:/.test(i.src||'')).slice().sort((a,b)=>a.y-b.y||a.x-b.x);
+  root.innerHTML=(title?'<h1>'+xmlEsc(title)+'</h1>':'')+exItemsHtml(its);
+  const pics=await docxPics(root,onStep);onStep('워드 만드는 중…');return aDocxBuild(root,pics);}
 async function exportWord(list,label,onStep){
   const root=document.createElement('div');
   root.innerHTML='<h1>메모 모음</h1><p>'+xmlEsc(label+' · '+list.length+'건 · '+new Date().toLocaleDateString('ko-KR'))+'</p>';
   list.forEach((e,k)=>{const sec=document.createElement('div');
     sec.innerHTML='<h2>'+xmlEsc(e.title||'제목 없음')+'</h2><p>'+xmlEsc([e.date+(e.dateEnd&&e.dateEnd>e.date?' ~ '+e.dateEnd:''),exTime(e),e.category,STATUS_LABEL[e.status]].filter(Boolean).join(' · '))+'</p>'
-      +exItems(e).map(i=>i.type==='img'?(i.path?'<p><img data-pms="'+xmlEsc(i.path)+'"></p>':''):i.type==='chart'?(i.pic?'<p><img data-pms="'+xmlEsc(i.pic)+'"></p>'+(i.title?'<p>▲ '+xmlEsc(i.title)+'</p>':''):'')
-        :String(i.html||'').replace(/<\/?details[^>]*>/gi,'').replace(/<summary[^>]*>([\s\S]*?)<\/summary>/gi,'<p><b>$1</b></p>')).join('');
+      +exItemsHtml(exItems(e));
     root.appendChild(sec);});
-  onStep('그림 넣는 중…');
-  const pics=new Map();let pn=0;const ims=[...root.querySelectorAll('img')];
-  for(const im of ims){try{const x=await docxImage(im);if(x){pn++;pics.set(im,{...x,id:pn});}}catch(err){console.warn('[내보내기] 그림',err);}onStep('그림 넣는 중… '+(pn)+'/'+ims.length);}
+  onStep('그림 넣는 중…');const pics=await docxPics(root,onStep);
   onStep('워드 만드는 중…');return aDocxBuild(root,pics);}
 /* 자료 묶음에 들어갈 파일 목록 — zip(exportZip)과 PC 폴더 자동 저장(wikiWrite)이 같이 쓴다. opt.havePic(이름) 이 참이면 그 그림은 받지 않고 {keep:true} 만 남긴다 */
 async function exFiles(list,label,onStep,topics,opt){
@@ -40887,7 +40909,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
             {!ts.length&&<span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>메모에 [[이름]]이나 #결정 같은 표시를 쓰면 여기에 모입니다</span>}
             {ts.map(n=><TopicChip key={n} name={n} onClick={()=>{Promise.resolve(close()).then(()=>window.dispatchEvent(new CustomEvent('pms-topic',{detail:n})));}}/>)}</div></PRow>;})()}
         <div style={{marginTop:16,fontSize:'var(--fs-sm)',color:'var(--text-label)'}}>📝 메모 <span style={{fontSize:11}}>· 「간단」은 위에서 아래로 차례대로, 「자유 배치」는 상자를 끌어 원하는 곳에 · 엑셀 범위는 Ctrl+V · 글에서 @로 다른 일정 연결</span></div>
-        <MemoBoard docKey={e.id+':'+rev} name={e.title} onTerms={()=>setTerms(true)} onRec={startRec} board={boardOf(e)} onChange={(b,txt)=>setE(p=>({...p,board:b,boardText:txt,notes:txt}))}/>
+        <MemoBoard docKey={e.id+':'+rev} name={e.title} onTerms={()=>setTerms(true)} onRec={startRec} onPrint={()=>setLp(true)} board={boardOf(e)} onChange={(b,txt)=>setE(p=>({...p,board:b,boardText:txt,notes:txt}))}/>
       </div>
       <div className="ev-foot" style={{padding:'10px 14px',borderTop:'1px solid var(--border-default)',display:'flex',alignItems:'center',justifyContent:'flex-end',gap:6,flexWrap:'wrap'}}>
         <span style={{fontSize:'var(--fs-sm)',color:'var(--text-label)',marginRight:'auto'}}>{!(e.title||'').trim()?'제목을 넣으면 자동 저장됩니다':savedAt?'✓ 자동 저장됨 · '+savedAt:'입력하면 자동 저장됩니다'}</span>
@@ -40904,7 +40926,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.39.2';
+const APP_VERSION='v2.39.3';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
