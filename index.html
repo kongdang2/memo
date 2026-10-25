@@ -36260,6 +36260,68 @@ const Notify={
     }catch(_){return null;}
   },
 };
+/* ── 푸시 알림(v2.30) — 앱을 닫아도 휴대폰·PC로 오는 알림 ──
+   이 기기를 구독(push_sub)해 두고, 앞으로 3주 동안 알릴 것(push_plan)을 앱이 계산해 올린다.
+   서버의 Edge Function 'pushcron' 이 1분마다 시각이 된 것을 보낸다(서비스 워커 sw.js 가 받아 띄운다).
+   공개 키만 여기 둔다 — 짝이 되는 비밀 키는 Supabase Secrets(VAPID_PRIVATE_KEY)에만 있다 */
+const PUSH_PUBLIC_KEY='BP29RvIwGeEaxbRfsHpWxSwzJar7ZMlYKT3NUKdOu4pX_bqSaTa4V50C2LWO3dWaxKMU450IIJo5Pg1ftOhqq1Y';
+const PUSH_DAYS=21;
+const PUSH_CRON_SQL=`-- 1분마다 푸시 알림 보내기(pushcron) — 한 번만 실행
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+select cron.unschedule('pms-push') where exists (select 1 from cron.job where jobname='pms-push');
+select cron.schedule('pms-push', '* * * * *', $$
+  select net.http_post(
+    url := '${(window.CAL_CONFIG&&window.CAL_CONFIG.supabaseUrl)||'https://프로젝트.supabase.co'}/functions/v1/pushcron',
+    headers := '{"Content-Type":"application/json"}'::jsonb,
+    body := '{}'::jsonb)
+$$);`;
+const b64uBytes=s=>{const b=atob(s.replace(/-/g,'+').replace(/_/g,'/')+'==='.slice((s.length+3)%4));return Uint8Array.from(b,c=>c.charCodeAt(0));};
+const Push={
+  supported(){return 'serviceWorker' in navigator&&'PushManager' in window&&typeof Notification!=='undefined';},
+  get on(){try{return localStorage.getItem('cal.push')==='1';}catch(_){return false;}},
+  async reg(){if(!this.supported())throw new Error('이 브라우저는 푸시 알림을 지원하지 않습니다(아이폰은 홈 화면에 추가한 앱에서만 됩니다)');
+    return await Promise.race([navigator.serviceWorker.ready,new Promise((_,no)=>setTimeout(()=>no(new Error('서비스 워커가 준비되지 않았습니다 — https 주소로 열었는지 확인하세요')),8000))]);},
+  async current(){try{return await (await this.reg()).pushManager.getSubscription();}catch(_){return null;}},
+  rowId(sub){let h=0;const s=sub.endpoint;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;return 'd'+(h>>>0).toString(36);},
+  async enable(events){
+    if(Store.mode!=='supabase'||!Store.user)throw new Error('푸시 알림은 클라우드에 로그인해야 쓸 수 있습니다');
+    await Notify.ask();const r=await this.reg();
+    let sub=await r.pushManager.getSubscription();
+    const key=b64uBytes(PUSH_PUBLIC_KEY);
+    if(sub){const k=sub.options&&sub.options.applicationServerKey;if(k&&new Uint8Array(k).join()!==key.join()){await sub.unsubscribe();sub=null;}}
+    if(!sub)sub=await r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
+    const {error}=await Store.sb.from('pms_items').upsert({user_id:Store.user.id,kind:'push_sub',item_id:this.rowId(sub),
+      data:{sub:sub.toJSON(),ua:navigator.userAgent.slice(0,160),at:new Date().toISOString()},updated_at:nowStamp(),deleted_at:null});
+    if(error)throw new Error(explainSbError(error));
+    try{localStorage.setItem('cal.push','1');localStorage.removeItem('cal.pushSig');}catch(_){}
+    await this.plan(events,true);return sub;},
+  async disable(){const sub=await this.current();
+    try{localStorage.removeItem('cal.push');localStorage.removeItem('cal.pushSig');}catch(_){}
+    if(sub){if(Store.mode==='supabase'&&Store.user)await Store.sb.from('pms_items').delete().eq('user_id',Store.user.id).eq('kind','push_sub').eq('item_id',this.rowId(sub));
+      await sub.unsubscribe().catch(()=>{});}},
+  /* 앞으로 알릴 것 — 탭 알림(useNotifications)과 같은 규칙·같은 tag */
+  items(events){const c=Store.cfg,now=Date.now(),out=[];const from=todayISO();
+    const d=new Date();d.setDate(d.getDate()+PUSH_DAYS-1);const to=isoDate(d);
+    const at=(date,hm)=>{const [y,m,dd]=date.split('-').map(Number);const [h,mi]=(hm||'00:00').split(':').map(Number);return new Date(y,m-1,dd,h,mi,0,0).getTime();};
+    const daily=c.notifDailyAt||'08:00';const list=expandEvents(events||[],from,to).filter(e=>e.status!=='done');
+    if(c.notifEvent!==false){const lead=+(c.notifEventMin||10);
+      list.forEach(e=>{const tag='ev:'+e.id+':'+e.date+':'+(e.start||'allday');
+        if(e.start)out.push({t:at(e.date,e.start)-lead*60000,title:'⏰ '+(e.title||'일정'),body:lead+'분 뒤 시작 · '+e.start+(e.category?' · '+e.category:''),tag});
+        else out.push({t:at(e.date,daily),title:'📌 오늘 '+(e.title||'일정'),body:'종일 일정'+(e.category?' · '+e.category:''),tag});});}
+    if(c.notifDaily){for(let k=0;k<PUSH_DAYS;k++){const x=new Date();x.setDate(x.getDate()+k);const day=isoDate(x);
+      const l=list.filter(e=>e.date===day).sort((a,b)=>(a.start||'').localeCompare(b.start||''));
+      out.push({t:at(day,daily),title:'☀ 오늘의 일정 '+l.length+'건',body:l.length?l.slice(0,4).map(e=>(e.start?e.start+' ':'')+e.title).join('\n'):'등록된 일정 없음',tag:'daily:'+day});}}
+    return out.filter(i=>i.t>now-60000).sort((a,b)=>a.t-b.t).slice(0,400);},
+  /* 바뀌었을 때만 올린다(6시간마다는 3주 범위를 앞으로 밀기 위해 다시 올린다) */
+  async plan(events,force){if(!this.on||Store.mode!=='supabase'||!Store.user)return;
+    const items=this.items(events);const sig=JSON.stringify(items).length+':'+items.map(i=>i.tag+i.t+i.title).join('|').slice(0,4000);
+    let old={};try{old=JSON.parse(localStorage.getItem('cal.pushSig')||'{}');}catch(_){}
+    if(!force&&old.sig===sig&&Date.now()-(old.at||0)<6*3600000)return;
+    const {error}=await Store.sb.from('pms_items').upsert({user_id:Store.user.id,kind:'push_plan',item_id:'plan',data:{items,at:new Date().toISOString(),tz:Intl.DateTimeFormat().resolvedOptions().timeZone},updated_at:nowStamp(),deleted_at:null});
+    if(error){console.warn('[푸시] 계획 올리기 실패',error.message);return;}
+    try{localStorage.setItem('cal.pushSig',JSON.stringify({sig,at:Date.now()}));}catch(_){}},
+};
 /* ── 백그라운드 유지 ──────────────────────────────────
    크롬은 한동안 보이지 않은 탭을 "얼려" 타이머를 아예 멈춘다. 그러면 자동 동기화도 함께 멈춘다.
    소리를 내고 있는 탭은 얼리지 않으므로, 사람이 들을 수 없을 만큼 작은 소리를 아주 조용히 틀어 둔다.
@@ -36278,7 +36340,7 @@ const KeepAwake={
   off(){if(this.el){try{this.el.pause();this.el.remove();}catch(_){}}this.el=null;},
   get running(){return !!(this.el&&!this.el.paused);},
 };
-Object.assign(window,{KeepAwake,Notify,MenuButton,usePaneSize,Splitter,useMobile,BackBar,stripCode,HOLIDAYS,holidayOf,isRestDay,STATUS_KEYS,Markdown,renderInline,wikiLinks,toICS,fromICS,expandEvents,inputStyle,Field,TextInput,Select,Chip,STATUS_LABEL,PRI_LABEL,fmtDT});
+Object.assign(window,{KeepAwake,Notify,Push,PUSH_CRON_SQL,MenuButton,usePaneSize,Splitter,useMobile,BackBar,stripCode,HOLIDAYS,holidayOf,isRestDay,STATUS_KEYS,Markdown,renderInline,wikiLinks,toICS,fromICS,expandEvents,inputStyle,Field,TextInput,Select,Chip,STATUS_LABEL,PRI_LABEL,fmtDT});
 </script>
 <script type="text/babel">/* 로그인 화면 + 설정 모달(Supabase/API 키) */
 function Login({onLogin}){
@@ -36354,7 +36416,7 @@ function SettingsModal({open,onClose,onToast}){
   const {Button,InfoBar,Modal}=window.HDWorkbookDesignSystem_ad60e4;
   const [c,setC]=React.useState(Store.cfg);
   React.useEffect(()=>{if(open)setC(Store.cfg);},[open]);
-  const save=()=>{Store.saveCfg(c);onClose();onToast&&onToast('설정 저장');};
+  const save=()=>{Store.saveCfg(c);onClose();onToast&&onToast('설정 저장');Push.plan((window.pmsEvents&&window.pmsEvents())||[],true);};
   return <Modal open={open} onClose={onClose} title="🔔 알림 설정" width={560} footer={<><Button variant="gray" onClick={onClose}>취소</Button><Button variant="accent" icon="💾" onClick={save}>저장</Button></>}>
     <NotiTab c={c} setC={setC} onToast={onToast}/>
   </Modal>;
@@ -36440,7 +36502,8 @@ function NotiTab({c,setC,onToast}){
       <div style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)',marginTop:2,lineHeight:1.55}}>{sub}</div></span>
   </label>;
   return <>
-    <InfoBar>이 앱 <b>탭이 열려 있는 동안</b> 윈도우·안드로이드 알림으로 알려 드립니다. 탭을 닫으면 알림도 멈춥니다(휴대폰 푸시가 아닙니다). <code>https</code> 주소나 홈 화면 앱에서만 동작합니다.</InfoBar>
+    <PushBox onToast={onToast}/>
+    <InfoBar>푸시를 켜지 않은 기기에서는 이 앱 <b>탭이 열려 있는 동안</b>만 알려 드립니다. <code>https</code> 주소나 홈 화면 앱에서만 동작합니다.</InfoBar>
     <div style={{display:'flex',alignItems:'center',gap:8,margin:'10px 0 14px',flexWrap:'wrap'}}>
       <Badge tone={st==='granted'?'linked':st==='denied'?'warn':'pill'}>
         {st==='granted'?'✓ 알림 허용됨':st==='denied'?'✕ 브라우저에서 차단됨':st==='unsupported'?'지원하지 않는 브라우저':'허용 필요'}
@@ -36467,7 +36530,29 @@ function NotiTab({c,setC,onToast}){
     </div>
   </>;
 }
-Object.assign(window,{TrashModal,Login,SettingsModal,NotiTab});
+/* 📱 푸시 — 이 기기를 켜고 끄기 + 서버 준비(한 번) */
+function PushBox({onToast}){
+  const {Button,Badge}=window.HDWorkbookDesignSystem_ad60e4;
+  const [on,setOn]=React.useState(Push.on);const [busy,setBusy]=React.useState(false);const [sql,setSql]=React.useState(false);
+  const flip=async()=>{setBusy(true);try{if(on){await Push.disable();setOn(false);onToast&&onToast('이 기기의 푸시 알림을 껐습니다');}
+      else{await Push.enable((window.pmsEvents&&window.pmsEvents())||[]);setOn(true);onToast&&onToast('이 기기에 푸시 알림을 켰습니다');}}
+    catch(e){onToast&&onToast('⚠ '+e.message);}setBusy(false);};
+  return <div style={{padding:'10px 12px',marginBottom:12,border:'1px solid var(--border-default)',borderRadius:6,background:on?'#f0fdf4':'var(--surface-hover)'}}>
+    <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+      <span style={{fontWeight:600,fontSize:'var(--fs-md)'}}>📱 앱을 닫아도 알림 받기 (푸시)</span>
+      <Badge tone={on?'linked':'pill'}>{on?'이 기기 켜짐':'꺼짐'}</Badge>
+      <span style={{marginLeft:'auto'}}><Button variant={on?'gray':'accent'} size="sm" disabled={busy||!Push.supported()} onClick={flip}>{busy?'처리 중…':on?'끄기':'이 기기에서 켜기'}</Button></span>
+    </div>
+    <div style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)',marginTop:6,lineHeight:1.6}}>
+      {Push.supported()?'서버가 시각에 맞춰 보내 줍니다. 앞으로 3주 치를 미리 올려 두므로, 3주에 한 번은 이 앱을 열어 주세요. 아이폰은 홈 화면에 추가한 앱에서만 됩니다.':'이 브라우저는 푸시 알림을 지원하지 않습니다. 아이폰은 사파리 공유 → 홈 화면에 추가 후 그 앱에서 켜 주세요.'}
+      {' '}<a href="#" onClick={e=>{e.preventDefault();setSql(x=>!x);}}>{sql?'▾':'▸'} 서버 준비(처음 한 번)</a></div>
+    {sql&&<div style={{marginTop:6}}>
+      <div style={{fontSize:'var(--fs-sm)',color:'var(--text-muted)',marginBottom:4}}>Edge Function 「pushcron」을 배포하고 Secrets(VAPID 키)를 넣은 뒤, Supabase SQL Editor 에서 아래를 한 번 실행합니다.</div>
+      <pre style={{font:'11px/1.45 var(--font-mono)',background:'#fff',border:'1px solid var(--border-default)',padding:'8px 10px',borderRadius:4,maxHeight:170,overflow:'auto',margin:0,whiteSpace:'pre-wrap'}}>{PUSH_CRON_SQL}</pre>
+      <div style={{marginTop:6}}><Button variant="ghost" size="sm" onClick={()=>{navigator.clipboard.writeText(PUSH_CRON_SQL);onToast&&onToast('SQL 복사됨');}}>📋 SQL 복사</Button></div></div>}
+  </div>;
+}
+Object.assign(window,{TrashModal,Login,SettingsModal,NotiTab,PushBox});
 </script>
 <script type="text/babel">/* ── 메모 편집기 (노션처럼) ─────────────────────────────────────
    글자를 바로 꾸미는 편집기. 서식·제목·목록·체크리스트·표·이미지 붙여넣기·구분선.
@@ -40030,7 +40115,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.29.1';
+const APP_VERSION='v2.30';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
@@ -40080,7 +40165,7 @@ function useNotifications(db,goto){
   /* 일정 임박 · 오늘 요약 — 30초마다 살펴본다 */
   React.useEffect(()=>{
     const tick=()=>{
-      if(!Notify.ok())return;
+      if(!Notify.ok()||Push.on)return;   /* 푸시를 켠 기기는 서버가 보낸다(겹치지 않게) */
       const d=R.current.db;if(!d||!d.events)return;
       const today=todayISO(),now=new Date();
       const hhmm=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
@@ -40118,6 +40203,10 @@ function useNotifications(db,goto){
     return()=>{clearInterval(t);clearTimeout(first);document.removeEventListener('visibilitychange',vis);};
   },[]);
 }
+/* 푸시를 켠 기기는 일정이 바뀔 때마다(5초 모아서) 알릴 계획을 다시 올린다 */
+function usePushPlan(events){
+  React.useEffect(()=>{if(!events||!Push.on)return;const t=setTimeout(()=>Push.plan(events),5000);return()=>clearTimeout(t);},[events]);
+}
 const KINDS_COUNT=d=>({events:(d.events||[]).length});
 const UNDO_MAX=30;
 const KIND_LABEL={events:'일정'};
@@ -40154,7 +40243,7 @@ function Shell({user,onLogout}){
   /* 세션 줄 안의 자리 — 일정 화면이 연월·이동·보기 단추와 검색·새 일정을 여기에 그린다 */
   const [slotMid,setSlotMid]=React.useState(null);const [slotRight,setSlotRight]=React.useState(null);
   const [dbForNoti,setDbForNoti]=React.useState(null);
-  useNotifications(dbForNoti);
+  useNotifications(dbForNoti);usePushPlan(dbForNoti&&dbForNoti.events);
   React.useEffect(()=>{Store.loadAll().then(d=>{setDbRaw(d);
     if(Store.offline){setSaved('offline');setPend(Store.pendingCount());
       setTimeout(()=>toast(navigator.onLine?'📴 지난번 오프라인에서 고친 내용을 올리는 중…':'📴 오프라인 — 이 기기에 저장된 사본으로 열었습니다'+(Store.offAt?' ('+new Date(Store.offAt).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})+' 사본)':'')),400);}
