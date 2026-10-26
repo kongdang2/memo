@@ -36676,6 +36676,7 @@ function rnClean(html,keepSrc){
   const root=doc.body.firstChild;
   const walk=el=>{[...el.childNodes].forEach(n=>{
     if(n.nodeType===8){n.remove();return;}
+    if(n.nodeType===3){if(n.data.indexOf('\u200B')>=0)n.data=n.data.replace(/\u200B/g,'');return;}   /* 마크다운 줄 중간 서식이 남긴 빈 자리(v2.40) */
     if(n.nodeType!==1)return;
     let tag=n.tagName;
     if(RN_DROP.has(tag)){n.remove();return;}
@@ -36776,6 +36777,37 @@ const RN_CSS=`.rn-ed [data-kind]{border-radius:6px;padding:1px 8px;margin:3px 0;
 .rn-pop button.on,.rn-pop button:hover{background:#f1f1ef}`;
 const RN_COLORS=[['기본',''],['회색','#78716c'],['빨강','#dc2626'],['주황','#ea580c'],['노랑','#ca8a04'],['초록','#16a34a'],['파랑','#2563eb'],['보라','#9333ea']];
 const RN_MARKS=[['없음',''],['노랑','#fef08a'],['초록','#bbf7d0'],['파랑','#bfdbfe'],['분홍','#fbcfe8'],['회색','#e7e5e4']];
+/* ── 마크다운처럼 쓰기(v2.40) ─────────────────────────────
+   줄 중간: **굵게** *기울임* `코드` ~~취소선~~ [글](https://주소) — 닫는 기호를 치는 순간 서식으로 바뀐다 */
+const RN_INLINE=[
+  [/\*\*([^*\n]*[^*\s])\*\*$/,'b'],[/~~([^~\n]*[^~\s])~~$/,'s'],[/`([^`\n]+)`$/,'code'],
+  [/(?:^|[^*\w])\*([^*\s](?:[^*\n]*[^*\s])?)\*$/,'i'],[/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)$/,'a']];
+function rnInlineMd(root){
+  const s=window.getSelection();if(!s.rangeCount||!s.isCollapsed)return false;
+  const n=s.anchorNode;if(!n||n.nodeType!==3||!root.contains(n))return false;
+  if(n.parentElement&&n.parentElement.closest('code,pre,a,td[data-f]'))return false;
+  const off=s.anchorOffset;const before=n.data.slice(0,off);
+  for(const [re,tag] of RN_INLINE){const m=re.exec(before);if(!m)continue;
+    const whole=tag==='i'?m[0].slice(m[0].indexOf('*')):m[0];const start=off-whole.length;
+    const el=document.createElement(tag);
+    if(tag==='a'){el.href=m[2];el.textContent=m[1];}else el.textContent=m[1];
+    const r=document.createRange();r.setStart(n,start);r.setEnd(n,off);r.deleteContents();r.insertNode(el);
+    const after=document.createTextNode('\u200B');el.after(after);   /* 서식 밖에서 이어 쓰게 하는 자리 — 저장할 때 지운다 */
+    const c=document.createRange();c.setStart(after,1);c.collapse(true);s.removeAllRanges();s.addRange(c);
+    return true;}
+  return false;}
+/* 키 안내(Ctrl+/) */
+const RN_KEYS=[
+  ['줄 맨 앞에 쓰고 스페이스바',[['# · ## · ###','제목 1·2·3'],['- 또는 *','글머리 목록'],['1.','번호 목록'],['[ ]','할 일 목록'],['>','인용'],['>>','접기(토글)'],['!','강조 상자'],['--- 후 Enter','구분선'],['/','블록 메뉴'],['@','다른 일정·날짜 연결']]],
+  ['줄 중간에 쓰기',[['**글**','굵게'],['*글*','기울임'],['`글`','코드'],['~~글~~','취소선'],['[글](https://주소)','링크']]],
+  ['단축키',[['Ctrl+B · I · U','굵게 · 기울임 · 밑줄'],['Ctrl+Shift+X','취소선'],['Ctrl+E','코드'],['Ctrl+K','링크'],['Ctrl+Alt+1 · 2 · 3','제목 1·2·3'],['Ctrl+Alt+0','본문'],['Ctrl+Shift+8','글머리 목록'],['Ctrl+Shift+7','번호 목록'],['Ctrl+Shift+9','할 일 목록'],['Ctrl+Shift+.','인용'],['Tab · Shift+Tab','목록 들여쓰기 · 내어쓰기'],['Ctrl+/','이 안내']]],
+  ['마크다운 파일',[['📥 문서','.md 등 파일을 글상자로'],['📤 내보내기','.md 등으로 저장'],['붙여넣기','마크다운 글을 붙이면 서식이 살아남']]]];
+function KeyGuide({onClose}){
+  React.useEffect(()=>{const k=e=>{if(e.key==='Escape'){e.preventDefault();onClose();}};window.addEventListener('keydown',k,true);return()=>window.removeEventListener('keydown',k,true);},[]);
+  return ReactDOM.createPortal(<div className="rn-kg-bg" onMouseDown={onClose}><div className="rn-kg" role="dialog" aria-label="키 안내" onMouseDown={e=>e.stopPropagation()}>
+    <div className="rn-kg-hd"><b>⌨ 마크다운처럼 쓰기</b><button type="button" onClick={onClose} aria-label="닫기">✕</button></div>
+    <div className="rn-kg-bd">{RN_KEYS.map(([h,rows])=><section key={h}><h4>{h}</h4><table><tbody>{rows.map(([k,v])=><tr key={k}><td><kbd>{k}</kbd></td><td>{v}</td></tr>)}</tbody></table></section>)}</div>
+  </div></div>,document.body);}
 const RN_BLOCKS=[
   {k:'p',label:'본문',key:'본문 text'},{k:'h1',label:'제목 1',key:'제목1 h1 heading'},{k:'h2',label:'제목 2',key:'제목2 h2'},{k:'h3',label:'제목 3',key:'제목3 h3'},
   {k:'ul',label:'• 글머리 목록',key:'목록 글머리 bullet list'},{k:'ol',label:'1. 번호 목록',key:'번호 number ordered'},{k:'check',label:'☑ 할 일 목록',key:'체크 할일 todo check'},
@@ -36792,7 +36824,15 @@ const rnTable=(r,c)=>'<table><tbody>'+Array.from({length:r},(_,i)=>'<tr>'+Array.
    · 열 경계를 끌어 너비 조절 · 도구줄에서 열 기준 정렬
    편집기 상자(root)에 붙여 쓴다 — 메모 편집기와 보드의 표 상자가 함께 쓴다 */
 const SHEET_CSS=`.rn-ed td.rn-cs,.rn-ed th.rn-cs,.bd-it td.rn-cs,.bd-it th.rn-cs{background:#eeece8!important;box-shadow:inset 0 0 0 1.5px #57534e}
-.rn-ed table,.bd-it table{table-layout:auto}.rn-colrs{cursor:col-resize!important}`;
+.rn-ed table,.bd-it table{table-layout:auto}.rn-colrs{cursor:col-resize!important}
+.rn-kg-bg{position:fixed;inset:0;z-index:9000;background:rgba(15,23,42,.28);display:flex;align-items:center;justify-content:center;padding:16px}
+.rn-kg{background:#fff;border-radius:14px;box-shadow:0 20px 50px rgba(15,23,42,.25);width:min(720px,100%);max-height:86vh;display:flex;flex-direction:column;color:#1c2430}
+.rn-kg-hd{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #e6e8ec;font-size:15px}
+.rn-kg-hd button{border:none;background:none;font-size:16px;cursor:pointer;padding:4px 8px}
+.rn-kg-bd{overflow:auto;padding:8px 16px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:4px 24px}
+.rn-kg h4{margin:10px 0 4px;font-size:12.5px;color:#5d6876}.rn-kg table{border-collapse:collapse;width:100%;font-size:13px}
+.rn-kg td{padding:4px 0;border-bottom:1px solid #f1f3f5;vertical-align:top}.rn-kg td:first-child{width:52%;padding-right:8px}
+.rn-kg kbd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:#f3f5f8;border:1px solid #dde1e7;border-radius:5px;padding:1px 6px}`;
 const cellsOf=tbl=>[...tbl.rows].map(r=>[...r.cells]);
 const cellPos=td=>{const tr=td.parentNode;const tbl=tr.closest('table');return {tbl,r:[...tbl.rows].indexOf(tr),c:[...tr.cells].indexOf(td)};};
 const cellText=td=>{const c=td.cloneNode(true);c.querySelectorAll('br').forEach(b=>b.replaceWith('\n'));return c.textContent.replace(/\n$/,'');};
@@ -36966,6 +37006,7 @@ function sheetSumRow(tbl){const g=cellsOf(tbl);if(!g.length)return;const n=g.len
 function RichNote({docKey,html,onChange,placeholder,tbHost,active,compact}){
   const ed=React.useRef(null);const fileIn=React.useRef(null);const t=React.useRef(null);
   const [slash,setSlash]=React.useState(null);   /* {x,y,q,i} */
+  const [keys,setKeys]=React.useState(false);   /* ⌨ 키 안내 */
   const [pal,setPal]=React.useState('');          /* 'color' | 'mark' */
   const [inTable,setInTable]=React.useState(false);const [imgSel,setImgSel]=React.useState(null);const [busy,setBusy]=React.useState('');
   const saveSel=React.useRef(null);
@@ -37094,6 +37135,15 @@ function RichNote({docKey,html,onChange,placeholder,tbHost,active,compact}){
       if(ev.key==='Escape'){ev.preventDefault();setSlash(null);return;}}
     if((ev.ctrlKey||ev.metaKey)&&!ev.shiftKey&&/^[biu]$/i.test(ev.key)){
       ev.preventDefault();exec({b:'bold',i:'italic',u:'underline'}[ev.key.toLowerCase()]);return;}
+    /* 단축키(v2.40) — 키 안내는 Ctrl+/ */
+    if((ev.ctrlKey||ev.metaKey)&&!ev.isComposing){const c=ev.code||'';
+      const go=f=>{ev.preventDefault();f();};
+      if(!ev.shiftKey&&!ev.altKey&&(c==='Slash'||ev.key==='/'))return go(()=>setKeys(true));
+      if(!ev.shiftKey&&!ev.altKey&&c==='KeyK')return go(linkIt);
+      if(!ev.shiftKey&&!ev.altKey&&c==='KeyE')return go(()=>{const t=String(window.getSelection()||'');insertHTML('<code>'+(escH(t)||'코드')+'</code>&#8203;');});
+      if(ev.altKey&&!ev.shiftKey&&/^Digit[0-3]$/.test(c))return go(()=>block(['p','h1','h2','h3'][+c.slice(5)]));
+      if(ev.shiftKey&&!ev.altKey){const m={Digit8:'ul',Digit7:'ol',Digit9:'check',Period:'quote'}[c];if(m)return go(()=>block(m));
+        if(c==='KeyX')return go(()=>exec('strikeThrough'));}}
     let blk=curBlock();
     if(!blk&&ev.key===' '){document.execCommand('formatBlock',false,'<p>');blk=curBlock();}
     if(ev.key==='Tab'&&blk&&/^(TD|TH)$/.test(blk.tagName)){ev.preventDefault();
@@ -37182,6 +37232,7 @@ function RichNote({docKey,html,onChange,placeholder,tbHost,active,compact}){
       <B title="구분선" on={()=>block('hr')}>―</B>
       <span className="sep"/>
       <B title="서식 지우기" on={()=>{exec('removeFormat');exec('formatBlock','<p>');}}>⌫</B>
+      <B title="키 안내 — 마크다운처럼 쓰는 법·단축키 (Ctrl+/)" on={()=>setKeys(true)}>⌨</B>
       {inTable&&<><span className="sep"/><span style={{fontSize:12,color:'var(--text-muted)',padding:'0 3px'}}>표</span>
         <B title="아래에 행 추가 (마지막 칸에서 Tab)" on={()=>tableOp('row+')}>+행</B><B title="오른쪽에 열 추가" on={()=>tableOp('col+')}>+열</B>
         <B title="이 행 삭제" on={()=>tableOp('row-')}>−행</B><B title="이 열 삭제" on={()=>tableOp('col-')}>−열</B>
@@ -37202,10 +37253,11 @@ function RichNote({docKey,html,onChange,placeholder,tbHost,active,compact}){
   return <div style={{position:'relative'}}>
     {tbHost!==undefined?(active&&tbHost?ReactDOM.createPortal(<div style={{position:'relative'}}>{tools}{palette}</div>,tbHost):null):<>{tools}{palette}</>}
     <div ref={ed} className={'rn-ed'+(compact?' rn-cmp':'')} contentEditable suppressContentEditableWarning data-ph={placeholder||'내용을 입력하세요 · 「/」로 블록 넣기 · 이미지는 붙여넣기'}
-      onInput={()=>{emit();watch();}} onPaste={onPaste} onDrop={onDrop} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onClick={onClick} onBlur={()=>{remember();flushNow();}} style={compact?undefined:{marginTop:8}}/>
+      onInput={x=>{const d=x.nativeEvent&&x.nativeEvent.data;if(d&&/[*`~)]$/.test(d)&&!x.nativeEvent.isComposing&&rnInlineMd(ed.current)){}emit();watch();}} onPaste={onPaste} onDrop={onDrop} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onClick={onClick} onBlur={()=>{remember();flushNow();}} style={compact?undefined:{marginTop:8}}/>
     {slash&&slashItems.length>0&&<div className="rn-pop" style={{left:slash.x,top:slash.y+8,minWidth:180,maxHeight:280,overflowY:'auto'}} onMouseDown={x=>x.preventDefault()}>
       {slashItems.map((b,i)=><button key={b.k} type="button" className={i===slash.i?'on':''} onClick={()=>runSlash(b)}>{b.label}{b.sub&&<span className="rn-sub">{b.sub}</span>}</button>)}</div>}
     <input ref={fileIn} type="file" accept="image/*" multiple style={{display:'none'}} onChange={x=>{addImages(x.target.files);x.target.value='';}}/>
+    {keys&&<KeyGuide onClose={()=>{setKeys(false);ed.current&&ed.current.focus();}}/>}
   </div>;
 }
 /* ── 메모 (보드) ─────────────────────────────────────────────────
@@ -40926,7 +40978,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.39.4';
+const APP_VERSION='v2.40';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
