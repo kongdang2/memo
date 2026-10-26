@@ -36738,6 +36738,22 @@ const RN_CSS=`.rn-ed [data-kind]{border-radius:6px;padding:1px 8px;margin:3px 0;
 .rn-ed [data-kind="결정"]{--kc:#1d4ed8;--kb:#eff5ff}.rn-ed [data-kind="할일"]{--kc:#ea580c;--kb:#fff5ec}.rn-ed [data-kind="숫자"]{--kc:#0f766e;--kb:#ecf8f5}
 .rn-ed [data-kind="이슈"]{--kc:#b91c1c;--kb:#fdf1f1}.rn-ed [data-kind="배경"]{--kc:#64748b;--kb:#f3f5f7}
 .rn-ed li[data-kind]{list-style-position:inside}
+.rn-seg{display:inline-flex;border:1px solid #d6d3d1;border-radius:6px;overflow:hidden;vertical-align:middle;flex:none}
+.rn-tb .rn-seg button{border:0;border-radius:0;padding:2px 8px;font-size:12px;margin:0;background:#fff;color:#44403c}
+.rn-tb .rn-seg button+button{border-left:1px solid #d6d3d1}
+.rn-tb .rn-seg button.on{background:#1f3a5f;color:#fff}
+.rn-mdw{container-type:inline-size}
+.rn-md.both{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}
+@container (max-width:520px){.rn-md.both{grid-template-columns:minmax(0,1fr)}}
+.rn-src{display:block;width:100%;box-sizing:border-box;min-height:140px;resize:none;overflow:hidden;border:1px solid #e7e5e4;border-radius:6px;background:#fafaf9;
+  padding:8px 10px;font:13px/1.75 ui-monospace,"D2Coding",Menlo,Consolas,monospace;color:#1c1917;tab-size:2;white-space:pre-wrap;overflow-wrap:anywhere}
+.rn-src:focus{outline:none;border-color:#a8a29e;background:#fff}
+.rn-src::placeholder{color:#a8a29e}
+.rn-ed.rn-prev{cursor:default}
+.rn-md.both .rn-ed.rn-prev{border-left:1px dashed #d6d3d1;padding-left:12px;min-height:140px}
+.rn-mdtab{display:flex;border-bottom:1px solid #e7e5e4;margin-top:6px}
+.rn-mdtab button{flex:1;border:0;background:none;padding:7px 0;font-size:13px;color:#78716c;border-bottom:2px solid transparent;margin-bottom:-1px}
+.rn-mdtab button.on{color:#1f3a5f;border-bottom-color:#1f3a5f;font-weight:600}
 .rn-ed{outline:none;min-height:220px;line-height:1.65;font-size:15px;color:var(--text-body);padding:4px 2px 40px;word-break:break-word}
 .rn-ed:empty:before{content:attr(data-ph);color:var(--text-label)}
 .rn-ed h1{font-size:24px;font-weight:700;margin:18px 0 6px}.rn-ed h2{font-size:19px;font-weight:700;margin:14px 0 4px}.rn-ed h3{font-size:16px;font-weight:700;margin:12px 0 2px}.rn-ed h4{font-size:14.5px;font-weight:700;margin:10px 0 2px 14px}
@@ -36801,6 +36817,7 @@ const RN_KEYS=[
   ['줄 맨 앞에 쓰고 스페이스바',[['# · ## · ###','제목 1·2·3'],['- 또는 *','글머리 목록'],['1.','번호 목록'],['[ ]','할 일 목록'],['>','인용'],['>>','접기(토글)'],['!','강조 상자'],['--- 후 Enter','구분선'],['/','블록 메뉴'],['@','다른 일정·날짜 연결']]],
   ['줄 중간에 쓰기',[['**글**','굵게'],['*글*','기울임'],['`글`','코드'],['~~글~~','취소선'],['[글](https://주소)','링크']]],
   ['단축키',[['Ctrl+B · I · U','굵게 · 기울임 · 밑줄'],['Ctrl+Shift+X','취소선'],['Ctrl+E','코드'],['Ctrl+K','링크'],['Ctrl+Alt+1 · 2 · 3','제목 1·2·3'],['Ctrl+Alt+0','본문'],['Ctrl+Shift+8','글머리 목록'],['Ctrl+Shift+7','번호 목록'],['Ctrl+Shift+9','할 일 목록'],['Ctrl+Shift+.','인용'],['Tab · Shift+Tab','목록 들여쓰기 · 내어쓰기'],['Ctrl+/','이 안내']]],
+  ['MD 원문 모드 (도구줄 맨 앞 「보기 · MD 원문 · 나란히」)',[['MD 원문','마크다운 글자 그대로 쓰기 — 폰은 「MD」 → 쓰기/미리보기 탭'],['나란히','왼쪽 원문 · 오른쪽 미리보기'],['Enter','목록·할 일·인용 이어 쓰기 (빈 항목에서 한 번 더 → 끝)'],['Tab · Shift+Tab','들여쓰기 · 내어쓰기 (2칸 = 한 단계)'],['| 가 | 나 |','표 — 둘째 줄이 |---|---| 이면 첫 줄은 제목 칸'],['```','코드 묶음 (앞뒤 줄에)'],['〔🔒3 설명〕','MD로 못 쓰는 꾸밈(글자색·@언급·칸 합친 표·강조 상자 등) — 그대로 두면 지켜지고, 지우면 사라짐']]],
   ['마크다운 파일',[['📥 문서','.md 등 파일을 글상자로'],['📤 내보내기','.md 등으로 저장'],['붙여넣기','마크다운 글을 붙이면 서식이 살아남']]]];
 function KeyGuide({onClose}){
   React.useEffect(()=>{const k=e=>{if(e.key==='Escape'){e.preventDefault();onClose();}};window.addEventListener('keydown',k,true);return()=>window.removeEventListener('keydown',k,true);},[]);
@@ -37003,6 +37020,108 @@ function sheetSumRow(tbl){const g=cellsOf(tbl);if(!g.length)return;const n=g.len
   g[0].forEach((_,c)=>{const td=document.createElement('td');const has=g.slice(1).some(r=>r[c]&&numOf(cellText(r[c]))!==null);
     if(c===0&&!has){td.innerHTML='<b>합계</b>';}else if(has){const f='=SUM('+L(c)+'2:'+L(c)+n+')';td.setAttribute('data-f',f);}else td.innerHTML='<br>';tr.appendChild(td);});
   tbl.tBodies[0]?tbl.tBodies[0].appendChild(tr):tbl.appendChild(tr);sheetCalc(tbl);}
+/* ── MD 원문 모드(v2.41, hong) — 글상자 HTML ⇄ 마크다운 원문 ──────────────────
+   마크다운으로 못 쓰는 꾸밈(글자색·형광펜·밑줄·@언급·칸 합친 표·수식 표·너비 정한 표·토글·강조 상자·크기 정한 그림·가운데 정렬)은
+   원문에 〔🔒번호 설명〕 꼬리표로 남기고 원래 모양을 그대로 지킨다. 꼬리표를 지우면 그 꾸밈만 사라진다.
+   저장은 지금처럼 HTML — 원문은 MD 모드를 열 때마다 새로 만든다 */
+const MD_LOCK=/〔🔒(\d+)[^〕]*〕/g;
+const MD_BLOCK_HTML=/^<(p|div|h[1-6]|table|details|blockquote|ul|ol|pre|hr)\b/i;
+const MD_LINE_START=/^(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||```|-{3,}\s*$|\*{3,}\s*$)/;
+function htmlToSrc(html,locks){
+  const d=document.createElement('div');d.innerHTML=html||'';const out=[];
+  const lock=(h,label)=>{locks.push(h);const l=String(label||'').replace(/[〔〕\s]+/g,' ').trim();return '〔🔒'+locks.length+(l?' '+(l.length>24?l.slice(0,24)+'…':l):'')+'〕';};
+  const wrapMd=(inner,m)=>{const x=/^(\s*)([\s\S]*?)(\s*)$/.exec(inner);return x[2]?x[1]+m+x[2]+m+x[3]:inner;};
+  const inl=n=>{if(n.nodeType===3)return n.nodeValue.replace(/[ \t\r\n]+/g,' ');if(n.nodeType!==1)return '';const t=n.tagName;
+    if(t==='BR')return '\n';
+    if(t==='IMG'){const p=n.getAttribute('data-pms');return p&&!n.getAttribute('data-w')?'![](pms:'+p+')':lock(n.outerHTML,'그림');}
+    if(n.getAttribute('style')||/^(U|MARK|SUB|SUP|SPAN|FONT)$/.test(t)||(t==='A'&&!n.getAttribute('href')))return lock(n.outerHTML,t==='A'&&!/^@/.test(n.textContent)?'@'+n.textContent:n.textContent);
+    const inner=[...n.childNodes].map(inl).join('');
+    if(/^(B|STRONG)$/.test(t))return wrapMd(inner,'**');
+    if(/^(I|EM)$/.test(t))return wrapMd(inner,'*');
+    if(/^(S|STRIKE|DEL)$/.test(t))return wrapMd(inner,'~~');
+    if(t==='CODE')return n.textContent?'`'+n.textContent+'`':'';
+    if(t==='A')return inner.trim()?'['+inner.trim()+']('+n.getAttribute('href')+')':'';
+    return inner;};
+  const lines=n=>inl(n).split('\n').map(l=>l.trim());
+  const blk=(n,depth)=>{
+    if(n.nodeType===3){const t=n.nodeValue.trim();if(t)out.push(t,'');return;}if(n.nodeType!==1)return;const t=n.tagName;
+    if(n.getAttribute('style')&&/^(P|DIV|H1|H2|H3|BLOCKQUOTE)$/.test(t)){out.push(lock(n.outerHTML,n.textContent),'');return;}
+    if(/^H[1-6]$/.test(t)){out.push('#'.repeat(Math.min(3,+t[1]))+' '+inl(n).replace(/\n/g,' ').trim(),'');return;}
+    if(t==='HR'){out.push('---','');return;}
+    if(t==='PRE'){out.push('```',n.textContent.replace(/\n$/,''),'```','');return;}
+    if(t==='DETAILS'||(t==='DIV'&&n.hasAttribute('data-co'))){const sm=n.querySelector('summary');out.push(lock(n.outerHTML,(t==='DETAILS'?'▸ ':n.getAttribute('data-co')+' ')+(sm?sm.textContent:n.textContent)),'');return;}
+    if(t==='TABLE'){const rows=[...n.rows];if(!rows.length)return;const cells=[...n.querySelectorAll('td,th')];
+      const fancy=n.getAttribute('style')||n.querySelector('table')||cells.some(c=>c.hasAttribute('colspan')||c.hasAttribute('rowspan')||c.hasAttribute('data-f')||c.getAttribute('style')||
+        c.querySelector('p,div,ul,ol,img,h1,h2,h3,blockquote,pre,hr')||(c.querySelector('br')&&c.textContent.trim()&&/\S\s*<br>\s*\S/.test(c.innerHTML)));
+      const w=Math.max(...rows.map(r=>r.cells.length));
+      if(fancy){out.push(lock(n.outerHTML,'표 '+rows.length+'×'+w),'');return;}
+      const cell=c=>inl(c).replace(/\n/g,' ').replace(/\|/g,'\\|').trim();
+      const head=[...rows[0].cells].every(c=>c.tagName==='TH');
+      rows.forEach((r,k)=>{const cs=[...r.cells].map(cell);while(cs.length<w)cs.push('');out.push('| '+cs.join(' | ')+' |');if(k===0&&head)out.push('|'+cs.map(()=>'---').join('|')+'|');});
+      out.push('');return;}
+    if(t==='UL'||t==='OL'){let k=1;[...n.children].forEach(li=>{
+        const subs=[...li.children].filter(c=>/^(UL|OL)$/.test(c.tagName));
+        const txt=[...li.childNodes].filter(c=>!subs.includes(c)).map(inl).join('').replace(/\s*\n\s*/g,' ').trim();
+        const st=li.getAttribute('data-checked');
+        out.push('  '.repeat(depth)+(t==='OL'?(k++)+'. ':'- ')+(st!=null?(st==='true'?'[x] ':'[ ] '):'')+txt);
+        subs.forEach(s=>blk(s,depth+1));});
+      if(depth===0)out.push('');return;}
+    if(t==='BLOCKQUOTE'){if(n.querySelector('p,div,ul,ol,table,h1,h2,h3,pre,blockquote')){out.push(lock(n.outerHTML,n.textContent),'');return;}
+      lines(n).forEach(l=>out.push('> '+l));out.push('');return;}
+    if(t==='IMG'){out.push(inl(n),'');return;}
+    if(n.querySelector('table,ul,ol,h1,h2,h3,h4,p,div,blockquote,pre,hr,details')){[...n.childNodes].forEach(c=>blk(c,depth));return;}
+    const ls=lines(n);if(!ls.some(l=>l))return;
+    ls.forEach(l=>out.push(MD_LINE_START.test(l)?'\\'+l:l));out.push('');};
+  [...d.childNodes].forEach(c=>blk(c,0));
+  return out.join('\n').replace(/\n{3,}/g,'\n\n').trim();}
+function srcToHtml(src,locks){
+  const L=String(src||'').replace(/\r/g,'').split('\n');const out=[];let i=0;
+  const lk=n=>(locks&&locks[n-1])||'';
+  const blockLock=l=>{const m=/^\s*〔🔒(\d+)[^〕]*〕\s*$/.exec(l);return m&&MD_BLOCK_HTML.test(lk(+m[1]))?lk(+m[1]):null;};
+  const inl=s=>{const keep=[],codes=[];
+    s=s.replace(MD_LOCK,(_,n)=>{keep.push(lk(+n));return '\u0001'+(keep.length-1)+'\u0001';});
+    s=s.replace(/`([^`]+)`/g,(_,c)=>{codes.push(c);return '\u0002'+(codes.length-1)+'\u0002';});
+    s=escH(s)
+      .replace(/!\[[^\]]*\]\(pms:([^)\s]+)\)/g,'<img data-pms="$1">')
+      .replace(/\[([^\]]+)\]\(((?:https?:|mailto:)[^)\s]+)\)/g,'<a href="$2">$1</a>')
+      .replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g,'<b>$1</b>')
+      .replace(/(^|[^*\w\\])\*(?=[^\s*])([^*]*?[^\s*\\])?\*(?!\*)/g,(m,a,b,_o,str)=>b===undefined?m:a+'<i>'+b+'</i>')
+      .replace(/~~(?=\S)([\s\S]*?\S)~~/g,'<s>$1</s>')
+      .replace(/\\([\\`*_~\[\]#|>+.-])/g,'$1');
+    return s.replace(/\u0002(\d+)\u0002/g,(_,k)=>'<code>'+escH(codes[k])+'</code>').replace(/\u0001(\d+)\u0001/g,(_,k)=>keep[k]);};
+  const isRow=l=>/^\s*\|.*\|\s*$/.test(l);
+  const isSep=l=>/^\s*\|[\s:|-]+\|\s*$/.test(l)&&/-/.test(l);
+  const splitRow=l=>l.trim().slice(1,-1).split(/(?<!\\)\|/).map(c=>c.trim().replace(/\\\|/g,'|'));
+  const listRe=/^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+  const isHr=l=>/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(l);
+  const starts=l=>/^(#{1,6}\s|\s*>|\s*```)/.test(l)||listRe.test(l)||isRow(l)||isHr(l)||!!blockLock(l);
+  const CHK=/^\[([ xX])\](?:\s+|$)(.*)$/;
+  const buildList=items=>{let k=0;
+    const lvl=ind=>{const f=items[k];const ord=f.ord,chk=!ord&&CHK.test(f.txt);
+      let h='<'+(ord?'ol':'ul')+(chk?' data-check="1"':'')+'>';
+      while(k<items.length&&items[k].ind>=ind){const it=items[k];
+        if(it.ind===ind&&(it.ord!==ord||(!ord&&CHK.test(it.txt))!==chk))break;
+        k++;let txt=it.txt,attr='';
+        if(chk){const c=CHK.exec(txt);attr=' data-checked="'+(c[1]!==' ')+'"';txt=c[2];}
+        let sub='';while(k<items.length&&items[k].ind>ind)sub+=lvl(items[k].ind);
+        h+='<li'+attr+'>'+(inl(txt)||(sub?'':'<br>'))+sub+'</li>';}
+      return h+'</'+(ord?'ol':'ul')+'>';};
+    let h='';while(k<items.length)h+=lvl(items[k].ind);return h;};
+  while(i<L.length){const l=L[i];let m,b;
+    if(!l.trim()){i++;continue;}
+    if((b=blockLock(l))){out.push(b);i++;continue;}
+    if(/^\s*```/.test(l)){const c=[];i++;while(i<L.length&&!/^\s*```/.test(L[i]))c.push(L[i++]);i++;out.push('<pre>'+escH(c.join('\n'))+'</pre>');continue;}
+    if((m=/^(#{1,6})\s+(.*)$/.exec(l))){const n=Math.min(3,m[1].length);out.push('<h'+n+'>'+(inl(m[2])||'<br>')+'</h'+n+'>');i++;continue;}
+    if(isHr(l)){out.push('<hr>');i++;continue;}
+    if(isRow(l)){const rows=[];let head=false;
+      while(i<L.length&&isRow(L[i])){if(isSep(L[i])){if(rows.length===1)head=true;i++;continue;}rows.push(splitRow(L[i]));i++;}
+      if(!rows.length)continue;const w=Math.max(...rows.map(r=>r.length));
+      out.push('<table><tbody>'+rows.map((r,k)=>{const tg=head&&k===0?'th':'td';return '<tr>'+Array.from({length:w},(_,j)=>'<'+tg+'>'+(r[j]?inl(r[j]):'<br>')+'</'+tg+'>').join('')+'</tr>';}).join('')+'</tbody></table>');continue;}
+    if(/^\s*>/.test(l)){const q=[];while(i<L.length&&/^\s*>/.test(L[i])){q.push(inl(L[i].replace(/^\s*>\s?/,'')));i++;}out.push('<blockquote>'+q.join('<br>')+'</blockquote>');continue;}
+    if(listRe.test(l)){const items=[];while(i<L.length&&(m=listRe.exec(L[i]))){items.push({ind:m[1].replace(/\t/g,'  ').length,ord:/\d/.test(m[2]),txt:m[3]});i++;}out.push(buildList(items));continue;}
+    const p=[];while(i<L.length&&L[i].trim()&&(!p.length||!starts(L[i]))){p.push(inl(L[i].trim().replace(/^\\(?=[#>|*+\d`-])/,'')));i++;}
+    out.push('<p>'+p.join('<br>')+'</p>');}
+  return out.join('');}
 function RichNote({docKey,html,onChange,placeholder,tbHost,active,compact}){
   const ed=React.useRef(null);const fileIn=React.useRef(null);const t=React.useRef(null);
   const [slash,setSlash]=React.useState(null);   /* {x,y,q,i} */
@@ -37015,7 +37134,8 @@ function RichNote({docKey,html,onChange,placeholder,tbHost,active,compact}){
   React.useEffect(()=>attachSheet(ed.current,()=>flushRef.current()),[]);
   /* 다른 일정으로 바뀔 때만 내용을 갈아 끼운다 — 타자 중에는 건드리지 않아 커서가 튀지 않는다 */
   React.useEffect(()=>{const el=ed.current;if(!el)return;el.innerHTML=rnClean(html||'',false)||'<p><br></p>';rnMarkKinds(el);loadImgs();setImgSel(null);el.querySelectorAll('table').forEach(t=>sheetCalc(t));
-    try{document.execCommand('defaultParagraphSeparator',false,'p');}catch(_){}},[docKey]);
+    try{document.execCommand('defaultParagraphSeparator',false,'p');}catch(_){}
+    clearTimeout(mdT.current);mdT.current=null;if(mdRef.current!=='view')toSrc();},[docKey]);
   const loadImgs=()=>{const el=ed.current;if(!el)return;
     el.querySelectorAll('a[data-ev]').forEach(a=>{const x=mentionOf(a.getAttribute('data-ev'));if(x)a.textContent=x;});
     el.querySelectorAll('img[data-pms]:not([src])').forEach(async im=>{
@@ -37023,6 +37143,63 @@ function RichNote({docKey,html,onChange,placeholder,tbHost,active,compact}){
   const emit=()=>{clearTimeout(t.current);t.current=setTimeout(()=>{const el=ed.current;if(!el)return;rnMarkKinds(el);const h=rnSerialize(el);onChange(h,htmlToText(h));},250);};
   const flushNow=()=>{clearTimeout(t.current);const el=ed.current;if(!el)return;rnMarkKinds(el);const h=rnSerialize(el);onChange(h,htmlToText(h));};
   flushRef.current=flushNow;
+  /* ── MD 원문 모드(v2.41) — 「보기 · MD 원문 · 나란히」. 원문을 고치면 0.3초 뒤 글상자 HTML 로 바꿔 저장하고, 나란히·미리보기에서는 편집기 자체를 읽기 전용 미리보기로 쓴다 ── */
+  const mobileMd=useMobile();
+  const [md,setMdS]=React.useState(()=>{try{const v=localStorage.getItem('cal.mdMode');return v==='src'||v==='both'?v:'view';}catch(_){return 'view';}});
+  const mdRef=React.useRef(md);mdRef.current=md;
+  const [mdTab,setMdTab]=React.useState('src');
+  const [src,setSrc]=React.useState('');const srcRef=React.useRef('');const locks=React.useRef([]);const ta=React.useRef(null);const mdT=React.useRef(null);
+  const ocRef=React.useRef(onChange);ocRef.current=onChange;
+  const toSrc=()=>{const el=ed.current;if(!el)return;locks.current=[];const v=htmlToSrc(rnSerialize(el),locks.current);srcRef.current=v;setSrc(v);};
+  const applySrc=v=>{clearTimeout(mdT.current);mdT.current=null;const h=rnClean(srcToHtml(v,locks.current),false);const el=ed.current;
+    if(el){el.innerHTML=h||'<p><br></p>';rnMarkKinds(el);loadImgs();el.querySelectorAll('table').forEach(t=>sheetCalc(t));}
+    ocRef.current(h,htmlToText(h));};
+  const onSrc=v=>{srcRef.current=v;setSrc(v);clearTimeout(mdT.current);mdT.current=setTimeout(()=>applySrc(srcRef.current),300);};
+  React.useEffect(()=>()=>{if(mdT.current)applySrc(srcRef.current);},[]);
+  const setMd=m=>{if(m===mdRef.current)return;
+    if(mdRef.current==='view'){flushNow();toSrc();setMdTab('src');}else if(m==='view'&&mdT.current)applySrc(srcRef.current);
+    try{localStorage.setItem('cal.mdMode',m);}catch(_){}
+    mdRef.current=m;setMdS(m);if(m!=='view')setTimeout(()=>ta.current&&ta.current.focus(),0);};
+  React.useLayoutEffect(()=>{const t=ta.current;if(!t)return;t.style.height='auto';t.style.height=(t.scrollHeight+2)+'px';},[src,md,mdTab]);
+  /* 원문 고치기 — insertText 로 넣어 되돌리기(Ctrl+Z)가 살아 있게 한다 */
+  const taPut=(a,b,text,s1,s2)=>{const t=ta.current;if(!t)return;t.focus();t.setSelectionRange(a,b);let ok=false;
+    try{ok=document.execCommand('insertText',false,text);}catch(_){}
+    if(!ok){t.setRangeText(text,a,b,'end');onSrc(t.value);}
+    t.setSelectionRange(s1,s2==null?s1:s2);};
+  const wrapSel=(m1,m2=m1)=>{const t=ta.current;if(!t)return;const v=t.value,a=t.selectionStart,b=t.selectionEnd,sel=v.slice(a,b);
+    if(sel.length>=m1.length+m2.length&&sel.startsWith(m1)&&sel.endsWith(m2))return taPut(a,b,sel.slice(m1.length,sel.length-m2.length),a,b-m1.length-m2.length);
+    if(v.slice(a-m1.length,a)===m1&&v.slice(b,b+m2.length)===m2&&!(m1==='*'&&v[a-2]==='*'))return taPut(a-m1.length,b+m2.length,sel,a-m1.length,b-m1.length);
+    taPut(a,b,m1+sel+m2,a+m1.length,b+m1.length);};
+  const lineRange=()=>{const t=ta.current,v=t.value;const a=v.lastIndexOf('\n',t.selectionStart-1)+1;
+    let e=t.selectionEnd;if(e>t.selectionStart&&v[e-1]==='\n')e--;let b=v.indexOf('\n',e);if(b<0)b=v.length;return [a,b];};
+  const MD_PFX=/^(\s*)(#{1,6}\s+|[-*+]\s+\[[ xX]\]\s+|[-*+]\s+|\d+[.)]\s+|>\s?)?/;
+  const kindOf=x=>!x?'':/^#/.test(x)?'h'+Math.min(3,x.trim().length):/\[[ xX]\]/.test(x)?'check':/^[-*+]/.test(x)?'ul':/^\d/.test(x)?'ol':'quote';
+  const setPrefix=k=>{const t=ta.current;if(!t)return;const [a,b]=lineRange();const ls=t.value.slice(a,b).split('\n');
+    const off=k==='p'||ls.every(l=>kindOf(MD_PFX.exec(l)[2])===k);let n=0;
+    const out=ls.map(l=>{const m=MD_PFX.exec(l);const body=l.slice(m[0].length);if(off)return m[1]+body;
+      const p={h1:'# ',h2:'## ',h3:'### ',ul:'- ',ol:(++n)+'. ',check:'- [ ] ',quote:'> '}[k];return (k[0]==='h'?'':m[1])+p+body;}).join('\n');
+    taPut(a,b,out,a+out.length);};
+  const indent=back=>{const t=ta.current;if(!t)return;const [a,b]=lineRange();const ls=t.value.slice(a,b).split('\n');const s0=t.selectionStart,e0=t.selectionEnd;
+    const out=ls.map(l=>back?l.replace(/^( {1,2}|\t)/,''):'  '+l).join('\n');
+    if(ls.length===1&&s0===e0){const d=out.length-(b-a);taPut(a,b,out,Math.max(a,s0+d));}else taPut(a,b,out,a,a+out.length);};
+  const mdBlock=(text,back=0)=>{const t=ta.current;if(!t)return;const [a,b]=lineRange();const v=t.value;
+    if(!v.slice(a,b).trim()){const ins=text+'\n';taPut(a,b,ins,a+text.length-back);}
+    else{const ins='\n\n'+text+'\n';taPut(b,b,ins,b+2+text.length-back);}};
+  const mdLink=()=>{const t=ta.current;if(!t)return;const a=t.selectionStart,b=t.selectionEnd;const sel=t.value.slice(a,b)||'링크 글';const u=/^https?:\/\//.test(sel)?sel:'https://';
+    const text='['+sel+']('+u+')';const at=a+sel.length+3;taPut(a,b,text,at,at+u.length);};
+  const mdKey=e=>{const c=e.ctrlKey||e.metaKey;
+    if(c&&(e.key==='/'||e.code==='Slash')){e.preventDefault();setKeys(true);return;}
+    if(c&&e.altKey&&/^Digit[0-3]$/.test(e.code)){e.preventDefault();setPrefix(['p','h1','h2','h3'][+e.code.slice(5)]);return;}
+    if(c&&e.shiftKey&&!e.altKey){const m={Digit8:'ul',Digit7:'ol',Digit9:'check',Period:'quote'}[e.code];if(m){e.preventDefault();setPrefix(m);return;}
+      if(e.code==='KeyX'){e.preventDefault();wrapSel('~~');return;}}
+    if(c&&!e.shiftKey&&!e.altKey){const m={KeyB:'**',KeyI:'*',KeyE:'`'}[e.code];if(m){e.preventDefault();wrapSel(m);return;}if(e.code==='KeyK'){e.preventDefault();mdLink();return;}}
+    if(e.key==='Tab'&&!c&&!e.altKey){e.preventDefault();indent(e.shiftKey);return;}
+    if(e.key==='Enter'&&!e.shiftKey&&!c&&!e.altKey&&!e.nativeEvent.isComposing&&e.keyCode!==229){const t=ta.current;const s0=t.selectionStart;if(s0!==t.selectionEnd)return;
+      const a=t.value.lastIndexOf('\n',s0-1)+1;const line=t.value.slice(a,s0);const m=/^(\s*)([-*+]\s+\[[ xX]\]\s+|[-*+]\s+|\d+[.)]\s+|>\s?)/.exec(line);if(!m)return;
+      e.preventDefault();
+      if(!line.slice(m[0].length).trim()&&!t.value.slice(s0).split('\n')[0].trim())return taPut(a,s0,'',a);   /* 빈 항목에서 Enter — 목록 끝 */
+      let p=m[2].replace(/\[[xX]\]/,'[ ]');const nm=/^(\d+)([.)])/.exec(p);if(nm)p=(+nm[1]+1)+nm[2]+' ';
+      taPut(s0,s0,'\n'+m[1]+p,s0+1+m[1].length+p.length);}};
   const exec=(cmd,val)=>{ed.current.focus();restore();try{document.execCommand('styleWithCSS',false,/Color$/.test(cmd));}catch(_){}document.execCommand(cmd,false,val);flushNow();};
   const remember=()=>{const s=window.getSelection();if(s&&s.rangeCount&&ed.current.contains(s.anchorNode))saveSel.current=s.getRangeAt(0).cloneRange();};
   const restore=()=>{const r=saveSel.current;if(!r)return;const s=window.getSelection();if(s.rangeCount&&ed.current.contains(s.anchorNode))return;s.removeAllRanges();s.addRange(r);};
@@ -37210,7 +37387,25 @@ function RichNote({docKey,html,onChange,placeholder,tbHost,active,compact}){
     const s=window.getSelection();if(saveSel.current&&saveSel.current.collapsed){insertHTML('<a href="'+escH(u)+'">'+escH(u)+'</a>');}else exec('createLink',u);};
   const B=({t,title,on,children,w})=><button type="button" title={title} onMouseDown={x=>x.preventDefault()} onClick={on} style={w?{fontWeight:w}:undefined}>{children||t}</button>;
   const fmt=v=>{if(v)block(v);};
-  const tools=<div className="rn-tb" onMouseDown={remember}>
+  const seg=<span className="rn-seg" onMouseDown={x=>x.preventDefault()}>
+      {(mobileMd?[['view','보기','보이는 그대로 편집'],['src','MD','마크다운 원문으로 쓰기 · 쓰기/미리보기 탭']]:[['view','보기','보이는 그대로 편집'],['src','MD 원문','마크다운 원문으로 쓰기'],['both','나란히','왼쪽 원문 · 오른쪽 미리보기']]).map(([v,l,tt])=>
+        <button key={v} type="button" title={tt} className={(mobileMd?(v==='view')===(md==='view'):md===v)?'on':''} onClick={()=>setMd(mobileMd&&v==='src'&&md!=='view'?md:v)}>{l}</button>)}</span>;
+  const MB=({title,on,children})=><button type="button" title={title} onMouseDown={x=>x.preventDefault()} onClick={on}>{children}</button>;
+  const mdTools=<div className="rn-tb rn-tb-md">{seg}<span className="sep"/>
+      <MB title="제목 1 — 줄 앞 # (Ctrl+Alt+1)" on={()=>setPrefix('h1')}>H1</MB><MB title="제목 2 — 줄 앞 ## (Ctrl+Alt+2)" on={()=>setPrefix('h2')}>H2</MB><MB title="제목 3 — 줄 앞 ### (Ctrl+Alt+3)" on={()=>setPrefix('h3')}>H3</MB>
+      <span className="sep"/>
+      <MB title="굵게 — **글** (Ctrl+B)" on={()=>wrapSel('**')}><b>B</b></MB><MB title="기울임 — *글* (Ctrl+I)" on={()=>wrapSel('*')}><i>I</i></MB>
+      <MB title="취소선 — ~~글~~ (Ctrl+Shift+X)" on={()=>wrapSel('~~')}><s>S</s></MB><MB title="코드 — `글` (Ctrl+E)" on={()=>wrapSel('`')}>`</MB><MB title="링크 — [글](주소) (Ctrl+K)" on={mdLink}>🔗</MB>
+      <span className="sep"/>
+      <MB title="글머리 목록 — 줄 앞 - (Ctrl+Shift+8)" on={()=>setPrefix('ul')}>•≡</MB><MB title="번호 목록 — 줄 앞 1. (Ctrl+Shift+7)" on={()=>setPrefix('ol')}>1.</MB>
+      <MB title="할 일 — 줄 앞 - [ ] (Ctrl+Shift+9)" on={()=>setPrefix('check')}>☑</MB><MB title="인용 — 줄 앞 > (Ctrl+Shift+.)" on={()=>setPrefix('quote')}>❝</MB>
+      <MB title="들여쓰기 (Tab)" on={()=>indent(false)}>⇥</MB><MB title="내어쓰기 (Shift+Tab)" on={()=>indent(true)}>⇤</MB>
+      <span className="sep"/>
+      <MB title="표 넣기 — | 칸 | 칸 |" on={()=>mdBlock('| 항목 | 내용 |\n|---|---|\n|  |  |',5)}>▦ 표</MB><MB title="구분선 ---" on={()=>mdBlock('---')}>―</MB>
+      <MB title="코드 묶음 ```" on={()=>mdBlock('```\n\n```',4)}>{'</>'}</MB>
+      <span className="sep"/><MB title="키 안내 — MD 쓰는 법·단축키 (Ctrl+/)" on={()=>setKeys(true)}>⌨</MB>
+    </div>;
+  const tools=md!=='view'?mdTools:<div className="rn-tb" onMouseDown={remember}>{seg}<span className="sep"/>
       <select value="" onChange={x=>{fmt(x.target.value);x.target.value='';}} title="문단 형식" style={{border:'none',background:'transparent',fontSize:13,fontFamily:'inherit',padding:'3px 2px',cursor:'pointer'}}>
         <option value="">형식</option><option value="p">본문</option><option value="h1">제목 1</option><option value="h2">제목 2</option><option value="h3">제목 3</option><option value="quote">인용</option><option value="code">코드</option></select>
       <span className="sep"/>
@@ -37252,8 +37447,18 @@ function RichNote({docKey,html,onChange,placeholder,tbHost,active,compact}){
   /* 보드 안의 글상자 — 도구줄은 보드 위쪽 자리(tbHost)에, 지금 쓰는 글상자 것만 띄운다 */
   return <div style={{position:'relative'}}>
     {tbHost!==undefined?(active&&tbHost?ReactDOM.createPortal(<div style={{position:'relative'}}>{tools}{palette}</div>,tbHost):null):<>{tools}{palette}</>}
-    <div ref={ed} className={'rn-ed'+(compact?' rn-cmp':'')} contentEditable suppressContentEditableWarning data-ph={placeholder||'내용을 입력하세요 · 「/」로 블록 넣기 · 이미지는 붙여넣기'}
-      onInput={x=>{const d=x.nativeEvent&&x.nativeEvent.data;if(d&&/[*`~)]$/.test(d)&&!x.nativeEvent.isComposing&&rnInlineMd(ed.current)){}emit();watch();}} onPaste={onPaste} onDrop={onDrop} onKeyDown={onKeyDown} onKeyUp={onKeyUp} onClick={onClick} onBlur={()=>{remember();flushNow();}} style={compact?undefined:{marginTop:8}}/>
+    <div className="rn-mdw">
+    {md!=='view'&&mobileMd&&<div className="rn-mdtab">{[['src','쓰기'],['prev','미리보기']].map(([v,l])=><button key={v} type="button" className={mdTab===v?'on':''}
+      onClick={()=>{if(v==='prev'&&mdT.current)applySrc(srcRef.current);setMdTab(v);}}>{l}</button>)}</div>}
+    <div className={'rn-md'+(md==='both'&&!mobileMd?' both':'')}>
+    {md!=='view'&&(!mobileMd||mdTab==='src')&&<textarea ref={ta} className="rn-src" value={src} spellCheck={false} style={compact?undefined:{marginTop:8}}
+      placeholder={'마크다운으로 쓰세요 · # 제목 · - 목록 · - [ ] 할 일 · **굵게** · | 표 |  — Ctrl+/ 키 안내'}
+      onChange={x=>onSrc(x.target.value)} onKeyDown={mdKey} onBlur={()=>{if(mdT.current)applySrc(srcRef.current);}}/>}
+    <div ref={ed} className={'rn-ed'+(compact?' rn-cmp':'')+(md!=='view'?' rn-prev':'')} contentEditable={md==='view'} suppressContentEditableWarning data-ph={md!=='view'?'미리보기 — 왼쪽(쓰기)에 쓴 내용이 여기 보입니다':(placeholder||'내용을 입력하세요 · 「/」로 블록 넣기 · 이미지는 붙여넣기')}
+      onInput={x=>{const d=x.nativeEvent&&x.nativeEvent.data;if(d&&/[*`~)]$/.test(d)&&!x.nativeEvent.isComposing&&rnInlineMd(ed.current)){}emit();watch();}} onPaste={onPaste} onDrop={onDrop} onKeyDown={onKeyDown} onKeyUp={onKeyUp}
+      onClick={x=>{if(mdRef.current!=='view'){const mn=x.target.closest&&x.target.closest('a[data-ev],a[data-date]');if(mn)onClick(x);else if(x.target.closest&&x.target.closest('a[href]'))return;else x.preventDefault();return;}onClick(x);}}
+      onBlur={()=>{if(mdRef.current!=='view')return;remember();flushNow();}} style={{...(compact?{}:{marginTop:8}),...(md==='view'||(mobileMd?mdTab==='prev':md==='both')?{}:{display:'none'})}}/>
+    </div></div>
     {slash&&slashItems.length>0&&<div className="rn-pop" style={{left:slash.x,top:slash.y+8,minWidth:180,maxHeight:280,overflowY:'auto'}} onMouseDown={x=>x.preventDefault()}>
       {slashItems.map((b,i)=><button key={b.k} type="button" className={i===slash.i?'on':''} onClick={()=>runSlash(b)}>{b.label}{b.sub&&<span className="rn-sub">{b.sub}</span>}</button>)}</div>}
     <input ref={fileIn} type="file" accept="image/*" multiple style={{display:'none'}} onChange={x=>{addImages(x.target.files);x.target.value='';}}/>
@@ -40978,7 +41183,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.40';
+const APP_VERSION='v2.41';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
