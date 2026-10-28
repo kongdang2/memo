@@ -37027,13 +37027,31 @@ function sheetSumRow(tbl){const g=cellsOf(tbl);if(!g.length)return;const n=g.len
 const MD_LOCK=/〔🔒(\d+)[^〕]*〕/g;
 const MD_BLOCK_HTML=/^<(p|div|h[1-6]|table|details|blockquote|ul|ol|pre|hr)\b/i;
 const MD_LINE_START=/^(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||```|-{3,}\s*$|\*{3,}\s*$)/;
+/* 붙여 넣은 메일·문서의 「검정 글자색」 같은 티 안 나는 꾸밈은 걷어 내고, 굵게·기울임·취소선 스타일은 마크다운으로 옮길 수 있게 태그로 바꾼다(v2.41.1) */
+const mdDark=c=>{c=String(c||'').replace(/\s/g,'').toLowerCase();if(c==='black'||c==='inherit'||c==='currentcolor')return true;let m=/^rgba?\((\d+),(\d+),(\d+)/.exec(c),v;
+  if(m)v=[+m[1],+m[2],+m[3]];else if((m=/^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(c))){const h=m[1].length===3?m[1].replace(/./g,'$&$&'):m[1];v=[0,2,4].map(i=>parseInt(h.slice(i,i+2),16));}
+  return !!v&&Math.max(...v)<=70&&Math.max(...v)-Math.min(...v)<=25;};
+function mdPlain(root){
+  [...root.querySelectorAll('[style]')].forEach(el=>{const keep=[];let b=0,i=0,st=0;
+    el.getAttribute('style').split(';').forEach(x=>{const k=x.slice(0,x.indexOf(':')).trim().toLowerCase(),v=x.slice(x.indexOf(':')+1).trim();if(!k)return;
+      if(k==='color'&&mdDark(v))return;
+      if(/^background/.test(k)&&/^(transparent|white|#fff(fff)?|rgba?\(255, ?255, ?255|rgba\(0, ?0, ?0, ?0\))/i.test(v))return;
+      if(k==='font-weight'){if(/bold|[6-9]00/.test(v))b=1;return;}
+      if(k==='font-style'){if(/italic/.test(v))i=1;return;}
+      if(k==='text-decoration'&&/line-through/.test(v)&&!/underline/.test(v)){st=1;return;}
+      if(k==='text-align'&&/left|start|justify/.test(v))return;
+      keep.push(k+':'+v);});
+    if(keep.length)el.setAttribute('style',keep.join(';'));else el.removeAttribute('style');
+    let inner=el;[[b,'b'],[i,'i'],[st,'s']].forEach(([f,t])=>{if(!f)return;const w=document.createElement(t);while(inner.firstChild)w.appendChild(inner.firstChild);inner.appendChild(w);inner=w;});});
+  [...root.querySelectorAll('span:not([style]),font:not([style])')].forEach(el=>{const f=document.createDocumentFragment();while(el.firstChild)f.appendChild(el.firstChild);el.replaceWith(f);});}
 function htmlToSrc(html,locks){
-  const d=document.createElement('div');d.innerHTML=html||'';const out=[];
+  const d=document.createElement('div');d.innerHTML=html||'';mdPlain(d);const out=[];
   const lock=(h,label)=>{locks.push(h);const l=String(label||'').replace(/[〔〕\s]+/g,' ').trim();return '〔🔒'+locks.length+(l?' '+(l.length>24?l.slice(0,24)+'…':l):'')+'〕';};
   const wrapMd=(inner,m)=>{const x=/^(\s*)([\s\S]*?)(\s*)$/.exec(inner);return x[2]?x[1]+m+x[2]+m+x[3]:inner;};
   const inl=n=>{if(n.nodeType===3)return n.nodeValue.replace(/[ \t\r\n]+/g,' ');if(n.nodeType!==1)return '';const t=n.tagName;
     if(t==='BR')return '\n';
     if(t==='IMG'){const p=n.getAttribute('data-pms');return p&&!n.getAttribute('data-w')?'![](pms:'+p+')':lock(n.outerHTML,'그림');}
+    if(t==='U'&&!n.getAttribute('style')&&!n.querySelector('[style],img,a[data-ev],a[data-date]')){const x=/^(\s*)([\s\S]*?)(\s*)$/.exec([...n.childNodes].map(inl).join(''));return x[2]?x[1]+'<u>'+x[2]+'</u>'+x[3]:x[0];}
     if(n.getAttribute('style')||/^(U|MARK|SUB|SUP|SPAN|FONT)$/.test(t)||(t==='A'&&!n.getAttribute('href')))return lock(n.outerHTML,t==='A'&&!/^@/.test(n.textContent)?'@'+n.textContent:n.textContent);
     const inner=[...n.childNodes].map(inl).join('');
     if(/^(B|STRONG)$/.test(t))return wrapMd(inner,'**');
@@ -37087,6 +37105,7 @@ function srcToHtml(src,locks){
       .replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g,'<b>$1</b>')
       .replace(/(^|[^*\w\\])\*(?=[^\s*])([^*]*?[^\s*\\])?\*(?!\*)/g,(m,a,b,_o,str)=>b===undefined?m:a+'<i>'+b+'</i>')
       .replace(/~~(?=\S)([\s\S]*?\S)~~/g,'<s>$1</s>')
+      .replace(/&lt;u&gt;([\s\S]*?)&lt;\/u&gt;/g,'<u>$1</u>')
       .replace(/\\([\\`*_~\[\]#|>+.-])/g,'$1');
     return s.replace(/\u0002(\d+)\u0002/g,(_,k)=>'<code>'+escH(codes[k])+'</code>').replace(/\u0001(\d+)\u0001/g,(_,k)=>keep[k]);};
   const isRow=l=>/^\s*\|.*\|\s*$/.test(l);
@@ -41183,7 +41202,7 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.41';
+const APP_VERSION='v2.41.1';
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
