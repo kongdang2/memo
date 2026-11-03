@@ -38184,8 +38184,10 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,onPrint,name}){
       <div ref={setTbHost} className="bd-tbh" style={{borderTop:'1px solid var(--border-default)'}}/>
     </div>
     <div ref={wrap} className="bd-wrap bd-simple" style={{marginTop:8}} onPaste={onPaste}
-      onDragOver={e=>e.preventDefault()} onDrop={e=>{const fs=e.dataTransfer&&e.dataTransfer.files;if(fs&&fs.length&&!editing()){e.preventDefault();
-        const md=[...fs].filter(f=>isMdFile(f)||isDocFile(f));if(md.length)openMd(md);addImgs(fs);}}}>
+      onDragOver={e=>e.preventDefault()} onDrop={e=>{const fs=e.dataTransfer&&e.dataTransfer.files;if(!fs||!fs.length)return;
+        /* v2.42.1: 글상자를 고치는 중이어도 .md·문서 파일은 받는다(전에는 두 번째부터 브라우저가 새 탭으로 열었음) */
+        const md=[...fs].filter(f=>isMdFile(f)||isDocFile(f));if(md.length){e.preventDefault();openMd(md);}
+        if(!editing()){e.preventDefault();addImgs(fs);}}}>
       <div key={main.id} data-bd={main.isNew?undefined:main.id} className={'bd-it bs-main'+(main.isNew?'':boxCls(main))} onFocus={()=>setAct(main.id)} style={main.isNew?undefined:boxStyle(main)}>
         <div className="bs-hd"><b>메모</b><span className="sum">{!main.isNew&&isFold(main)?sumOf(main):''}</span>{!main.isNew&&foldBtn(main)}</div>
         {!(isFold(main)&&!main.isNew)&&<div className="bs-bd"><RichNote docKey={main.id+'|'+docKey} html={main.html||''} compact tbHost={tbHost} active={act===main.id}
@@ -38232,10 +38234,11 @@ function MemoBoard({docKey,board,onChange,onTerms,onRec,onPrint,name}){
       <div ref={setTbHost} className="bd-tbh" style={{borderTop:'1px solid var(--border-default)'}}/>
     </div>
     <div ref={wrap} className="bd-wrap" tabIndex={0} onPointerDownCapture={e=>{lastPT.current=e.pointerType;}} onMouseDown={onWrapDown} onKeyDown={onKey} onPaste={onPaste} onCopy={onCopy} onCut={onCopy}
-      onDragOver={e=>e.preventDefault()} onDrop={e=>{const fs=e.dataTransfer&&e.dataTransfer.files;if(fs&&fs.length&&!editing()){e.preventDefault();
+      onDragOver={e=>e.preventDefault()} onDrop={e=>{const fs=e.dataTransfer&&e.dataTransfer.files;if(!fs||!fs.length)return;const ed=editing();
+        const md=[...fs].filter(f=>isMdFile(f)||isDocFile(f));if(!md.length&&ed)return;e.preventDefault();
         const b=wrap.current.getBoundingClientRect();last.current={x:e.clientX-b.left+wrap.current.scrollLeft,y:e.clientY-b.top+wrap.current.scrollTop};
-        const md=[...fs].filter(f=>isMdFile(f)||isDocFile(f));if(md.length)openMd(md);   /* .md 파일도 끌어다 놓으면 글상자로(v2.32.1) */
-        addImgs(fs).finally(()=>{last.current=null;});}}}
+        if(md.length)openMd(md)   /* .md 파일도 끌어다 놓으면 글상자로(v2.32.1) · 고치는 중이어도(v2.42.1) */
+        ;(ed?Promise.resolve():addImgs(fs)).finally(()=>{last.current=null;});}}
       style={{height:H,marginTop:8,outline:'none'}}>
       <div className="bd-pad" style={{position:'relative',width:W||'100%',height:H-2}}/>
       {!shown.length&&<div style={{position:'absolute',left:0,right:0,top:120,textAlign:'center',color:'var(--text-label)',fontSize:13,pointerEvents:'none',lineHeight:1.8}}>
@@ -41206,7 +41209,10 @@ function EventPanel({ev,categories,onClose,onSave,onDelete,toast}){
 Object.assign(window,{CalendarView,calNav,CAL_VIEWS,emptyEvent});
 </script>
 <script type="text/babel">/* 앱 셸: 인증 게이트 → 헤더 · 세션바 · 내비 · 일정 화면 · 토스트. 저장은 컬렉션 단위 디바운스 */
-const APP_VERSION='v2.42';
+const APP_VERSION='v2.42.1';
+/* v2.42.1: 앱의 받는 곳 밖에 파일을 떨어뜨려도 브라우저가 그 파일을 새 탭으로 열지 않게 */
+if(!window.__noFileNav){window.__noFileNav=1;const hasF=e=>e.dataTransfer&&[...(e.dataTransfer.types||[])].includes('Files');
+  window.addEventListener('dragover',e=>{if(hasF(e))e.preventDefault();});window.addEventListener('drop',e=>{if(hasF(e))e.preventDefault();});}
 /* ── 새 버전 확인 ─────────────────────────────────────
    홈 화면 앱에는 새로고침 단추가 없고, GitHub Pages 는 HTML 을 한동안 캐시하라고 알려 준다.
    그래서 앱이 스스로 "이 파일이 바뀌었는지"를 가끔 물어본다.
